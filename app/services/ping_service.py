@@ -437,10 +437,14 @@ def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
                 response_time_ms=probe.result.response_time_ms,
             )
         )
-        # None — WMI не вызывали / не ответил: текущую УЗ не трогаем.
-        # "" — WMI сказал «никто»; строка — DOMAIN\user.
+        # None — WMI не ответил: текущую УЗ не трогаем.
+        # "" — никто не залогинен; иначе DOMAIN\user.
         if probe.logged_on_user is not None:
-            apply_logged_on_user(device, probe.logged_on_user or None)
+            try:
+                with db.session.begin_nested():
+                    apply_logged_on_user(device, probe.logged_on_user or None)
+            except Exception:
+                logger.exception("Не удалось записать УЗ для %s", probe.ip)
         db.session.commit()
     except Exception:
         logger.exception("Не удалось сохранить онлайн-опрос %s", probe.ip)

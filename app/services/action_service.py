@@ -1,19 +1,18 @@
 """Справочник типов действий и лента событий системы.
 
 Типы — таблица action_kinds.
-События пока читаем из script_runs (удалённые запуски) и
-device_account_history (обнаружения УЗ): отдельный event-log не дублируем.
+События читаем из script_runs и device_account_history без отдельного event-log.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
-from app.authz import accessible_sector_ids
+from app.authz import accessible_sector_ids, user_can_see_script_run
 from app.extensions import db
 from app.models import (
     ActionKind,
@@ -23,6 +22,9 @@ from app.models import (
     ScriptRun,
     seed_action_kinds,
 )
+from app.utils import as_utc
+
+_UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -55,14 +57,44 @@ def action_kind_title(kinds: dict[str, ActionKind], code: str) -> str:
     return code
 
 
+def _device_label(device: Device | None) -> str | None:
+    if device is None:
+        return None
+    return device.hostname or device.ip
+
+
+def _actor_label(user) -> str | None:
+    if user is None:
+        return None
+    return user.display_name or user.username
+
+
+def _run_title(run: ScriptRun, kinds: dict[str, ActionKind], code: str) -> str:
+    if run.script is not None and run.script.name:
+        return run.script.name
+    text = " ".join((run.command_text or "").split())
+    if len(text) > 72:
+        text = text[:72] + "…"
+    return text or action_kind_title(kinds, code)
+
+
+def _item_sort_key(item: SystemActionItem):
+    if item.when is None:
+        return _UTC_MIN
+    return as_utc(item.when)
+
+
 def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
-    """Недавние действия: запуски на устройствах + появления УЗ."""
+    """Недавние действия: запуски на устройствах + появления УЗ.
+
+    Из каждого журнала берём limit новейших (для двух источников этого
+    достаточно, чтобы top-N после merge был хронологически точен), затем
+    объединяем. Видимость запусков — как у scripts.run_detail.
+    """
     from flask import url_for
 
     kinds = ensure_action_kinds()
     sector_ids = None if user.is_admin else accessible_sector_ids(user)
-    if sector_ids is not None and not sector_ids:
-        return []
 
     run_stmt = (
         select(ScriptRun)
@@ -74,61 +106,55 @@ def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
         .order_by(ScriptRun.started_at.desc(), ScriptRun.id.desc())
         .limit(limit)
     )
-    if sector_ids is not None:
+    if not user.is_admin:
+        # Автор или устройство в доступном секторе — как user_can_see_script_run.
+        # Orphaned runs (device удалён) видны только автору, не всем.
+        run_filters = [ScriptRun.user_id == user.id]
+        if sector_ids:
+            run_filters.append(Device.sector_id.in_(sector_ids))
         run_stmt = run_stmt.outerjoin(Device, Device.id == ScriptRun.device_id).where(
-            (ScriptRun.device_id.is_(None)) | (Device.sector_id.in_(sector_ids))
+            or_(*run_filters)
         )
 
     items: list[SystemActionItem] = []
     for run in db.session.scalars(run_stmt).all():
+        if not user_can_see_script_run(user, run):
+            continue
         code = run.run_type or ActionKindCode.COMMAND
-        if run.script is not None and run.script.name:
-            title = run.script.name
-        else:
-            text = " ".join((run.command_text or "").split())
-            if len(text) > 72:
-                text = text[:72] + "…"
-            title = text or action_kind_title(kinds, code)
-        device_label = None
-        if run.device is not None:
-            device_label = run.device.hostname or run.device.ip
-        actor = None
-        if run.user is not None:
-            actor = run.user.display_name or run.user.username
         items.append(
             SystemActionItem(
                 kind_code=code,
                 kind_title=action_kind_title(kinds, code),
-                title=title,
+                title=_run_title(run, kinds, code),
                 status=run.status,
                 when=run.started_at,
                 device_id=run.device_id,
-                device_label=device_label,
-                actor=actor,
+                device_label=_device_label(run.device),
+                actor=_actor_label(run.user),
                 url=url_for("scripts.run_detail", run_id=run.id),
             )
         )
 
-    sight_stmt = (
-        select(DeviceAccountHistory)
-        .options(
-            selectinload(DeviceAccountHistory.account),
-            selectinload(DeviceAccountHistory.device),
+    sight_rows: list[DeviceAccountHistory] = []
+    if sector_ids is None or sector_ids:
+        sight_stmt = (
+            select(DeviceAccountHistory)
+            .options(
+                selectinload(DeviceAccountHistory.account),
+                selectinload(DeviceAccountHistory.device),
+            )
+            .order_by(DeviceAccountHistory.seen_at.desc(), DeviceAccountHistory.id.desc())
+            .limit(limit)
         )
-        .order_by(DeviceAccountHistory.seen_at.desc(), DeviceAccountHistory.id.desc())
-        .limit(limit)
-    )
-    if sector_ids is not None:
-        sight_stmt = sight_stmt.join(Device, Device.id == DeviceAccountHistory.device_id).where(
-            Device.sector_id.in_(sector_ids)
-        )
+        if sector_ids is not None:
+            sight_stmt = sight_stmt.join(
+                Device, Device.id == DeviceAccountHistory.device_id
+            ).where(Device.sector_id.in_(sector_ids))
+        sight_rows = list(db.session.scalars(sight_stmt).all())
 
     code = ActionKindCode.ACCOUNT_SIGHTING
-    for row in db.session.scalars(sight_stmt).all():
+    for row in sight_rows:
         account_label = row.account.account_key if row.account else "—"
-        device_label = None
-        if row.device is not None:
-            device_label = row.device.hostname or row.device.ip
         items.append(
             SystemActionItem(
                 kind_code=code,
@@ -137,7 +163,7 @@ def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
                 status="seen",
                 when=row.seen_at,
                 device_id=row.device_id,
-                device_label=device_label,
+                device_label=_device_label(row.device),
                 actor=None,
                 url=(
                     url_for("accounts.detail", account_id=row.account_id)
@@ -147,5 +173,5 @@ def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
             )
         )
 
-    items.sort(key=lambda item: item.when or datetime.min, reverse=True)
+    items.sort(key=_item_sort_key, reverse=True)
     return items[:limit]

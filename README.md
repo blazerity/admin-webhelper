@@ -6,6 +6,8 @@
 
 ## Структура каталогов
 
+Граф слоёв, поток опроса и соглашения по коду — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
 ```
 bAWH/
   VERSION                 номер релиза (semver), для страницы обновлений
@@ -14,7 +16,8 @@ bAWH/
     __init__.py           create_app(): собирает конфиг, БД, маршруты
     config.py             настройки из переменных окружения
     extensions.py         объекты Flask-расширений (БД, логин, CSRF, миграции)
-    authz.py              кто какой сектор и устройство видит
+    authz.py              видимость секторов, устройств и script_runs
+    utils.py              utcnow, as_utc, ilike_pattern, clip
     logging_config.py     лог в файл (суточная ротация) и в stdout (journalctl)
     models/               таблицы
     services/             бизнес-логика без HTTP
@@ -22,6 +25,7 @@ bAWH/
     templates/            HTML-страницы
     static/               CSS и JS
   migrations/             схема PostgreSQL (Alembic через Flask-Migrate)
+  docs/                   архитектура (графы Mermaid)
   tests/                  pytest
   deploy/                 systemd, Nginx и установка одной командой
   requirements.txt        зависимости Python
@@ -30,12 +34,12 @@ bAWH/
 
 | Слой | Каталог | Назначение |
 | --- | --- | --- |
-| Модели | `app/models/` | Таблицы: пользователь, сектор, устройство, история, скрипт, настройки. Без пинга и без HTML. |
-| Сервисы | `app/services/` | LDAP, опрос, шифрование пароля, поиск, PsExec. Вызываются из веба, планировщика и тестов. |
+| Модели | `app/models/` | Таблицы: пользователь, сектор, устройство, УЗ на ПК, история, скрипт, настройки. Без пинга и без HTML. |
+| Сервисы | `app/services/` | LDAP, опрос, УЗ, действия, шифрование, поиск, PsExec. Вызываются из веба, планировщика и тестов. |
 | Маршруты | `app/routes/` | Blueprint: форма → сервис → шаблон. Пинг, LDAP и PsExec отсюда напрямую не выполняются. |
 | Шаблоны | `app/templates/` | HTML. Общий каркас — `base.html`. |
 
-`app/authz.py`: администратор видит все секторы, обычный пользователь — только выданные его логину или LDAP-группе.
+`app/authz.py`: администратор видит всё; обычный пользователь — секторы по логину/LDAP-группе; `script_runs` — автор или доступное устройство (`user_can_see_script_run`).
 
 Сборка одна: `create_app()` в `app/__init__.py`. Её вызывают веб-процесс, тесты и процесс опроса. Проверка «процесс жив» — `GET /health` (без входа, ответ `{"status": "ok"}`).
 
@@ -48,8 +52,8 @@ bAWH/
 - `users`, `user_ldap_groups` — операторы сайта после входа через LDAP и их группы.
 - `sectors`, `sector_ranges`, `sector_access` — справочник секторов, CIDR и кому сектор виден.
 - `devices`, `device_history` — справочник машин и журнал опросов. Уникальность: `serial_number` (WMI), иначе hostname; IP — последний адрес; `current_account_id` — кто сейчас за ПК.
-- `endpoint_accounts`, `device_account_history` — справочник УЗ на конечных точках и факты «УЗ замечена на устройстве» (не путать с `users`).
-- `action_kinds` — справочник типов действий; лента событий собирается из `script_runs` и `device_account_history`.
+- `endpoint_accounts`, `device_account_history` — справочник УЗ на конечных точках и факты «УЗ замечена на устройстве» (не путать с `users`). Ключ домена — NetBIOS (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
+- `action_kinds` — справочник типов действий (`ACTION_KIND_SEED` в модели); лента `/actions` собирается из `script_runs` и `device_account_history` с теми же правилами видимости, что и карточка запуска.
 - `scripts`, `script_runs` — библиотека скриптов и журнал запусков (скрипт, ping, tracert, команда). У скрипта есть `run_as`: учётка PsExec или `NT AUTHORITY\SYSTEM`.
 - `app_settings` — параметры вроде интервала опроса.
 - `password_notifications`, `password_expiry_runs` — история писем о сроке пароля и снимки прогонов.
@@ -65,8 +69,8 @@ bAWH/
 - `sector_service.py` — создание и правка секторов.
 - `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
 - `discovery_service.py` — обратный DNS, MAC из ARP/WMI, серийник и текущая УЗ по WMI (`DISCOVERY_*` в `.env`).
-- `account_service.py` — справочник `endpoint_accounts`, разбор `DOMAIN\user`, запись появлений УЗ.
-- `action_service.py` — справочник `action_kinds` и лента недавних действий.
+- `account_service.py` — справочник `endpoint_accounts`, разбор/нормализация `DOMAIN\user`, upsert с защитой от гонки, запись появлений УЗ.
+- `action_service.py` — справочник `action_kinds` и лента недавних действий (authz как у `scripts.run_detail`).
 - `scheduler_service.py` — цикл опроса для отдельного процесса.
 - `search_service.py` — поиск устройств по IP, MAC, hostname, serial.
 - `psexec_service.py` — удалённая команда на Windows.
@@ -312,7 +316,7 @@ cd /opt/bawh && sudo -u bawh .venv/bin/flask archive-logs
 
 Администратор → «Обновления»: «Обновить из git» сначала копирует код в `backups/`, затем подтягивает публичный репозиторий. «Откатить» возвращает выбранную копию (текущая версия перед откатом тоже сохраняется).
 
-Номер версии — файл `VERSION` в корне (сейчас `0.2.0`, semver: `MAJOR.MINOR.PATCH`). Страница обновлений показывает его, а не хеш коммита. Перед релизом увеличьте номер, закоммитьте и запушьте: правка `0.2.0` → `0.2.1` (исправление) или `0.3.0` (новые возможности). Пока `VERSION` не меняли, проверка всё равно увидит новый коммит и напишет «сборка …».
+Номер версии — файл `VERSION` в корне (сейчас `0.2.1`, semver: `MAJOR.MINOR.PATCH`). Страница обновлений показывает его, а не хеш коммита. Перед релизом увеличьте номер, закоммитьте и запушьте: правка `0.2.1` → `0.2.2` (исправление) или `0.3.0` (новые возможности). Пока `VERSION` не меняли, проверка всё равно увидит новый коммит и напишет «сборка …».
 
 Не входят в копию и не перезаписываются: `.env`, `.venv`, `logs/`, `script_library/`, `*.db`, `backups/`. Схема PostgreSQL при откате кода назад не откатывается.
 

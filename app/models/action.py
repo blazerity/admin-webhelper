@@ -1,8 +1,7 @@
-"""Справочник типов действий в системе.
+"""Справочник типов действий (коды и названия для UI / отчётов).
 
-Сами события живут в журналах (script_runs, device_history,
-device_account_history). Здесь — только коды и человекочитаемые названия,
-чтобы UI и отчёты не размазывали строки по коду.
+События живут в script_runs и device_account_history.
+ACTION_KIND_SEED — единый источник для миграции и seed_action_kinds.
 """
 
 from app.extensions import db
@@ -17,7 +16,6 @@ class ActionKindCode:
     ACCOUNT_SIGHTING = "account_sighting"
 
 
-# Стартовый набор справочника — миграция и seed_action_kinds используют одно.
 ACTION_KIND_SEED = (
     (ActionKindCode.POLL, "Опрос доступности", "Фоновый ICMP-опрос сектора"),
     (ActionKindCode.PING, "Ping", "Ручная проверка доступности с карточки"),

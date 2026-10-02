@@ -1,7 +1,7 @@
-"""Кто какой сектор и устройство видит.
+"""Кто какой сектор, устройство и запуск видит.
 
-Админ видит всё; остальные — по sector_access на username или LDAP-группы.
-При тысячах секторов accessible_sector_ids стоит заменить на EXISTS / кэш.
+Админ видит всё; остальные — по sector_access (username / LDAP-группа)
+и правилу для script_runs: автор или доступное устройство.
 """
 
 from functools import wraps
@@ -11,7 +11,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import and_, func, or_
 
 from app.extensions import db
-from app.models import Device, Sector, SectorAccess
+from app.models import Device, Sector, SectorAccess, ScriptRun
 
 
 def admin_required(view):
@@ -76,6 +76,17 @@ def user_can_access_device(user, device: Device | None) -> bool:
     if device.sector_id is None:
         return False
     return device.sector_id in accessible_sector_ids(user)
+
+
+def user_can_see_script_run(user, run: ScriptRun | None) -> bool:
+    """Админ; автор запуска; либо устройство запуска доступно пользователю."""
+    if run is None or not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(user, "is_admin", False):
+        return True
+    if run.user_id is not None and run.user_id == user.id:
+        return True
+    return user_can_access_device(user, run.device)
 
 
 def get_visible_sector_or_404(sector_id: int) -> Sector:
