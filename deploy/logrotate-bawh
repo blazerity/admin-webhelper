@@ -1,0 +1,20 @@
+# Опционально: системная ротация вместо/в дополнение к встроенной.
+# Встроенная TimedRotating + flask archive-logs обычно достаточны.
+# Если включаете logrotate, отключите файловый handler приложения
+# (LOG_FILE= пусто) либо используйте copytruncate осторожно.
+#
+# Установка:
+#   sudo cp deploy/logrotate-bawh /etc/logrotate.d/bawh
+#
+/opt/bawh/logs/bawh.log {
+    daily
+    rotate 31
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    dateformat -%Y-%m-%d
+    copytruncate
+    create 0640 bawh bawh
+}

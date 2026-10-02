@@ -18,6 +18,7 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.extensions import db
+from app.services.log_archive_service import archive_rotated_logs
 from app.services.ping_service import poll_all_sectors
 from app.services.settings_service import get_poll_interval_seconds
 
@@ -27,10 +28,11 @@ logger = logging.getLogger(__name__)
 SCHEDULER_EXT_KEY = "bawh_scheduler"
 _POLL_COMMAND_KEY = "bawh_poll_command"
 JOB_ID = "poll-devices"
+ARCHIVE_JOB_ID = "archive-logs"
 
 
 def register_commands(app) -> None:
-    """Команда `flask poll`: один проход и печать сводки.
+    """Команды CLI: `flask poll`, `flask archive-logs`.
 
     Повторный вызов ничего не делает. Иначе Click упадёт
     с «command already registered», когда create_app вызовут дважды
@@ -38,18 +40,26 @@ def register_commands(app) -> None:
     """
     if app.extensions.get(_POLL_COMMAND_KEY):
         return
-    if "poll" in app.cli.commands:
-        app.extensions[_POLL_COMMAND_KEY] = True
-        return
 
-    @app.cli.command("poll")
-    def poll() -> None:
-        """Опросить все секторы один раз и напечатать сводку."""
-        # flask уже открывает контекст, но опрос обязан работать и тогда,
-        # когда команду вызовут не из CLI. Вложенный контекст это не ломает.
-        with app.app_context():
-            stats = poll_all_sectors()
-            print(stats)
+    if "poll" not in app.cli.commands:
+
+        @app.cli.command("poll")
+        def poll() -> None:
+            """Опросить все секторы один раз и напечатать сводку."""
+            # flask уже открывает контекст, но опрос обязан работать и тогда,
+            # когда команду вызовут не из CLI. Вложенный контекст это не ломает.
+            with app.app_context():
+                stats = poll_all_sectors()
+                print(stats)
+
+    if "archive-logs" not in app.cli.commands:
+
+        @app.cli.command("archive-logs")
+        def archive_logs_cmd() -> None:
+            """Упаковать суточные логи прошлых месяцев в tar.gz."""
+            with app.app_context():
+                stats = _run_log_archive(app)
+                print(stats)
 
     app.extensions[_POLL_COMMAND_KEY] = True
 
@@ -68,6 +78,9 @@ def start_scheduler(app) -> BackgroundScheduler:
     Интервал читается из app_settings в момент старта. В конце каждого
     прохода читаем его снова: форма администратора пишет новое число в БД,
     и следующий тик уже с новым интервалом, без перезапуска процесса.
+
+    Задача archive-logs — раз в сутки около 00:20 UTC: суточные хвосты
+    завершённых месяцев пакуются в LOG_ARCHIVE_DIR.
 
     Запускать только из scheduler_worker, не из воркера Gunicorn.
     Иначе каждый веб-процесс начнёт пинговать сеть. Когда появится
@@ -97,6 +110,13 @@ def start_scheduler(app) -> BackgroundScheduler:
                 finally:
                     db.session.remove()
 
+    def archive_job() -> None:
+        with app.app_context():
+            try:
+                _run_log_archive(app)
+            except Exception:
+                logger.exception("Не удалось архивировать логи")
+
     scheduler.add_job(
         poll_job,
         "interval",
@@ -106,10 +126,31 @@ def start_scheduler(app) -> BackgroundScheduler:
         coalesce=True,
         replace_existing=True,
     )
+    scheduler.add_job(
+        archive_job,
+        "cron",
+        hour=0,
+        minute=20,
+        id=ARCHIVE_JOB_ID,
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
     scheduler.start()
     app.extensions[SCHEDULER_EXT_KEY] = scheduler
     logger.info("Планировщик опроса запущен, интервал %s с", scheduled_for["seconds"])
     return scheduler
+
+
+def _run_log_archive(app) -> dict[str, int]:
+    log_file = app.config.get("LOG_FILE") or "logs/bawh.log"
+    archive_dir = app.config.get("LOG_ARCHIVE_DIR") or "logs/archive"
+    keep_months = int(app.config.get("LOG_ARCHIVE_KEEP_MONTHS") or 12)
+    return archive_rotated_logs(
+        log_file,
+        archive_dir,
+        keep_months=keep_months,
+    )
 
 
 def _read_interval(app) -> int:

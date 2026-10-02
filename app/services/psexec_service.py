@@ -308,7 +308,7 @@ def _run(
             if session is not None:
                 session.attach(client, ip, secret, user_id)
         else:
-            logger.info("Повторная команда %s на %s в открытой сессии", executable, ip)
+            logger.debug("Повторная команда %s на %s в открытой сессии", executable, ip)
         pipe_kwargs = {}
         if on_output is not None:
             pipe = _streaming_pipe(on_output, secret)

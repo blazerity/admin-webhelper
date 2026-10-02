@@ -1,5 +1,6 @@
 """Пинг и один проход опроса. Сеть не используем: subprocess подменён."""
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -278,3 +279,30 @@ def test_poll_marks_known_device_offline(app, monkeypatch):
     ).all()
     assert len(history) == 1
     assert history[0].status == DeviceStatus.OFFLINE
+
+
+def test_poll_logs_overlap_as_summary(app, monkeypatch, caplog):
+    """Пересекающиеся сектора — одна сводка, не строка на каждый IP."""
+    first = Sector(name="a", description="")
+    first.ranges.append(SectorRange(cidr="10.0.0.0/29"))
+    second = Sector(name="b", description="")
+    second.ranges.append(SectorRange(cidr="10.0.0.0/29"))
+    db.session.add_all([first, second])
+    db.session.commit()
+
+    monkeypatch.setattr(
+        "app.services.ping_service.ping_host",
+        lambda ip, timeout_s=1: PingResult(DeviceStatus.OFFLINE, None, "down"),
+    )
+    with caplog.at_level(logging.WARNING, logger="app.services.ping_service"):
+        poll_all_sectors()
+
+    overlap_records = [
+        record
+        for record in caplog.records
+        if "Пересечение диапазонов" in record.getMessage()
+    ]
+    assert len(overlap_records) == 1
+    message = overlap_records[0].getMessage()
+    assert "6 адресов" in message
+    assert "входят в секторы" not in message

@@ -307,9 +307,16 @@ def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
 
     Словарь, а не список: один адрес пингуем один раз, даже если он
     вписан в два сектора.
+
+    Пересечения не пишем по одному IP: на большом CIDR это тысячи строк
+    за один проход и снова каждые POLL_INTERVAL_SECONDS. Одна сводка
+    на проход — сколько адресов и какие пары секторов.
     """
     sectors = db.session.scalars(select(Sector).order_by(Sector.id)).all()
     assigned: dict[str, int] = {}
+    # (проигравший sector_id, победитель) → число адресов.
+    overlaps: dict[tuple[int, int], int] = {}
+    overlap_example: str | None = None
     for sector in sectors:
         cidrs = [item.cidr for item in sector.ranges]
         try:
@@ -326,15 +333,26 @@ def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
         for ip in ips:
             previous = assigned.get(ip)
             if previous is not None and previous != sector.id:
-                logger.warning(
-                    "Адрес %s входит в секторы %s и %s. "
-                    "Оставляем %s: при пересечении побеждает сектор с большим id.",
-                    ip,
-                    previous,
-                    sector.id,
-                    sector.id,
-                )
+                key = (previous, sector.id)
+                overlaps[key] = overlaps.get(key, 0) + 1
+                if overlap_example is None:
+                    overlap_example = (
+                        f"{ip} (секторы {previous} → {sector.id})"
+                    )
             assigned[ip] = sector.id
+    if overlaps:
+        total = sum(overlaps.values())
+        pairs = ", ".join(
+            f"{loser}↔{winner}: {count}"
+            for (loser, winner), count in sorted(overlaps.items())
+        )
+        logger.warning(
+            "Пересечение диапазонов: %s адресов в нескольких секторах "
+            "(%s). Пример: %s. При пересечении побеждает сектор с большим id.",
+            total,
+            pairs,
+            overlap_example or "—",
+        )
     return assigned
 
 
