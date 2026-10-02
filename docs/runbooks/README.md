@@ -1,13 +1,17 @@
 # Runbooks
 
-Операторские и приёмочные сценарии bAWH. Полный набор (WMI, PsExec, пароли AD) — волна **W4-04**; здесь — артефакты W1–W3 и ранние заготовки.
+Операторские и приёмочные сценарии bAWH.
 
 | Документ | Назначение |
 | --- | --- |
-| [w1-regression-checklist.md](w1-regression-checklist.md) | Ручная приёмка волны W1 (навигация, сводка, suggest, пресеты, скрипт с карточки, health scheduler, deploy) |
-| [w2-regression-checklist.md](w2-regression-checklist.md) | Ручная приёмка волны W2 (multi-select, bulk ping/script, batch progress, URL-фильтры, избранное, authz, mid-session map) |
-| [w3-regression-checklist.md](w3-regression-checklist.md) | Ручная приёмка волны W3 (роли Authz v2, audit, watchlist, notifications, пагинация, smoke W1/W2) |
-| [device-offline.md](device-offline.md) | Заготовка: устройство offline на карте / после опроса |
+| [w1-regression-checklist.md](w1-regression-checklist.md) | Приёмка W1 |
+| [w2-regression-checklist.md](w2-regression-checklist.md) | Приёмка W2 |
+| [w3-regression-checklist.md](w3-regression-checklist.md) | Приёмка W3 |
+| [w4-regression-checklist.md](w4-regression-checklist.md) | Приёмка W4 |
+| [device-offline.md](device-offline.md) | Устройство offline |
+| [wmi-no-response.md](wmi-no-response.md) | WMI не отвечает |
+| [psexec-failed.md](psexec-failed.md) | PsExec отказал |
+| [password-ad-mail.md](password-ad-mail.md) | Пароли AD / SMTP |
+| [offline-assets.md](offline-assets.md) | Air-gap Bootstrap/fonts |
 
-Контракты волн: [`docs/agents/w1-contracts.md`](../agents/w1-contracts.md), [`docs/agents/w2-contracts.md`](../agents/w2-contracts.md), [`docs/agents/w3-contracts.md`](../agents/w3-contracts.md).  
-Роль QA/платформы: [`docs/agents/A5-qa-platform.md`](../agents/A5-qa-platform.md).
+Spikes: [`docs/spikes/`](../spikes/).

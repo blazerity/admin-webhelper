@@ -1,6 +1,6 @@
 """Справочник УЗ на конечных точках и карточка пользователя."""
 
-from flask import Blueprint, render_template, request
+from flask import Blueprint, Response, render_template, request
 from flask_login import current_user, login_required
 
 from app.services.account_service import (
@@ -9,6 +9,7 @@ from app.services.account_service import (
     get_visible_account_or_404,
     list_visible_accounts,
 )
+from app.services.export_service import export_accounts_csv
 from app.utils import parse_optional_int
 
 bp = Blueprint("accounts", __name__, url_prefix="/accounts")
@@ -39,6 +40,19 @@ def list_accounts():
         page=result["page"],
         per_page=result["per_page"],
         search_query=query,
+    )
+
+
+@bp.get("/export.csv")
+@login_required
+def export_csv():
+    """CSV видимых УЗ (те же ACL, что список)."""
+    query = (request.args.get("q") or "").strip()
+    body = export_accounts_csv(current_user, query=query)
+    return Response(
+        body,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=accounts.csv"},
     )
 
 

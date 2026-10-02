@@ -12,7 +12,8 @@
   --warn: #b45309;
   --shadow: 0 10px 30px rgba(24, 33, 43, 0.08);
   --radius: 14px;
-  --font: "Manrope", "Segoe UI", sans-serif;
+  /* Offline-friendly: system stack first; Manrope optional if operator adds local fonts. */
+  --font: "Manrope", "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --topbar-h: 64px;
 }

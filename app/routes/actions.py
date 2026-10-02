@@ -1,9 +1,10 @@
 """Лента действий в системе (справочник типов + события из журналов)."""
 
-from flask import Blueprint, render_template, request
+from flask import Blueprint, Response, render_template, request
 from flask_login import current_user, login_required
 
 from app.services.action_service import list_action_kinds, list_system_actions
+from app.services.export_service import export_actions_csv
 from app.utils import parse_optional_int
 
 bp = Blueprint("actions", __name__, url_prefix="/actions")
@@ -39,4 +40,17 @@ def list_actions():
         per_page=result["per_page"],
         search_query=q,
         kind_filter=kind,
+    )
+
+
+@bp.get("/export.csv")
+@login_required
+def export_csv():
+    """CSV ленты действий с теми же фильтрами видимости."""
+    kind = (request.args.get("kind") or "").strip()
+    body = export_actions_csv(current_user, kind=kind)
+    return Response(
+        body,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=actions.csv"},
     )

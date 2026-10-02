@@ -8,6 +8,7 @@
     <h1 class="page-title">Учётные записи</h1>
     <p class="page-subtitle">Справочник УЗ, замеченных на устройствах сети</p>
   </div>
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('accounts.export_csv', q=search_query) }}">CSV</a>
 </div>
 
 <form class="panel content-card mb-3" method="get" action="{{ url_for('accounts.list_accounts') }}">

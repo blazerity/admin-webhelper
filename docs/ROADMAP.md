@@ -7,6 +7,7 @@
 Волна **W1** закрыта в `0.3.0` (интеграция: `cursor/w1-implementation-2c6a`).
 Волна **W2** закрыта в `0.4.0` (интеграция: `cursor/w2-implementation-85f5`).
 Волна **W3** закрыта в `0.5.0` (интеграция: `cursor/w3-implementation-85f5`).
+Волна **W4** закрыта в `0.6.0` (интеграция: `cursor/w4-implementation-85f5`).
 
 ---
 
@@ -304,12 +305,12 @@ bAWH уже умеет: карта сети, опрос/WMI, УЗ на ПК, д�
 
 | ID | Задача | Владелец | Помощь |
 | --- | --- | --- | --- |
-| W4-01 | `/api/v1/` aliases для существующих JSON | P3 | P1 |
-| W4-02 | Self-host CSS/JS/fonts или offline fallback | P2 + P5 | — |
-| W4-03 | CSV-экспорт УЗ / polls / actions | P3 | P2 |
-| W4-04 | Runbooks в `docs/runbooks/` | P5 | все |
-| W4-05 | Оценка Linux remote (spike, без merge в prod) | P3 | P1 |
-| W4-06 | Партиционирование/архив `device_history` (если объём давит) | P3 | P1 |
+| W4-01 | `/api/v1/` aliases для существующих JSON — **Done** | P3 | P1 |
+| W4-02 | Self-host Bootstrap + offline fonts — **Done**: [`offline-assets.md`](runbooks/offline-assets.md) | P2 + P5 | — |
+| W4-03 | CSV-экспорт УЗ / polls / actions — **Done** | P3 | P2 |
+| W4-04 | Runbooks — **Done** | P5 | все |
+| W4-05 | Оценка Linux remote (spike) — **Done**: [`docs/spikes/linux-remote.md`](spikes/linux-remote.md) | P3 | P1 |
+| W4-06 | Архив `device_history` (оценка) — **Done**: [`docs/spikes/device-history-archive.md`](spikes/device-history-archive.md) | P3 | P1 |
 
 ---
 

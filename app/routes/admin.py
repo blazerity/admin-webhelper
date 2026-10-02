@@ -24,11 +24,12 @@ Discovery: глобальная учётка WMI для опроса (серий
 
 import logging
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 
 from app.authz import admin_required
 from app.services import audit_service
+from app.services.export_service import export_poll_runs_csv
 from app.services.credential_service import (
     CredentialsNotConfigured,
     get_stored_credential,
@@ -181,6 +182,18 @@ def settings():
         scheduler_health=get_scheduler_health(),
         update_sudo_user=update_sudo.username,
         update_sudo_password_set=update_sudo.password_set,
+    )
+
+
+@bp.get("/poll-runs/export.csv")
+@admin_required
+def export_poll_runs():
+    """CSV журнала прогонов опроса (admin)."""
+    body = export_poll_runs_csv(limit=200)
+    return Response(
+        body,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=poll_runs.csv"},
     )
 
 
