@@ -1,6 +1,13 @@
 import pytest
 
-from app.authz import accessible_sectors, user_can_access_device, user_can_run_scripts
+from app.authz import (
+    accessible_sectors,
+    filter_accessible_devices,
+    user_can_access_device,
+    user_can_bulk_ping,
+    user_can_bulk_script,
+    user_can_run_scripts,
+)
 from app.extensions import db
 from app.models import Device, Sector, SectorAccess, User
 
@@ -67,6 +74,63 @@ def test_user_can_run_scripts_admin_only(app, admin_id, alice_id):
         assert user_can_run_scripts(admin) is True
         assert user_can_run_scripts(alice) is False
         assert user_can_run_scripts(None) is False
+
+
+def test_user_can_bulk_ping_requires_auth(app, admin_id, alice_id):
+    with app.app_context():
+        admin = db.session.get(User, admin_id)
+        alice = db.session.get(User, alice_id)
+        assert user_can_bulk_ping(admin) is True
+        assert user_can_bulk_ping(alice) is True
+        assert user_can_bulk_ping(None) is False
+
+
+def test_user_can_bulk_script_wraps_run_scripts(app, admin_id, alice_id):
+    """W2 bulk script gate mirrors user_can_run_scripts (admin-only until W3)."""
+    with app.app_context():
+        admin = db.session.get(User, admin_id)
+        alice = db.session.get(User, alice_id)
+        assert user_can_bulk_script(admin) is True
+        assert user_can_bulk_script(alice) is False
+        assert user_can_bulk_script(None) is False
+        assert user_can_bulk_script(admin) == user_can_run_scripts(admin)
+        assert user_can_bulk_script(alice) == user_can_run_scripts(alice)
+
+
+def test_filter_accessible_devices_order_and_skip(app, admin_id, alice_id):
+    """Order-preserving; missing and inaccessible ids are skipped (W2-06)."""
+    with app.app_context():
+        alice_sector = _sector("Склад", users=["alice"])
+        other_sector = _sector("Офис", users=["bob"])
+        d_alice_a = Device(ip="10.0.1.1", sector_id=alice_sector.id, last_status="unknown")
+        d_other = Device(ip="10.0.1.2", sector_id=other_sector.id, last_status="unknown")
+        d_alice_b = Device(ip="10.0.1.3", sector_id=alice_sector.id, last_status="unknown")
+        db.session.add_all([d_alice_a, d_other, d_alice_b])
+        db.session.commit()
+
+        alice = db.session.get(User, alice_id)
+        admin = db.session.get(User, admin_id)
+        missing_id = max(d_alice_a.id, d_other.id, d_alice_b.id) + 999
+
+        # Requested order: B, missing, other-sector, A → only B then A for alice.
+        alice_result = filter_accessible_devices(
+            alice,
+            [d_alice_b.id, missing_id, d_other.id, d_alice_a.id],
+        )
+        assert [device.id for device in alice_result] == [d_alice_b.id, d_alice_a.id]
+
+        admin_result = filter_accessible_devices(
+            admin,
+            [d_other.id, d_alice_a.id, missing_id, d_alice_b.id],
+        )
+        assert [device.id for device in admin_result] == [
+            d_other.id,
+            d_alice_a.id,
+            d_alice_b.id,
+        ]
+
+        assert filter_accessible_devices(alice, []) == []
+        assert filter_accessible_devices(None, [d_alice_a.id]) == []
 
 
 def test_non_admin_cannot_use_existing_script_routes(client, app, alice_id):

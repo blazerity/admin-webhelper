@@ -38,6 +38,50 @@ def user_can_run_scripts(user) -> bool:
     return bool(getattr(user, "is_admin", False))
 
 
+def user_can_bulk_ping(user) -> bool:
+    """Может ли пользователь запускать bulk ping (W2).
+
+    Достаточно аутентификации: каждое устройство всё равно
+    фильтруется через ``filter_accessible_devices`` / ``user_can_access_device``.
+    """
+    return bool(user is not None and getattr(user, "is_authenticated", False))
+
+
+def user_can_bulk_script(user) -> bool:
+    """Может ли пользователь запускать bulk script (W2).
+
+    Обёртка над ``user_can_run_scripts`` — точка enforce под будущего
+    operator (W3); в W2 остаётся admin-only.
+    """
+    return user_can_run_scripts(user)
+
+
+def filter_accessible_devices(user, device_ids) -> list[Device]:
+    """Вернуть доступные устройства в порядке ``device_ids``.
+
+    Пропускает отсутствующие id и устройства вне ACL пользователя.
+    Не дублирует: повтор id во входе даёт повтор в выходе, если доступен.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return []
+    if not device_ids:
+        return []
+
+    ids = [int(device_id) for device_id in device_ids]
+    unique_ids = set(ids)
+    devices_by_id = {
+        device.id: device
+        for device in Device.query.filter(Device.id.in_(unique_ids)).all()
+    }
+
+    result: list[Device] = []
+    for device_id in ids:
+        device = devices_by_id.get(device_id)
+        if device is not None and user_can_access_device(user, device):
+            result.append(device)
+    return result
+
+
 def accessible_sectors_query(user):
     if user.is_admin:
         return Sector.query
