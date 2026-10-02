@@ -1,6 +1,6 @@
-"""Имя хоста и MAC без сканера пакетов.
+"""Имя хоста, MAC и серийный номер без сканера пакетов.
 
-Две разные проверки, их легко перепутать:
+Три разные проверки, их легко перепутать:
 
 * Имя (lookup_hostname) — вопрос к DNS: «какой PTR у этого IP?».
   Сервер и устройство могут быть в разных подсетях, DNS всё равно ответит,
@@ -9,6 +9,9 @@
   этот сервер и устройство сидят в одном L2-сегменте: коммутатор
   доставил кадр, и ядро записало соседа в таблицу ARP (Windows)
   или neighbor (Linux). Через маршрутизатор MAC чужой сети не приходит.
+* Серийник (lookup_serial) — Win32_BIOS.SerialNumber по WMI после ping.
+  Нужна учётка DISCOVERY_* в окружении. Без неё возвращаем None,
+  и идентичность машины строится по hostname.
 
 Scapy здесь не используем. Ему нужен захват пакетов и дополнительные
 права (raw socket / Npcap). Для первой версии достаточно прочитать
@@ -19,12 +22,22 @@ Scapy здесь не используем. Ему нужен захват па�
 shell=True нет: иначе «10.0.0.5; whoami» стало бы второй командой.
 """
 
+from __future__ import annotations
+
+import logging
 import os
 import re
 import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
+from dataclasses import dataclass
+
+from flask import current_app
 
 from app.services.net_utils import assert_public_ipv4, normalize_mac
+
+logger = logging.getLogger(__name__)
 
 # Две привычные записи MAC: aa:bb:cc:dd:ee:ff / aa-bb-cc-dd-ee-ff
 # и cisco-вид aabb.ccdd.eeff. Дальше normalize_mac приводит к одному формату.
@@ -37,6 +50,37 @@ _MAC_RE = re.compile(
 # Таблица соседей локальная, ответ почти мгновенный.
 # Таймаут — предохранитель, если arp/ip зависнет.
 _NEIGHBOR_TIMEOUT_S = 5
+
+# WMI по DCOM на живой машине обычно < 2 с; потолок — чтобы один хост
+# не держал весь опрос сектора.
+_WMI_TIMEOUT_S = 8
+
+# Заглушки BIOS/OEM, которые нельзя считать service tag.
+_INVALID_SERIALS = {
+    "",
+    "0",
+    "NONE",
+    "N/A",
+    "NA",
+    "NULL",
+    "TO BE FILLED BY O.E.M.",
+    "TO BE FILLED BY OEM",
+    "DEFAULT STRING",
+    "SYSTEM SERIAL NUMBER",
+    "SYSTEM SERIAL#",
+    "CHASSIS SERIAL NUMBER",
+    "123456789",
+    "XXXXXXXXXX",
+    "NOT SPECIFIED",
+    "NOT AVAILABLE",
+}
+
+
+@dataclass(frozen=True)
+class DiscoveryCredentials:
+    username: str
+    password: str
+    domain: str
 
 
 def lookup_hostname(ip: str) -> str | None:
@@ -85,6 +129,139 @@ def lookup_mac(ip: str) -> str | None:
     if found:
         return found
     return _mac_from_command(["arp", "-a", ip], ip)
+
+
+def lookup_serial(ip: str) -> str | None:
+    """Service tag / серийник через WMI Win32_BIOS после успешного ping.
+
+    Без DISCOVERY_USERNAME/DISCOVERY_PASSWORD сразу None — опрос не обязан
+    ходить в WMI, идентичность тогда строится по hostname.
+    """
+    ip = assert_public_ipv4(ip)
+    creds = discovery_credentials()
+    if creds is None:
+        return None
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_wmi_bios_serial, ip, creds)
+        try:
+            raw = future.result(timeout=_WMI_TIMEOUT_S)
+        except FuturesTimeout:
+            logger.info("WMI serial: таймаут для %s", ip)
+            return None
+        except Exception:
+            logger.exception("WMI serial: сбой для %s", ip)
+            return None
+    return normalize_serial(raw)
+
+
+def discovery_credentials() -> DiscoveryCredentials | None:
+    """Учётка для WMI из окружения приложения. Пустые поля — WMI выключен."""
+    try:
+        username = str(current_app.config.get("DISCOVERY_USERNAME") or "").strip()
+        password = str(current_app.config.get("DISCOVERY_PASSWORD") or "")
+        domain = str(current_app.config.get("DISCOVERY_DOMAIN") or "").strip()
+    except RuntimeError:
+        username = (os.environ.get("DISCOVERY_USERNAME") or "").strip()
+        password = os.environ.get("DISCOVERY_PASSWORD") or ""
+        domain = (os.environ.get("DISCOVERY_DOMAIN") or "").strip()
+    if not username or not password:
+        return None
+    return DiscoveryCredentials(username=username, password=password, domain=domain)
+
+
+def normalize_serial(value: str | None) -> str | None:
+    """Верхний регистр, обрезка мусора BIOS. None — не годится как ключ."""
+    if not value:
+        return None
+    cleaned = " ".join(str(value).split()).strip().upper()
+    if not cleaned or cleaned in _INVALID_SERIALS:
+        return None
+    if len(cleaned) > 64:
+        cleaned = cleaned[:64]
+    # Слишком короткие «серийники» обычно заглушки.
+    if len(cleaned) < 3:
+        return None
+    return cleaned
+
+
+def hostname_key(value: str | None) -> str | None:
+    """Короткое имя без домена, lower-case: n14002.example.com → n14002."""
+    if not value:
+        return None
+    cleaned = value.strip().rstrip(".").lower()
+    if not cleaned:
+        return None
+    return cleaned.split(".", 1)[0][:255] or None
+
+
+def hostnames_match(left: str | None, right: str | None) -> bool:
+    """Сравнение имён без учёта регистра и DNS-суффикса."""
+    a = hostname_key(left)
+    b = hostname_key(right)
+    return bool(a and b and a == b)
+
+
+def _wmi_bios_serial(ip: str, creds: DiscoveryCredentials) -> str | None:
+    """Один WQL-запрос к Win32_BIOS. Импорт Impacket — внутри, чтобы тесты
+    без сети и без пакета не падали на загрузке модуля.
+    """
+    try:
+        from impacket.dcerpc.v5.dcom import wmi
+        from impacket.dcerpc.v5.dcomrt import DCOMConnection
+        from impacket.dcerpc.v5.dtypes import NULL
+    except ImportError:
+        logger.warning("WMI serial: пакет для удалённого WMI не установлен")
+        return None
+
+    dcom = None
+    try:
+        dcom = DCOMConnection(
+            ip,
+            creds.username,
+            creds.password,
+            creds.domain,
+            "",
+            "",
+            None,
+            oxidResolver=True,
+            doKerberos=False,
+        )
+        interface = dcom.CoCreateInstanceEx(wmi.CLSID_WbemLevel1Login, wmi.IID_IWbemLevel1Login)
+        login = wmi.IWbemLevel1Login(interface)
+        services = login.NTLMLogin("//./root/cimv2", NULL, NULL)
+        login.RemRelease()
+        enum_obj = services.ExecQuery("SELECT SerialNumber FROM Win32_BIOS")
+        try:
+            while True:
+                try:
+                    item = enum_obj.Next(0xFFFFFFFF, 1)[0]
+                except Exception as exc:
+                    if "S_FALSE" in str(exc):
+                        break
+                    raise
+                props = item.getProperties()
+                raw = props.get("SerialNumber", {}).get("value")
+                if raw is not None:
+                    return str(raw)
+        finally:
+            try:
+                enum_obj.RemRelease()
+            except Exception:
+                pass
+            try:
+                services.RemRelease()
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.info("WMI serial: %s — %s", ip, exc)
+        return None
+    finally:
+        if dcom is not None:
+            try:
+                dcom.disconnect()
+            except Exception:
+                pass
+    return None
 
 
 def _mac_from_command(argv: list[str], ip: str) -> str | None:

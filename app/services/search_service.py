@@ -1,4 +1,4 @@
-"""Поиск устройств по IP, MAC и имени.
+"""Поиск устройств по IP, MAC, имени и серийному номеру.
 
 Маршрут только читает параметры и вызывает функции ниже.
 Какие секторы видны пользователю, решает app.authz — здесь это не копируется.
@@ -29,7 +29,7 @@ def _like_pattern(text: str) -> str:
 def search_devices(
     user, query: str, sector_id: int | None = None, limit: int = 50
 ) -> list[Device]:
-    """Устройства пользователя, у которых IP, MAC или имя содержат query.
+    """Устройства пользователя, у которых IP, MAC, имя или серийник содержат query.
 
     sector_id сужает результат до одного сектора. Если этот сектор
     пользователю не выдан, возвращаем пустой список, а не чужие устройства.
@@ -59,6 +59,7 @@ def search_devices(
                 Device.ip.ilike(pattern, escape="\\"),
                 Device.mac.ilike(pattern, escape="\\"),
                 Device.hostname.ilike(pattern, escape="\\"),
+                Device.serial_number.ilike(pattern, escape="\\"),
             )
         )
         .order_by(Device.ip)
@@ -68,14 +69,16 @@ def search_devices(
 
 
 def _suggest_label(device: Device) -> str:
-    """Текст подсказки: «10.0.0.5  hostname  AA:BB:...».
+    """Текст подсказки: «10.0.0.5  hostname  SERIAL  AA:BB:...».
 
-    Пустые имя и MAC пропускаем, чтобы не оставлять лишние пробелы.
-    Между частями два пробела — так IP, имя и MAC видно по отдельности.
+    Пустые поля пропускаем, чтобы не оставлять лишние пробелы.
+    Между частями два пробела — так значения видно по отдельности.
     """
     parts = [device.ip]
     if device.hostname:
         parts.append(device.hostname)
+    if device.serial_number:
+        parts.append(device.serial_number)
     if device.mac:
         parts.append(device.mac)
     return "  ".join(parts)

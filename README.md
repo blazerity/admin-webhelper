@@ -40,11 +40,11 @@ bAWH/
 
 ### Модели
 
-Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас `0001_initial`, `0002_script_run_as`, `0003_psexec_per_user`).
+Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0004_device_serial`).
 
 - `users`, `user_ldap_groups` — человек после входа через LDAP и его группы.
 - `sectors`, `sector_ranges`, `sector_access` — имя сектора, CIDR-диапазоны и кому он виден.
-- `devices`, `device_history` — последний статус устройства и журнал опросов.
+- `devices`, `device_history` — машина и журнал опросов. Уникальность: `serial_number` (WMI), иначе hostname; IP — последний адрес.
 - `scripts`, `script_runs` — библиотека скриптов и журнал запусков (скрипт, ping, tracert, команда). У скрипта есть `run_as`: учётка PsExec или `NT AUTHORITY\SYSTEM`.
 - `app_settings` — параметры вроде интервала опроса.
 - `remote_credentials` — учётка PsExec **на каждого пользователя сайта**; пароли только шифротекстом Fernet. Пустые поля формы означают запуск от входа на сайт (пароль входа тоже хранится зашифрованным).
@@ -57,10 +57,10 @@ bAWH/
 - `settings_service.py` — интервал опроса: `get_poll_interval_seconds`, `set_poll_interval_seconds`.
 - `ldap_service.py` — проверка пароля в LDAP и список групп.
 - `sector_service.py` — создание и правка секторов.
-- `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`.
-- `discovery_service.py` — обратный DNS и MAC из соседской таблицы ARP.
+- `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
+- `discovery_service.py` — обратный DNS, MAC из ARP и серийник по WMI (`DISCOVERY_*` в `.env`).
 - `scheduler_service.py` — цикл опроса для отдельного процесса.
-- `search_service.py` — поиск устройств по IP, MAC, hostname.
+- `search_service.py` — поиск устройств по IP, MAC, hostname, serial.
 - `psexec_service.py` — удалённая команда на Windows.
 - `script_service.py` — библиотека скриптов и запуск в фоновом потоке.
 - `update_service.py` — обновление кода из публичного git и откат на резервную копию.

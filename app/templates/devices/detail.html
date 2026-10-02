@@ -16,6 +16,7 @@
 <div class="panel content-card mb-3">
   <dl class="meta-list">
     <dt>Имя</dt><dd>{{ device.hostname or '—' }}</dd>
+    <dt>Серийный номер</dt><dd class="font-monospace">{{ device.serial_number or '—' }}</dd>
     <dt>MAC</dt><dd class="font-monospace">{{ device.mac or '—' }}</dd>
     <dt>Сектор</dt><dd>{{ device.sector.name }}</dd>
     <dt>Последний ответ</dt><dd>{{ device.last_seen|dt }}{% if device.last_response_time_ms is not none %} ({{ device.last_response_time_ms }} мс){% endif %}</dd>

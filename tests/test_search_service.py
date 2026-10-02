@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.extensions import db
 from app.models import Device, DeviceHistory, Sector, SectorAccess, User
 from app.services.search_service import search_devices, suggest_devices
+from app.utils import utcnow
 
 
 def _login(client, user_id):
@@ -23,13 +24,14 @@ def _sector(name, username):
     return sector
 
 
-def _device(ip, sector, hostname="host", mac="AA:BB:CC:DD:EE:FF", status="unknown"):
+def _device(ip, sector, hostname="host", mac="AA:BB:CC:DD:EE:FF", status="unknown", *, seen=True):
     device = Device(
         ip=ip,
         hostname=hostname,
         mac=mac,
         sector_id=sector.id,
         last_status=status,
+        last_seen=utcnow() if seen else None,
     )
     db.session.add(device)
     db.session.flush()
@@ -157,6 +159,8 @@ def test_map_shows_accessible_devices_ordered_by_ip(app, client, alice_id):
         _device(ip="10.0.0.2", sector=own, hostname="later", mac="AA:BB:CC:DD:EE:02")
         _device(ip="10.0.0.10", sector=own, hostname="earlier", mac="AA:BB:CC:DD:EE:10")
         _device(ip="10.9.9.9", sector=other, hostname="hidden")
+        # Пустой адрес без last_seen на карту не попадает.
+        _device(ip="10.0.0.99", sector=own, hostname=None, status="unknown", seen=False)
         db.session.commit()
 
     _login(client, alice_id)
@@ -166,6 +170,7 @@ def test_map_shows_accessible_devices_ordered_by_ip(app, client, alice_id):
     assert "Склад" in text
     assert "Офис" not in text
     assert "10.9.9.9" not in text
+    assert "10.0.0.99" not in text
     assert text.find("10.0.0.10") < text.find("10.0.0.2")
 
 

@@ -1,5 +1,6 @@
 from app.extensions import db
 from app.models import Device, Sector, SectorAccess
+from app.utils import utcnow
 
 
 def _login(client, user_id):
@@ -14,10 +15,29 @@ def _seed_office(app, owner="admin"):
         sector.access_rules.append(SectorAccess(subject_type="user", subject_name=owner))
         db.session.add(sector)
         db.session.flush()
+        seen = utcnow()
         devices = [
-            Device(ip="10.0.0.1", hostname="NBOOK01", sector_id=sector.id, last_status="online"),
-            Device(ip="10.0.0.2", hostname="WDESK01", sector_id=sector.id, last_status="offline"),
-            Device(ip="10.0.0.3", hostname="SRV01", sector_id=sector.id, last_status="online"),
+            Device(
+                ip="10.0.0.1",
+                hostname="NBOOK01",
+                sector_id=sector.id,
+                last_status="online",
+                last_seen=seen,
+            ),
+            Device(
+                ip="10.0.0.2",
+                hostname="WDESK01",
+                sector_id=sector.id,
+                last_status="offline",
+                last_seen=seen,
+            ),
+            Device(
+                ip="10.0.0.3",
+                hostname="SRV01",
+                sector_id=sector.id,
+                last_status="online",
+                last_seen=seen,
+            ),
         ]
         db.session.add_all(devices)
         db.session.commit()

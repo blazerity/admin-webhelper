@@ -1,6 +1,8 @@
 """Устройства и история опросов.
 
 devices — текущее состояние; device_history — каждая проверка.
+Уникальность машины: serial_number (WMI service tag), иначе hostname.
+IP — только последний известный адрес, без unique.
 При росте истории — партиции PostgreSQL по месяцам (миграция 0001
 ещё одной таблицы).
 """
@@ -20,9 +22,11 @@ class Device(TimestampMixin, db.Model):
     __tablename__ = "devices"
 
     id = db.Column(db.Integer, primary_key=True)
-    # IPv4 строкой; IPv6 сознательно отложен.
-    ip = db.Column(db.String(45), unique=True, nullable=False, index=True)
+    # IPv4 строкой; IPv6 сознательно отложен. Не unique: машина может сменить адрес.
+    ip = db.Column(db.String(45), nullable=False, index=True)
     hostname = db.Column(db.String(255), nullable=True, index=True)
+    # Service tag / серийник (Win32_BIOS). Главный ключ идентичности.
+    serial_number = db.Column(db.String(64), nullable=True, unique=True, index=True)
     # Нормализованный AA:BB:CC:DD:EE:FF; пусто, если ARP не видел.
     mac = db.Column(db.String(17), nullable=True, index=True)
     sector_id = db.Column(
