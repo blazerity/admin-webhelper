@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Пачка {{ batch_id }}{% endblock %}
+{% block content %}
+{# Minimal stub for A3 route load; A2 owns the full batch progress UI. #}
+<div
+  id="batch-progress"
+  data-batch-id="{{ batch_id }}"
+  data-status-url="{{ status_url }}"
+  data-finished="{{ '1' if finished else '0' }}"
+>
+  <h1 class="page-title">Пачка запусков</h1>
+  <p class="page-subtitle">{{ success }}/{{ total }} успешно · batch {{ batch_id }}</p>
+  <ul>
+    {% for run in runs %}
+    <li>
+      <a href="{{ run.url }}">{{ run.hostname or run.ip or run.id }}</a>
+      — {{ run.status }}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

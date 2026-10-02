@@ -8,12 +8,14 @@ from app.authz import (
     accessible_sectors,
     admin_required,
     get_visible_device_or_404,
+    user_can_access_device,
     user_can_run_scripts,
 )
 from app.extensions import db
-from app.models import DeviceHistory, RunType, Script, ScriptRun, Sector
+from app.models import Device, DeviceHistory, RunType, Script, ScriptRun, Sector
 from app.run_display import run_launch_label, run_status_label, run_when_label
 from app.services.account_service import device_account_sightings
+from app.services import batch_service
 from app.services.command_presets import list_command_presets
 from app.services.network_summary_service import get_network_summary
 from app.services.search_service import search_devices
@@ -25,6 +27,92 @@ bp = Blueprint("devices", __name__)
 _DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls"})
 _DEFAULT_LIST_LIMIT = 5
 _ALL_LIST_LIMIT = 50
+
+
+def _request_json_or_form() -> dict:
+    """Тело JSON или плоский form; для JSON — dict, иначе пустой dict."""
+    if request.is_json:
+        payload = request.get_json(silent=True)
+        return payload if isinstance(payload, dict) else {}
+    return {}
+
+
+def _parse_device_ids() -> list[int] | None:
+    """device_ids из JSON или form. None — поле отсутствует/битое; [] — пустой список.
+
+    Form: повторяемые device_ids / device_ids[] или одно значение через запятую.
+    """
+    payload = _request_json_or_form()
+    raw = payload.get("device_ids") if payload else None
+    if raw is None and not payload:
+        raw_list = request.form.getlist("device_ids") or request.form.getlist("device_ids[]")
+        if not raw_list:
+            single = request.form.get("device_ids")
+            if single is None:
+                return None
+            raw_list = [single]
+        values: list[int] = []
+        for item in raw_list:
+            for part in str(item).split(","):
+                number = parse_optional_int(part)
+                if number is None:
+                    return None
+                values.append(number)
+        raw = values
+
+    if raw is None:
+        return None
+    if isinstance(raw, int):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return None
+
+    values = []
+    seen: set[int] = set()
+    for item in raw:
+        try:
+            number = int(item)
+        except (TypeError, ValueError):
+            return None
+        if number in seen:
+            continue
+        seen.add(number)
+        values.append(number)
+    return values
+
+
+def _parse_script_id() -> int | None:
+    payload = _request_json_or_form()
+    if payload:
+        return parse_optional_int(
+            str(payload["script_id"]) if payload.get("script_id") is not None else None
+        )
+    return parse_optional_int(request.form.get("script_id"))
+
+
+def _filter_accessible_devices(device_ids: list[int]) -> tuple[list[Device], int]:
+    """Доступные устройства в порядке id-списка; skipped — недоступные/несуществующие."""
+    devices: list[Device] = []
+    skipped = 0
+    for device_id in device_ids:
+        device = db.session.get(Device, device_id)
+        if device is None or not user_can_access_device(current_user, device):
+            skipped += 1
+            continue
+        devices.append(device)
+    return devices, skipped
+
+
+def _bulk_response(batch_id: str, runs: list[ScriptRun], skipped: int):
+    return jsonify(
+        {
+            "batch_id": batch_id,
+            "run_ids": [run.id for run in runs],
+            "accepted": len(runs),
+            "skipped": skipped,
+            "progress_url": f"/scripts/batches/{batch_id}",
+        }
+    )
 
 
 def _load_visible_sectors():
@@ -63,6 +151,13 @@ def map():
     search_results = (
         search_devices(current_user, query, sector_id=sector_id) if query else []
     )
+    # Список скриптов для bulk-бара карты — только если user_can_run_scripts.
+    map_scripts = []
+    if user_can_run_scripts(current_user):
+        map_scripts = [
+            {"id": script.id, "name": script.name}
+            for script in Script.query.order_by(Script.name).all()
+        ]
     return render_template(
         "devices/map.html",
         sectors=sectors,
@@ -70,6 +165,7 @@ def map():
         search_query=query,
         search_sector_id=sector_id,
         search_results=search_results,
+        map_scripts=map_scripts,
     )
 
 
@@ -86,6 +182,7 @@ def map_status():
                 "hostname": device.hostname,
                 "status": device.last_status,
                 "kind": device.kind,
+                "url": url_for("devices.detail", device_id=device.id),
             }
             for device in sector.visible_devices
         ]
@@ -105,6 +202,84 @@ def map_status():
             "sectors": sectors_payload,
         }
     )
+
+
+@bp.post("/api/map/bulk/ping")
+@login_required
+def bulk_ping():
+    """Массовый Ping: один batch_id, start_run(PING) на каждое доступное устройство."""
+    device_ids = _parse_device_ids()
+    if device_ids is None:
+        return jsonify({"error": "Укажите device_ids (список id)."}), 400
+    if not device_ids:
+        return jsonify({"error": "Список device_ids пуст."}), 400
+    if len(device_ids) > batch_service.MAX_BULK_DEVICES:
+        return jsonify(
+            {"error": f"Не больше {batch_service.MAX_BULK_DEVICES} устройств за раз."}
+        ), 400
+
+    devices, skipped = _filter_accessible_devices(device_ids)
+    if not devices:
+        abort(403)
+
+    batch_id, runs = batch_service.start_bulk_ping(current_user, devices)
+    return _bulk_response(batch_id, runs, skipped)
+
+
+@bp.post("/api/map/bulk/script")
+@login_required
+def bulk_script():
+    """Массовый запуск скрипта библиотеки (только user_can_run_scripts)."""
+    if not user_can_run_scripts(current_user):
+        abort(403)
+
+    device_ids = _parse_device_ids()
+    if device_ids is None:
+        return jsonify({"error": "Укажите device_ids (список id)."}), 400
+    if not device_ids:
+        return jsonify({"error": "Список device_ids пуст."}), 400
+    if len(device_ids) > batch_service.MAX_BULK_DEVICES:
+        return jsonify(
+            {"error": f"Не больше {batch_service.MAX_BULK_DEVICES} устройств за раз."}
+        ), 400
+
+    script_id = _parse_script_id()
+    if script_id is None:
+        return jsonify({"error": "Укажите script_id."}), 400
+    script = db.session.get(Script, script_id)
+    if script is None:
+        return jsonify({"error": "Скрипт не найден."}), 404
+    if script.target_os == "linux" or script.interpreter == "bash":
+        return jsonify(
+            {
+                "error": (
+                    "Удалённый Linux в v1 не реализован: "
+                    "PsExec работает только с Windows."
+                )
+            }
+        ), 400
+
+    devices, skipped = _filter_accessible_devices(device_ids)
+    if not devices:
+        abort(403)
+
+    try:
+        batch_id, runs = batch_service.start_bulk_script(script, current_user, devices)
+    except script_service.ScriptError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not runs:
+        return jsonify({"error": "Не удалось запустить скрипт."}), 400
+    return _bulk_response(batch_id, runs, skipped)
+
+
+@bp.get("/api/batches/<batch_id>")
+@login_required
+def batch_status(batch_id: str):
+    """JSON-статус пачки: только runs, видимые через user_can_see_script_run."""
+    payload = batch_service.batch_status_payload(current_user, batch_id)
+    if payload is None:
+        abort(404)
+    return jsonify(payload)
 
 
 @bp.get("/api/network/summary")
