@@ -32,7 +32,6 @@ from app.services.psexec_service import (
     run_remote_command,
     run_remote_script,
     session_state,
-    show_close_button,
     was_cancelled,
 )
 from app.utils import clip, utcnow
@@ -259,10 +258,6 @@ def cancel_run(run_id: int) -> None:
 def close_run_session(run_id: int) -> bool:
     """Закрывает SMB-сессию, если она осталась после запуска."""
     return close_remote(run_id)
-
-
-def run_session_open(run_id: int, finished: bool) -> bool:
-    return show_close_button(run_id, finished)
 
 
 def run_session_state(run_id: int, finished: bool) -> str:

@@ -1,12 +1,7 @@
-"""Пользователи, которые хотя бы раз вошли через LDAP.
+"""Пользователи, вошедшие через LDAP.
 
-Пароль здесь не хранится: его каждый раз проверяет LDAP.
-Локальная строка нужна, чтобы привязать сессию Flask-Login,
-права на сектора и автора запуска скрипта.
-
-Колонку нельзя назвать is_active: так называется свойство Flask-Login,
-и оно перекроет поле SQLAlchemy. Если понадобится блокировка —
-добавьте отдельное поле disabled.
+Пароль не хранится. Колонку нельзя назвать is_active —
+так называется свойство Flask-Login.
 """
 
 from flask_login import UserMixin
@@ -19,13 +14,12 @@ class User(UserMixin, db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
-    # sAMAccountName или uid. Уникален, сравнение в правах — без учёта регистра.
+    # sAMAccountName / uid; сравнение прав — без учёта регистра.
     username = db.Column(db.String(128), unique=True, nullable=False, index=True)
     display_name = db.Column(db.String(255), nullable=False, default="")
     email = db.Column(db.String(255), nullable=True)
-    # Полный DN записи в каталоге, как его вернул LDAP. Для отладки и повторного поиска.
     ldap_dn = db.Column(db.String(512), nullable=True)
-    # True, если пользователь в группе LDAP_ADMIN_GROUP. Обновляется при каждом входе.
+    # Обновляется при каждом входе по членству в LDAP_ADMIN_GROUP.
     is_admin = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -41,11 +35,7 @@ class User(UserMixin, db.Model):
 
 
 class UserLdapGroup(db.Model):
-    """Группы LDAP на момент последнего входа.
-
-    Права на сектор можно выдать группе: при входе список обновляется,
-    и пользователь видит секторы, выданные любой из его групп.
-    """
+    """Группы LDAP на момент последнего входа (для прав на сектор)."""
 
     __tablename__ = "user_ldap_groups"
     __table_args__ = (
@@ -54,7 +44,7 @@ class UserLdapGroup(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    # CN группы, без полного DN. Сравнение без учёта регистра делается в authz.
+    # CN без DN; сравнение без регистра — в authz.
     group_name = db.Column(db.String(255), nullable=False, index=True)
 
     user = db.relationship("User", back_populates="ldap_groups")

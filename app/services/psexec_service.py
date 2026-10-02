@@ -1,28 +1,7 @@
-"""Удалённый запуск команды на Windows-машине из инвентаря.
+"""Удалённый запуск команды на Windows через pypsexec (SMB/ADMIN$).
 
-Сервис bAWH стоит на Debian. psexec.exe — программа Windows, её нельзя
-запустить на самом сервере приложения, поэтому она не является средой
-выполнения. Пример impacket.examples.psexec тоже не берём: вместе с ним
-подтягивается весь набор примеров Impacket. pypsexec — узкая библиотека
-запуска через службу SMB, её и вызываем.
-
-На целевой машине нужно:
-- открытый TCP 445;
-- общая папка ADMIN$;
-- учётная запись, которая входит в локальные администраторы этой машины.
-
-Учётка берётся у пользователя, который запустил команду. Если в его
-настройках поля PsExec пустые, используется вход на сайт. Пароль в базе —
-шифротекст Fernet, его пишет credential_service. Ключ FERNET_KEY остаётся
-в окружении процесса, в код, в шаблон и в script_runs он не попадает.
-
-Пароль живёт только в аргументе Client на время сессии. В лог и в текст
-исключения его не кладём. SMB-сессию всегда открывает учётка из настроек:
-без неё службу на ADMIN$ не создать. as_system=True передаёт
-use_system_account, и уже сам процесс на целевой машине идёт от
-NT AUTHORITY\\SYSTEM, а не от этой учётки и не от пользователя сайта.
-По умолчанию флаг выключен. Локальный shell на хосте Flask не
-открывается (shell=True нет): pypsexec сам по себе его не зовёт.
+Учётка — из настроек пользователя или входа на сайт (Fernet в БД).
+Пароль не пишется в лог; локальный shell=True не используется.
 """
 
 import base64
@@ -41,18 +20,12 @@ class RemoteExecError(RuntimeError):
     """Команду на удалённой машине выполнить нельзя. Текст безопасен для журнала."""
 
 
-# Сколько секунд сессия ждёт следующую команду, прежде чем закрыться сама.
+# Секунды простоя до автозакрытия SMB-сессии.
 SESSION_IDLE_SECONDS = 15 * 60
 
 
 class _RemoteSession:
-    """Одна SMB-сессия PsExec к компьютеру.
-
-    После команды сессия остаётся открытой: следующая команда с той же
-    учётки на тот же IP переиспользует её, а кнопка «Завершить сессию»
-    закрывает службу и SMB. «Остановить» бьёт в этот объект, пока
-    run_executable ещё читает канал.
-    """
+    """SMB-сессия к машине: reuse по IP+user, cancel бьёт в run_executable."""
 
     def __init__(self) -> None:
         self.cancel = threading.Event()
@@ -148,12 +121,6 @@ def was_cancelled(run_id: int) -> bool:
     return session is not None and session.cancel.is_set()
 
 
-def session_still_open(run_id: int) -> bool:
-    with _sessions_lock:
-        session = _sessions.get(run_id)
-    return session is not None and session.open
-
-
 def discard_if_closed(run_id: int) -> None:
     with _sessions_lock:
         session = _sessions.get(run_id)
@@ -172,11 +139,6 @@ def session_state(run_id: int, finished: bool) -> str:
         if finished or session.cancel.is_set():
             return "open"
         return "busy"
-
-
-def show_close_button(run_id: int, finished: bool) -> bool:
-    """Кнопка активна, когда сессия жива после остановки или после конца запуска."""
-    return session_state(run_id, finished) == "open"
 
 
 def reset_tracked_sessions() -> None:
@@ -273,9 +235,8 @@ def run_remote_script(
     if not script.strip():
         raise RemoteExecError("Текст скрипта пустой.")
     if kind == "powershell":
-        # EncodedCommand нужен только чтобы кавычки и переводы строк
-        # не развалили аргумент. Это не маскировка: в script_runs.command_text
-        # лежит исходный текст из библиотеки, а не эта base64-строка.
+        # EncodedCommand — чтобы кавычки/переводы строк не развалили аргумент;
+        # в script_runs.command_text лежит исходный текст, не эта base64.
         encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
         arguments = (
             "-NoProfile -NonInteractive -ExecutionPolicy Bypass "
@@ -292,8 +253,7 @@ def run_remote_script(
             run_id=run_id,
         )
     if kind == "cmd":
-        # Тело уходит аргументом удалённого cmd.exe. shell=False относится
-        # к локальному процессу; pypsexec локальный shell не использует.
+        # Аргумент удалённого cmd.exe; shell=False — локальный процесс без shell.
         return _run(
             checked_ip,
             "cmd.exe",
@@ -352,8 +312,7 @@ def _run(
         pipe_kwargs = {}
         if on_output is not None:
             pipe = _streaming_pipe(on_output, secret)
-            # pypsexec сам создаёт экземпляр и читает канал в отдельном потоке,
-            # поэтому строка попадает в журнал ещё до кода возврата.
+            # Канал читается в потоке pypsexec — строки в журнале до exit code.
             pipe_kwargs["stdout"] = pipe
             pipe_kwargs["stderr"] = pipe
         stdout, stderr, rc = client.run_executable(
@@ -384,8 +343,7 @@ def _run(
             and not session.cancel.is_set()
         )
         if keep_open:
-            # Команда кончилась, связь ещё нужна: кнопку «Завершить сессию»
-            # можно нажать, а следующая команда пойдёт по тому же SMB.
+            # Команда кончилась, SMB ещё нужен для «Завершить сессию» / next cmd.
             _arm_idle_close(session, run_id)
         elif session is not None and session.open:
             session.close()

@@ -1,10 +1,4 @@
-"""Общие куски моделей.
-
-TimestampMixin добавляет created_at / updated_at.
-onupdate срабатывает на стороне Python (ORM), когда SQLAlchemy
-делает UPDATE изменённого объекта. Отдельный триггер в PostgreSQL
-пока не нужен.
-"""
+"""TimestampMixin: created_at / updated_at (onupdate на стороне ORM)."""
 
 from app.extensions import db
 from app.utils import utcnow

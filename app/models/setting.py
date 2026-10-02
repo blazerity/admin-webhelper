@@ -1,15 +1,11 @@
-"""Ключ-значение для настроек и зашифрованная учётка PsExec.
+"""Ключ-значение настроек и зашифрованная учётка PsExec.
 
-app_settings — простые параметры вроде интервала опроса.
-remote_credentials — одна строка на пользователя сайта. Пароли только
-в виде шифротекста Fernet. Открытый пароль живёт в памяти на время
-вызова pypsexec.
+Пароли только как шифротекст Fernet; открытый — в памяти на время pypsexec.
 """
 
 from app.extensions import db
 from app.utils import utcnow
 
-# Ключ в app_settings. Читает settings_service.
 POLL_INTERVAL_KEY = "poll_interval_seconds"
 
 
@@ -22,12 +18,10 @@ class AppSetting(db.Model):
 
 
 class RemoteCredential(db.Model):
-    """Учётка PsExec одного пользователя сайта.
+    """Учётка PsExec одного пользователя сайта (одна строка на user_id).
 
-    user_id уникален: чужие логин и пароль эта строка не отдаёт.
-    Пустые username и password_encrypted значат «запуск от входа на сайт».
-    Пароль этого входа лежит в login_password_encrypted и обновляется
-    при каждом успешном LDAP-входе, форму PsExec он не затирает.
+    Пустые username/password_encrypted — запуск от входа на сайт
+    (login_password_encrypted обновляется при LDAP-логине).
     """
 
     __tablename__ = "remote_credentials"
@@ -41,7 +35,7 @@ class RemoteCredential(db.Model):
     )
     username = db.Column(db.String(128), nullable=False, default="")
     domain = db.Column(db.String(128), nullable=False, default="")
-    # Результат Fernet.encrypt, строка ASCII. Не пароль.
+    # Fernet.encrypt (ASCII), не пароль.
     password_encrypted = db.Column(db.Text, nullable=False, default="")
     login_password_encrypted = db.Column(db.Text, nullable=False, default="")
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)

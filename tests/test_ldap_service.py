@@ -183,7 +183,7 @@ def test_bad_bind_returns_none(app, monkeypatch, caplog):
 
 
 def test_netbios_domain_binds_as_down_level_name(app, monkeypatch):
-    """Короткое имя домена, как domain в AD Password Notifier, — это DOMAIN\\user."""
+    """Короткое NetBIOS-имя домена даёт bind как DOMAIN\\user."""
     _configure_ldap(app)
     app.config["LDAP_DOMAIN"] = "EXAMPLE"
     directory = _Directory(_admin_entry())
@@ -194,7 +194,7 @@ def test_netbios_domain_binds_as_down_level_name(app, monkeypatch):
 
 
 def test_ldap_url_does_not_keep_explicit_port(app, monkeypatch):
-    """ldap:// как в AD Password Notifier не должен оставаться на порту 636."""
+    """ldap:// URL не должен оставаться на явно заданном порту 636."""
     _configure_ldap(app)
     app.config["LDAP_HOST"] = "ldap://dc01.example.com/"
     app.config["LDAP_PORT"] = 636

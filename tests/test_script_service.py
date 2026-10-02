@@ -301,13 +301,14 @@ def test_successful_command_leaves_session_until_user_closes(app, admin_id):
         db.session.commit()
         with patch("pypsexec.client.Client", FakeClient):
             execute_run(app, run.id)
-        from app.services.script_service import run_session_open, close_run_session
+        from app.services.psexec_service import session_state
+        from app.services.script_service import close_run_session
 
         # Удачная команда не рвёт SMB сама: кнопку «Завершить сессию» можно нажать.
         assert attempts["remove"] == 0
-        assert run_session_open(run.id, True) is True
+        assert session_state(run.id, True) == "open"
         assert close_run_session(run.id) is True
-        assert run_session_open(run.id, True) is False
+        assert session_state(run.id, True) == "closed"
         assert attempts["remove"] == 1
 
 
@@ -348,11 +349,12 @@ def test_failed_close_keeps_the_session_button_active(app, admin_id):
         db.session.commit()
         with patch("pypsexec.client.Client", FakeClient):
             execute_run(app, run.id)
-        from app.services.script_service import close_run_session, run_session_open
+        from app.services.psexec_service import session_state
+        from app.services.script_service import close_run_session
 
-        assert run_session_open(run.id, True) is True
+        assert session_state(run.id, True) == "open"
         assert close_run_session(run.id) is True
-        assert run_session_open(run.id, True) is True
+        assert session_state(run.id, True) == "open"
 
 
 def test_next_command_reuses_the_open_session(app, admin_id):
@@ -410,10 +412,11 @@ def test_next_command_reuses_the_open_session(app, admin_id):
         assert len(created) == 1
         assert created[0].arguments == "/c whoami"
         assert created[0].removed is False
-        from app.services.script_service import close_run_session, run_session_open
+        from app.services.psexec_service import session_state
+        from app.services.script_service import close_run_session
 
-        assert run_session_open(first.id, True) is False
-        assert run_session_open(second.id, True) is True
+        assert session_state(first.id, True) == "closed"
+        assert session_state(second.id, True) == "open"
         assert close_run_session(second.id) is True
         assert created[0].removed is True
 

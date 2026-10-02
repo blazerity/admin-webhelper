@@ -1,15 +1,7 @@
-"""Вход и выход.
+"""Вход и выход через LDAP.
 
-Маршрут забирает форму, спрашивает каталог через ldap_service и открывает
-сессию Flask-Login. Пароль удачного входа шифруется и кладётся в строку
-этого пользователя: пустые поля PsExec запускают команду от этого входа.
-В шаблон и во flash пароль не попадает. Одинаковый ответ на неверный пароль
-и на недоступный каталог не даёт понять по ошибке, есть ли такая учётка.
-
-Имена эндпоинтов нельзя менять: на них ссылается меню и login_view.
-
-- login    GET/POST /login
-- logout   POST /logout
+Пароль удачного входа шифруется для PsExec-fallback. Одинаковый ответ
+на неверный пароль и недоступный каталог не раскрывает наличие учётки.
 """
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
@@ -23,13 +15,7 @@ bp = Blueprint("auth", __name__)
 
 
 def _safe_next_url() -> str:
-    """Куда вернуть человека после входа.
-
-    next приходит ссылкой со страницы, которая потребовала вход
-    (?next=/sectors/1). Берём его, только если это путь нашего сайта.
-    «//чужой.host» браузер откроет на другом хосте без схемы.
-    Адрес со схемой не начинается с одного слэша и тоже отбрасывается.
-    """
+    """Путь после входа: только относительный /..., без //host и схем."""
     target = request.args.get("next", "")
     if isinstance(target, str) and target.startswith("/") and not target.startswith("//"):
         return target
@@ -38,8 +24,7 @@ def _safe_next_url() -> str:
 
 @bp.route("/login", methods=["GET", "POST"])
 def login():
-    # Повторный заход не должен заново гонять пароль через LDAP
-    # и не должен уводить уже вошедшего по чужому next.
+    # Уже вошедший не гоняет LDAP и не уходит по чужому next.
     if current_user.is_authenticated:
         return redirect(url_for("devices.map"))
 
@@ -50,7 +35,7 @@ def login():
         if identity is None:
             flash("Неверное имя или пароль.", "danger")
             return render_template("auth/login.html")
-        # Сессия хранит id локальной строки. Пока её нет, login_user не к чему привязаться.
+        # Сессия Flask-Login хранит id локальной строки.
         user = upsert_local_user(identity)
         try:
             remember_login_password(user.id, password)
