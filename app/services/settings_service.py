@@ -6,10 +6,14 @@ APScheduler в scheduler_worker пересоздаёт интервал, про�
 
 Учётка WMI (discovery) — глобальная, одна на всё приложение.
 Пароль только как Fernet-шифротекст; ключ — FERNET_KEY в окружении.
+
+Sudo-пользователь для перезапуска служб после обновления — Linux-логин,
+от имени которого вызывается systemctl (sudo -u …). Пусто — как root.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from flask import current_app
@@ -24,10 +28,18 @@ MAX_POLL_SECONDS = 24 * 60 * 60
 DISCOVERY_USERNAME_KEY = "discovery_username"
 DISCOVERY_DOMAIN_KEY = "discovery_domain"
 DISCOVERY_PASSWORD_KEY = "discovery_password_encrypted"
+UPDATE_SUDO_USER_KEY = "update_sudo_user"
+
+# Как useradd: начинается с буквы/_, дальше буквы, цифры, _, -.
+_LINUX_USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 
 class DiscoveryCredentialsError(RuntimeError):
     """Нельзя сохранить учётку WMI в таком виде."""
+
+
+class UpdateSudoUserError(RuntimeError):
+    """Некорректное имя Linux-пользователя для sudo -u."""
 
 
 @dataclass(frozen=True)
@@ -145,6 +157,31 @@ def save_discovery_credentials(
     _set_setting(DISCOVERY_PASSWORD_KEY, token)
     db.session.commit()
     return get_discovery_credential_view()
+
+
+def get_update_sudo_user() -> str:
+    """Linux-пользователь для sudo -u при перезапуске служб после обновления.
+
+    Сначала app_settings, иначе UPDATE_SUDO_USER из окружения. Пустая
+    строка — sudo без -u (цель по умолчанию root).
+    """
+    stored = (_get_setting(UPDATE_SUDO_USER_KEY) or "").strip()
+    if stored:
+        return stored
+    return str(current_app.config.get("UPDATE_SUDO_USER") or "").strip()
+
+
+def set_update_sudo_user(value: str) -> str:
+    """Сохраняет sudo-пользователя. Пустое значение очищает ключ в БД."""
+    value = (value or "").strip()
+    if value and not _LINUX_USER.fullmatch(value):
+        raise UpdateSudoUserError(
+            "Sudo-пользователь: только латиница в нижнем регистре, цифры, "
+            "_ и - (как имя Linux-учётки), до 32 символов."
+        )
+    _set_setting(UPDATE_SUDO_USER_KEY, value)
+    db.session.commit()
+    return value
 
 
 def _get_setting(key: str) -> str | None:

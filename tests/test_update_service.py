@@ -24,6 +24,7 @@ from app.services.update_service import (
     perform_update,
     prune_backups,
     remote_head,
+    restart_command,
     validate_branch,
     validate_remote_url,
 )
@@ -92,6 +93,27 @@ def test_remote_url_must_be_public_https():
     for bad_branch in ("../main", "-delete", "feature//x", "/main"):
         with pytest.raises(UpdateError):
             validate_branch(bad_branch)
+
+
+def test_restart_command_includes_sudo_user():
+    assert restart_command("/usr/bin/systemctl") == [
+        "sudo",
+        "-n",
+        "/usr/bin/systemctl",
+        "restart",
+        "bawh-scheduler",
+        "bawh-web",
+    ]
+    assert restart_command("/usr/bin/systemctl", "root") == [
+        "sudo",
+        "-n",
+        "-u",
+        "root",
+        "/usr/bin/systemctl",
+        "restart",
+        "bawh-scheduler",
+        "bawh-web",
+    ]
 
 
 def test_backup_is_created_before_files_change(tmp_path, monkeypatch, no_side_effects):

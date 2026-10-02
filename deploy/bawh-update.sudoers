@@ -1,8 +1,10 @@
 # Перезапуск служб после кнопки «Обновить» в веб-интерфейсе.
-# Копировать в /etc/sudoers.d/ от root, не оставлять этот файл единственной копией правила:
+# Копировать в /etc/sudoers.d/ от root (install-debian12.sh делает это сам):
 #   sudo cp /opt/bawh/deploy/bawh-update.sudoers /etc/sudoers.d/bawh-update
 #   sudo chmod 440 /etc/sudoers.d/bawh-update
 #   sudo visudo -cf /etc/sudoers.d/bawh-update
 #
 # Путь systemctl должен совпасть с тем, что вызывает приложение: /usr/bin/systemctl.
+# Первый столбец — пользователь службы bawh-web (обычно bawh).
+# В скобках — цель sudo -u (Параметры → Sudo-пользователь; пусто или root → root).
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl restart bawh-scheduler bawh-web
