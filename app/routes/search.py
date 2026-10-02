@@ -1,9 +1,8 @@
 """Поиск устройств."""
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, request, url_for
 from flask_login import current_user, login_required
 
-from app.authz import accessible_sectors
 from app.services.search_service import search_devices, suggest_devices
 
 bp = Blueprint("search", __name__)
@@ -23,15 +22,15 @@ def _sector_id_from_args() -> int | None:
 @bp.get("/search")
 @login_required
 def search_page():
+    """Старый адрес поиска ведёт на карту с панелью поиска справа."""
+    args = {}
     query = (request.args.get("q") or "").strip()
     sector_id = _sector_id_from_args()
-    return render_template(
-        "search/search.html",
-        results=search_devices(current_user, query, sector_id=sector_id),
-        query=query,
-        sectors=accessible_sectors(current_user),
-        sector_id=sector_id,
-    )
+    if query:
+        args["q"] = query
+    if sector_id is not None:
+        args["sector_id"] = sector_id
+    return redirect(url_for("devices.map", **args))
 
 
 @bp.get("/search/suggest")
@@ -39,3 +38,27 @@ def search_page():
 def suggest():
     query = request.args.get("q") or ""
     return jsonify(suggest_devices(current_user, query))
+
+
+@bp.get("/search/api")
+@login_required
+def search_api():
+    """JSON для боковой панели поиска на карте сети."""
+    query = (request.args.get("q") or "").strip()
+    sector_id = _sector_id_from_args()
+    devices = search_devices(current_user, query, sector_id=sector_id)
+    return jsonify(
+        [
+            {
+                "id": device.id,
+                "ip": device.ip,
+                "hostname": device.hostname,
+                "mac": device.mac,
+                "status": device.last_status,
+                "kind": device.kind,
+                "sector": device.sector.name if device.sector else "",
+                "url": url_for("devices.detail", device_id=device.id),
+            }
+            for device in devices
+        ]
+    )

@@ -1,19 +1,22 @@
 {% extends "base.html" %}
 {% from "macros/status.html" import status_badge %}
 {% block title %}{{ pc_name }} — {{ started_label }}{% endblock %}
+{% block main_class %}app-main-wide{% endblock %}
 {% block content %}
 {% if not run %}
-<p>Запуск не найден.</p>
+<div class="panel content-card"><p class="mb-0">Запуск не найден.</p></div>
 {% else %}
-{% if run.device %}
-<p class="mb-2">
-  <a class="btn btn-outline-primary" href="{{ url_for('devices.detail', device_id=run.device.id) }}">Вернуться к компьютеру</a>
-</p>
-{% endif %}
-<h1 class="h3 mb-1">{{ pc_name }} — {{ started_label }}</h1>
-<p class="text-muted mb-3">{{ run_type_label }}{% if run.script %} · {{ run.script.name }}{% endif %}</p>
+<div class="page-header">
+  <div>
+    {% if run.device %}
+    <p class="mb-1"><a class="btn btn-outline-primary btn-sm" href="{{ url_for('devices.detail', device_id=run.device.id) }}">Вернуться к компьютеру</a></p>
+    {% endif %}
+    <h1 class="page-title">{{ pc_name }} — {{ started_label }}</h1>
+    <p class="page-subtitle">{{ run_type_label }}{% if run.script %} · {{ run.script.name }}{% endif %}</p>
+  </div>
+</div>
 
-<div class="row g-4">
+<div class="row g-3">
   <div class="col-lg-8">
     <div class="d-flex flex-wrap gap-2 mb-2">
       <form method="post" action="{{ url_for('scripts.cancel_run', run_id=run.id) }}" class="d-inline">
@@ -22,7 +25,7 @@
       </form>
       <form method="post" action="{{ url_for('scripts.close_run_session', run_id=run.id) }}" class="d-inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-secondary" id="run-close-session" type="submit" {% if not session_open %}disabled{% endif %}>Завершить сессию</button>
+        <button class="btn btn-ghost" id="run-close-session" type="submit" {% if not session_open %}disabled{% endif %}>Завершить сессию</button>
       </form>
     </div>
     <p class="small text-muted" id="run-session-hint" data-closed-hint="{{ session_hint_closed }}">{{ session_hint }}</p>
@@ -46,84 +49,92 @@
   </div>
 
   <div class="col-lg-4">
-    <h2 class="h6">Подключение</h2>
-    <dl class="row small mb-0">
-      <dt class="col-5">Компьютер</dt>
-      <dd class="col-7">{{ pc_name }}</dd>
-      <dt class="col-5">IP</dt>
-      <dd class="col-7">{{ run.device.ip if run.device else '—' }}</dd>
-      <dt class="col-5">MAC</dt>
-      <dd class="col-7">{{ run.device.mac if run.device and run.device.mac else '—' }}</dd>
-      <dt class="col-5">Сектор</dt>
-      <dd class="col-7">{{ run.device.sector.name if run.device and run.device.sector else '—' }}</dd>
-      <dt class="col-5">Доступность</dt>
-      <dd class="col-7">{% if run.device %}{{ status_badge(run.device.last_status) }}{% else %}—{% endif %}</dd>
-      <dt class="col-5">Последний ответ</dt>
-      <dd class="col-7">
-        {% if run.device %}
-          {{ run.device.last_seen|dt }}{% if run.device.last_response_time_ms is not none %} ({{ run.device.last_response_time_ms }} мс){% endif %}
-        {% else %}—{% endif %}
-      </dd>
-      <dt class="col-5">Статус</dt>
-      <dd class="col-7"><span id="run-status">{{ status_label }}</span></dd>
-      <dt class="col-5">Код выхода</dt>
-      <dd class="col-7" id="run-exit-code">{{ run.exit_code if run.exit_code is not none else '—' }}</dd>
-      <dt class="col-5">Начало</dt>
-      <dd class="col-7">{{ started_label }}</dd>
-      <dt class="col-5">Окончание</dt>
-      <dd class="col-7" id="run-finished-at">{{ finished_label if run.finished_at else '—' }}</dd>
-      <dt class="col-5">Кто запустил</dt>
-      <dd class="col-7">{{ launched_by }}</dd>
-      {% if run.run_type == 'script' %}
-      <dt class="col-5">Процесс</dt>
-      <dd class="col-7">{% if run.run_as == 'system' %}NT AUTHORITY\SYSTEM{% else %}учётка PsExec{% endif %}</dd>
+    <div class="panel content-card">
+      <h2 class="panel-title mb-3">Подключение</h2>
+      <dl class="meta-list small">
+        <dt>Компьютер</dt>
+        <dd>{{ pc_name }}</dd>
+        <dt>IP</dt>
+        <dd>{{ run.device.ip if run.device else '—' }}</dd>
+        <dt>MAC</dt>
+        <dd>{{ run.device.mac if run.device and run.device.mac else '—' }}</dd>
+        <dt>Сектор</dt>
+        <dd>{{ run.device.sector.name if run.device and run.device.sector else '—' }}</dd>
+        <dt>Доступность</dt>
+        <dd>{% if run.device %}{{ status_badge(run.device.last_status) }}{% else %}—{% endif %}</dd>
+        <dt>Последний ответ</dt>
+        <dd>
+          {% if run.device %}
+            {{ run.device.last_seen|dt }}{% if run.device.last_response_time_ms is not none %} ({{ run.device.last_response_time_ms }} мс){% endif %}
+          {% else %}—{% endif %}
+        </dd>
+        <dt>Статус</dt>
+        <dd><span id="run-status">{{ status_label }}</span></dd>
+        <dt>Код выхода</dt>
+        <dd id="run-exit-code">{{ run.exit_code if run.exit_code is not none else '—' }}</dd>
+        <dt>Начало</dt>
+        <dd>{{ started_label }}</dd>
+        <dt>Окончание</dt>
+        <dd id="run-finished-at">{{ finished_label if run.finished_at else '—' }}</dd>
+        <dt>Кто запустил</dt>
+        <dd>{{ launched_by }}</dd>
+        {% if run.run_type == 'script' %}
+        <dt>Процесс</dt>
+        <dd>{% if run.run_as == 'system' %}NT AUTHORITY\SYSTEM{% else %}учётка PsExec{% endif %}</dd>
+        {% endif %}
+        {% if account_label %}
+        <dt>Учётка SMB</dt>
+        <dd>{{ account_label }}</dd>
+        {% endif %}
+      </dl>
+      {% if run.command_text %}
+      <h2 class="panel-title mt-3 mb-2">Что запущено</h2>
+      <pre class="small border rounded p-2 mb-0 command-preview bg-white">{{ run.command_text[:500] }}{% if run.command_text|length > 500 %}…{% endif %}</pre>
       {% endif %}
-      {% if account_label %}
-      <dt class="col-5">Учётка SMB</dt>
-      <dd class="col-7">{{ account_label }}</dd>
-      {% endif %}
-    </dl>
-    {% if run.command_text %}
-    <h2 class="h6 mt-3">Что запущено</h2>
-    <pre class="small bg-light border rounded p-2 mb-0 command-preview">{{ run.command_text[:500] }}{% if run.command_text|length > 500 %}…{% endif %}</pre>
-    {% endif %}
+    </div>
   </div>
 </div>
 
-<h2 class="h5 mt-4">Что запускали на этом компьютере</h2>
-{% if history %}
-<div class="table-responsive">
-  <table class="table table-sm align-middle">
-    <thead>
-      <tr><th>Время</th><th>Запуск</th><th>Статус</th></tr>
-    </thead>
-    <tbody>
-      {% for item in history %}
-      <tr {% if item.run.id == run.id %}class="table-active"{% endif %}>
-        <td class="text-nowrap">{{ item.when }}</td>
-        <td>
-          <a href="{{ url_for('scripts.run_detail', run_id=item.run.id) }}">{{ item.label }}</a>
-        </td>
-        <td>{{ item.status_label }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="panel content-card p-0 overflow-hidden mt-3">
+  <div class="px-3 pt-3">
+    <h2 class="h5 mb-2">Что запускали на этом компьютере</h2>
+  </div>
+  {% if history %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr><th>Время</th><th>Запуск</th><th>Статус</th></tr>
+      </thead>
+      <tbody>
+        {% for item in history %}
+        <tr {% if item.run.id == run.id %}class="table-active"{% endif %}>
+          <td class="text-nowrap">{{ item.when }}</td>
+          <td>
+            <a href="{{ url_for('scripts.run_detail', run_id=item.run.id) }}">{{ item.label }}</a>
+          </td>
+          <td>{{ item.status_label }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted px-3 pb-3 mb-0">На этом компьютере ещё ничего не запускали.</p>
+  {% endif %}
 </div>
-{% else %}
-<p class="text-muted">На этом компьютере ещё ничего не запускали.</p>
-{% endif %}
 
 {% if batch_runs|default([]) %}
-<h2 class="h5 mt-4">Другие компьютеры этой пачки</h2>
-<ul>
-  {% for other in batch_runs %}
-  <li>
-    <a href="{{ url_for('scripts.run_detail', run_id=other.id) }}">{{ other.device.hostname or other.device.ip if other.device else 'компьютер' }}</a>
-    — {{ other.device.ip if other.device else '—' }}, {{ other.status }}
-  </li>
-  {% endfor %}
-</ul>
+<div class="panel content-card mt-3">
+  <h2 class="h5 mb-2">Другие компьютеры этой пачки</h2>
+  <ul class="mb-0">
+    {% for other in batch_runs %}
+    <li>
+      <a href="{{ url_for('scripts.run_detail', run_id=other.id) }}">{{ other.device.hostname or other.device.ip if other.device else 'компьютер' }}</a>
+      — {{ other.device.ip if other.device else '—' }}, {{ other.status }}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
 {% endif %}
 {% endif %}
 {% endblock %}
