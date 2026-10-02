@@ -15,9 +15,26 @@
 
 {% if not sectors %}
 <div class="panel">
-  <p class="text-muted mb-0">Нет секторов, которые вам доступны. Администратор создаёт их в разделе «Настройки → Сектора».</p>
+  <p class="text-muted mb-0">Нет секторов, которые вам доступны. Администратор создаёт их в «Настройки → Сектора».</p>
 </div>
 {% else %}
+<div
+  class="map-summary"
+  id="map-summary"
+  data-summary-url="/api/network/summary"
+  aria-live="polite"
+>
+  <p class="map-summary-status" id="map-summary-status">Загрузка сводки сети…</p>
+  <div class="map-summary-metrics d-none" id="map-summary-metrics">
+    <span class="map-summary-item"><span class="map-summary-label">Онлайн</span> <strong data-summary="online">—</strong></span>
+    <span class="map-summary-item"><span class="map-summary-label">Офлайн</span> <strong data-summary="offline">—</strong></span>
+    <span class="map-summary-item"><span class="map-summary-label">Неизвестно</span> <strong data-summary="unknown">—</strong></span>
+    <span class="map-summary-item"><span class="map-summary-label">Всего</span> <strong data-summary="total">—</strong></span>
+    <span class="map-summary-item"><span class="map-summary-label">Последний опрос</span> <strong data-summary="last-poll">—</strong></span>
+    <span class="map-summary-item"><span class="map-summary-label">Сбои скриптов 24ч</span> <strong data-summary="failed-scripts">—</strong></span>
+  </div>
+</div>
+
 <div class="map-layout">
   <div class="map-search panel" aria-label="Поиск по сети">
     <div class="map-search-inner">
@@ -25,16 +42,35 @@
         <h2 class="panel-title">Поиск</h2>
         <p class="panel-hint">IP, MAC, имя или серийный номер</p>
       </div>
-      <form class="map-search-form" id="map-search-form" method="get" action="{{ url_for('devices.map') }}" data-api-url="{{ url_for('search.search_api') }}">
-        <label class="visually-hidden" for="map-search-q">Запрос</label>
-        <input
-          class="form-control form-control-lg map-search-input"
-          id="map-search-q"
-          name="q"
-          value="{{ search_query }}"
-          placeholder="Например NBOOK или 10.0.0"
-          autocomplete="off"
-        >
+      <form
+        class="map-search-form"
+        id="map-search-form"
+        method="get"
+        action="{{ url_for('devices.map') }}"
+        data-suggest-url="/search/suggest"
+        data-api-url="{{ url_for('search.search_api') }}"
+      >
+        <div class="map-search-field">
+          <label class="visually-hidden" for="map-search-q">Запрос</label>
+          <input
+            class="form-control form-control-lg map-search-input"
+            id="map-search-q"
+            name="q"
+            value="{{ search_query }}"
+            placeholder="Например NBOOK или 10.0.0"
+            autocomplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="map-search-suggest"
+            aria-expanded="false"
+          >
+          <div
+            class="map-search-suggest d-none"
+            id="map-search-suggest"
+            role="listbox"
+            aria-label="Подсказки поиска"
+          ></div>
+        </div>
         <label class="visually-hidden" for="map-search-sector">Сектор</label>
         <select class="form-select" id="map-search-sector" name="sector_id">
           <option value="">Все секторы</option>

@@ -11,9 +11,101 @@
   const resetBtn = document.getElementById("map-filters-reset");
   const refreshStatus = document.getElementById("map-refresh-status");
   const filtersEmpty = document.getElementById("map-filters-empty");
+  const summaryRoot = document.getElementById("map-summary");
+  const summaryStatus = document.getElementById("map-summary-status");
+  const summaryMetrics = document.getElementById("map-summary-metrics");
 
   if (!mapRoot || !filtersRoot) {
     return;
+  }
+
+  function formatPollStamp(lastPoll) {
+    if (!lastPoll) {
+      return "нет данных";
+    }
+    const raw = lastPoll.finished_at || lastPoll.started_at;
+    if (!raw) {
+      return lastPoll.mode || "нет данных";
+    }
+    const stamp = new Date(raw);
+    if (Number.isNaN(stamp.getTime())) {
+      return String(raw);
+    }
+    const time = stamp.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const mode = lastPoll.mode ? ` · ${lastPoll.mode}` : "";
+    return `${time}${mode}`;
+  }
+
+  function setSummaryText(key, value) {
+    if (!summaryMetrics) return;
+    const el = summaryMetrics.querySelector(`[data-summary="${key}"]`);
+    if (el) {
+      el.textContent = value;
+    }
+  }
+
+  function renderSummary(payload) {
+    if (!summaryRoot || !summaryStatus || !summaryMetrics) {
+      return;
+    }
+    setSummaryText("online", String(payload.devices_online ?? "—"));
+    setSummaryText("offline", String(payload.devices_offline ?? "—"));
+    setSummaryText("unknown", String(payload.devices_unknown ?? "—"));
+    setSummaryText("total", String(payload.devices_total ?? "—"));
+    setSummaryText("last-poll", formatPollStamp(payload.last_poll));
+    setSummaryText(
+      "failed-scripts",
+      String(payload.failed_script_runs_24h ?? "—")
+    );
+    summaryMetrics.classList.remove("d-none");
+    summaryStatus.classList.add("d-none");
+    summaryRoot.classList.remove("is-empty", "is-error");
+  }
+
+  function renderSummaryEmpty(message, isError) {
+    if (!summaryRoot || !summaryStatus || !summaryMetrics) {
+      return;
+    }
+    summaryMetrics.classList.add("d-none");
+    summaryStatus.classList.remove("d-none");
+    summaryStatus.textContent = message;
+    summaryRoot.classList.toggle("is-error", Boolean(isError));
+    summaryRoot.classList.toggle("is-empty", !isError);
+  }
+
+  async function refreshSummary() {
+    if (!summaryRoot) {
+      return;
+    }
+    const url = summaryRoot.dataset.summaryUrl || "/api/network/summary";
+    try {
+      const response = await fetch(url, {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      if (
+        payload == null ||
+        (payload.devices_total == null &&
+          payload.devices_online == null &&
+          !payload.last_poll)
+      ) {
+        renderSummaryEmpty("Сводка сети пока пуста.", false);
+        return;
+      }
+      renderSummary(payload);
+    } catch (_err) {
+      renderSummaryEmpty(
+        "Сводка сети недоступна — карта работает без неё.",
+        true
+      );
+    }
   }
 
   /** @type {Set<string>|null} null — поиск неактивен; Set — показывать только эти id */
@@ -206,5 +298,7 @@
   };
 
   applyFilters();
+  refreshSummary();
   window.setInterval(refreshStatuses, REFRESH_MS);
+  window.setInterval(refreshSummary, REFRESH_MS * 4);
 })();
