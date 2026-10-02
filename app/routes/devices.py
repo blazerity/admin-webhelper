@@ -1,14 +1,22 @@
 """Карта сети и карточка устройства."""
 
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
-from app.authz import accessible_sectors, get_visible_device_or_404
-from app.models import DeviceHistory, RunType, ScriptRun, Sector
+from app.authz import (
+    accessible_sectors,
+    admin_required,
+    get_visible_device_or_404,
+)
+from app.extensions import db
+from app.models import DeviceHistory, RunType, Script, ScriptRun, Sector
 from app.run_display import run_launch_label, run_status_label, run_when_label
 from app.services.account_service import device_account_sightings
+from app.services.command_presets import list_command_presets
+from app.services.network_summary_service import get_network_summary
 from app.services.search_service import search_devices
+from app.services import script_service
 from app.utils import parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
@@ -98,6 +106,20 @@ def map_status():
     )
 
 
+@bp.get("/api/network/summary")
+@login_required
+def network_summary():
+    """Сводка сети для карты: счётчики видимых устройств и последний опрос."""
+    return jsonify(get_network_summary(current_user))
+
+
+@bp.get("/api/command-presets")
+@admin_required
+def command_presets_api():
+    """JSON пресетов удалённых команд (источник истины — services.command_presets)."""
+    return jsonify({"presets": list_command_presets()})
+
+
 def _list_limit() -> tuple[int, bool]:
     """(limit, show_all) — по умолчанию 5, при all=1 — расширенный список."""
     show_all = (request.args.get("all") or "").strip() in {"1", "true", "yes"}
@@ -178,6 +200,12 @@ def detail(device_id: int):
         has_more = (not show_all) and len(rows) > limit
         account_rows = rows[:limit]
 
+    # Пресеты всегда в context; библиотека скриптов — только admin.
+    command_presets = list_command_presets()
+    scripts = (
+        Script.query.order_by(Script.name).all() if current_user.is_admin else []
+    )
+
     return render_template(
         "devices/detail.html",
         device=device,
@@ -188,4 +216,38 @@ def detail(device_id: int):
         history=history,
         launches=launches,
         account_rows=account_rows,
+        command_presets=command_presets,
+        scripts=scripts,
     )
+
+
+@bp.post("/devices/<int:device_id>/scripts/run")
+@admin_required
+def run_script_on_device(device_id: int):
+    """Быстрый запуск скрипта с карточки устройства → detail первого run."""
+    device = get_visible_device_or_404(device_id)
+    script_id = parse_optional_int(request.form.get("script_id"))
+    if script_id is None:
+        flash("Выберите скрипт.", "warning")
+        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+
+    script = db.session.get(Script, script_id)
+    if script is None:
+        flash("Скрипт не найден.", "danger")
+        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+    if script.target_os == "linux" or script.interpreter == "bash":
+        flash(
+            "Удалённый Linux в v1 не реализован: PsExec работает только с Windows.",
+            "danger",
+        )
+        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+
+    try:
+        runs = script_service.start_script_on_devices(script, current_user, [device])
+    except script_service.ScriptError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+    if not runs:
+        flash("Не удалось запустить скрипт.", "danger")
+        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+    return redirect(url_for("scripts.run_detail", run_id=runs[0].id))

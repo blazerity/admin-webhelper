@@ -23,25 +23,35 @@ def search_page():
     return redirect(url_for("devices.map", **args))
 
 
+def _search_json_payload():
+    """Общий JSON для /search/api и alias /search/suggest."""
+    query = (request.args.get("q") or "").strip()
+    sector_id = parse_optional_int(request.args.get("sector_id"))
+    devices = search_devices(current_user, query, sector_id=sector_id)
+    return [
+        {
+            "id": device.id,
+            "ip": device.ip,
+            "hostname": device.hostname,
+            "mac": device.mac,
+            "status": device.last_status,
+            "kind": device.kind,
+            "sector": device.sector.name if device.sector else "",
+            "url": url_for("devices.detail", device_id=device.id),
+        }
+        for device in devices
+    ]
+
+
 @bp.get("/search/api")
 @login_required
 def search_api():
     """JSON для поиска на карте сети (список и фильтр секторов)."""
-    query = (request.args.get("q") or "").strip()
-    sector_id = parse_optional_int(request.args.get("sector_id"))
-    devices = search_devices(current_user, query, sector_id=sector_id)
-    return jsonify(
-        [
-            {
-                "id": device.id,
-                "ip": device.ip,
-                "hostname": device.hostname,
-                "mac": device.mac,
-                "status": device.last_status,
-                "kind": device.kind,
-                "sector": device.sector.name if device.sector else "",
-                "url": url_for("devices.detail", device_id=device.id),
-            }
-            for device in devices
-        ]
-    )
+    return jsonify(_search_json_payload())
+
+
+@bp.get("/search/suggest")
+@login_required
+def search_suggest():
+    """Alias /search/api для autocomplete на карте (A2)."""
+    return jsonify(_search_json_payload())
