@@ -23,6 +23,7 @@ flowchart TB
     R_DEV["devices · search · diagnostics"]
     R_ACC["accounts · actions"]
     R_SEC["sectors"]
+    R_LOGIN["login_services"]
     R_SCR["scripts"]
     R_PWD["password_expiry"]
     R_ADM["admin"]
@@ -34,14 +35,14 @@ flowchart TB
     S_ID["ldap_service · credential_service · crypto_service"]
     S_RUN["script_service · psexec_service"]
     S_PWD["password_expiry_service · password_ad_client · password_mailer"]
-    S_OTH["sector_service · search_service · settings_service · update_service · log_archive_service · net_utils"]
+    S_OTH["sector_service · login_service_status · search_service · settings_service · update_service · log_archive_service · net_utils"]
   end
 
   subgraph data["models/ + PostgreSQL"]
     M_USER["users · user_ldap_groups · remote_credentials"]
     M_NET["sectors · sector_ranges · sector_access · devices · device_history"]
     M_ACC["endpoint_accounts · device_account_history · action_kinds"]
-    M_SCR["scripts · script_runs · app_settings"]
+    M_SCR["scripts · script_runs · app_settings · login_services"]
     M_PWD["password_notifications · password_expiry_runs"]
   end
 
@@ -116,7 +117,7 @@ bAWH/
   app/
     __init__.py · config.py · extensions.py · authz.py · utils.py
     models/ · services/ · routes/ · templates/ · static/
-  migrations/versions/   # Alembic, сейчас до 0006_password_expiry
+  migrations/versions/   # Alembic, сейчас до 0007_login_services
   tests/
   deploy/                # Debian 12: systemd, Nginx, install script
   docs/ARCHITECTURE.md   # этот файл

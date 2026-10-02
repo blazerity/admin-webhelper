@@ -7,12 +7,21 @@
 """
 
 import ipaddress
+import re
+import socket
 
 from flask import current_app
 
 
 class NetworkInputError(ValueError):
     """Понятная ошибка для формы: что не так с введённым диапазоном."""
+
+
+# Одно имя или FQDN: метки из букв/цифр/дефиса, без пробелов и shell-символов.
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
+    r"(?:\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$"
+)
 
 
 def min_cidr_prefix() -> int:
@@ -102,6 +111,45 @@ def assert_public_ipv4(ip: str) -> str:
     if not isinstance(address, ipaddress.IPv4Address):
         raise NetworkInputError("Пока поддерживается только IPv4.")
     return str(address)
+
+
+def assert_host_or_ipv4(value: str) -> str:
+    """IPv4 или DNS-имя (короткое / FQDN). Возвращает нормализованную строку."""
+    raw = (value or "").strip().rstrip(".")
+    if not raw:
+        raise NetworkInputError("Укажите IP или DNS-имя.")
+    try:
+        return assert_public_ipv4(raw)
+    except NetworkInputError:
+        pass
+    if not _HOSTNAME_RE.match(raw):
+        raise NetworkInputError(f"Некорректный IP или DNS-имя: {value}")
+    return raw.lower()
+
+
+def resolve_to_ipv4(host: str, timeout_s: float = 2.0) -> str:
+    """Резолвит IP или DNS-имя в один IPv4 для последующего ping.
+
+    DNS-имя сначала проходит assert_host_or_ipv4, чтобы в getaddrinfo
+    не ушла строка с посторонними символами.
+    """
+    target = assert_host_or_ipv4(host)
+    try:
+        ipaddress.IPv4Address(target)
+        return target
+    except ValueError:
+        pass
+    previous = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(timeout_s)
+        infos = socket.getaddrinfo(target, None, socket.AF_INET, socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise NetworkInputError(f"Не удалось разрешить имя: {target}") from exc
+    finally:
+        socket.setdefaulttimeout(previous)
+    if not infos:
+        raise NetworkInputError(f"Не удалось разрешить имя: {target}")
+    return assert_public_ipv4(infos[0][4][0])
 
 
 def normalize_mac(value: str | None) -> str | None:

@@ -41,11 +41,11 @@ bAWH/
 
 `app/authz.py`: администратор видит всё; обычный пользователь — секторы по логину/LDAP-группе; `script_runs` — автор или доступное устройство (`user_can_see_script_run`).
 
-Сборка одна: `create_app()` в `app/__init__.py`. Её вызывают веб-процесс, тесты и процесс опроса. Проверка «процесс жив» — `GET /health` (без входа, ответ `{"status": "ok"}`).
+Сборка одна: `create_app()` в `app/__init__.py`. Её вызывают веб-процесс, тесты и процесс опроса. Проверка «процесс жив» — `GET /health` (без входа, ответ `{"status": "ok"}`). Доступность сервисов компании на экране входа — `GET /api/login-services/status`.
 
 ### Модели
 
-Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0005_accounts_actions`).
+Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0007_login_services`).
 
 Справочники и журналы разделены:
 
@@ -57,16 +57,18 @@ bAWH/
 - `scripts`, `script_runs` — библиотека скриптов и журнал запусков (скрипт, ping, tracert, команда). У скрипта есть `run_as`: учётка PsExec или `NT AUTHORITY\SYSTEM`.
 - `app_settings` — параметры вроде интервала опроса.
 - `password_notifications`, `password_expiry_runs` — история писем о сроке пароля и снимки прогонов.
+- `login_services` — сервисы компании для блока доступности на экране входа (имя + IP/FQDN).
 - `remote_credentials` — учётка PsExec **на каждого пользователя сайта**; пароли только шифротекстом Fernet. Пустые поля формы означают запуск от входа на сайт (пароль входа тоже хранится зашифрованным).
 
 ### Сервисы
 
-- `net_utils.py` — разбор IP/CIDR и MAC: `parse_range`, `expand_ranges`, `normalize_mac`.
+- `net_utils.py` — разбор IP/CIDR и MAC: `parse_range`, `expand_ranges`, `normalize_mac`, `assert_host_or_ipv4`, `resolve_to_ipv4`.
 - `crypto_service.py` — Fernet: `encrypt`, `decrypt`.
 - `credential_service.py` — учётка удалённого запуска для конкретного пользователя: `get_remote_admin_credentials`, `save_remote_admin_credentials`, `remember_login_password`.
 - `settings_service.py` — интервал опроса: `get_poll_interval_seconds`, `set_poll_interval_seconds`.
 - `ldap_service.py` — проверка пароля в LDAP и список групп.
 - `sector_service.py` — создание и правка секторов.
+- `login_service_status.py` — CRUD сервисов экрана входа и ICMP-проверка для публичного статуса.
 - `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
 - `discovery_service.py` — обратный DNS, MAC из ARP/WMI, серийник и текущая УЗ по WMI (`DISCOVERY_*` в `.env`).
 - `account_service.py` — справочник `endpoint_accounts`, разбор/нормализация `DOMAIN\user`, upsert с защитой от гонки, запись появлений УЗ.
@@ -94,6 +96,7 @@ bAWH/
 | `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>` (лог, отмена) |
 | `admin.py` | `GET/POST /admin/settings` — учётка PsExec текущего пользователя и интервал опроса; `GET/POST /admin/updates` — обновление из git и откат |
 | `password_expiry.py` | `/password-expiry` — отчёт (пункт верхнего меню); `/password-expiry/settings` — bind/SMTP/пороги в «Настройки» (админы) |
+| `login_services.py` | `/login-services` — сервисы для панели доступности на `/login` (админы); `GET /api/login-services/status` — публичный JSON (online + ms) |
 
 `POST /login` проверяет пароль в LDAP и сохраняет зашифрованный пароль входа для возможного PsExec. Ping и трассировка стартуют с сервера приложения; команда и скрипт — через `psexec_service`. Страница `/scripts/runs/<id>` дочитывает лог опросом раз в 1,5 секунды.
 
