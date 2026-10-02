@@ -1,7 +1,6 @@
 """Справочник УЗ на конечных точках и журнал появлений.
 
-users — кто вошёл на сайт bAWH.
-endpoint_accounts — AD/локальные учётки, которых видели на ПК.
+users — операторы сайта. endpoint_accounts — AD/локальные учётки на ПК.
 device_account_history — факты «УЗ замечена на устройстве».
 """
 
@@ -23,10 +22,8 @@ class EndpointAccount(db.Model):
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    # sAMAccountName / локальный логин, всегда lower-case.
-    username = db.Column(db.String(128), nullable=False, index=True)
-    # NetBIOS/DNS-домен или пустая строка для локальной УЗ; upper-case.
-    domain = db.Column(db.String(128), nullable=False, default="", index=True)
+    username = db.Column(db.String(128), nullable=False, index=True)  # lower-case
+    domain = db.Column(db.String(128), nullable=False, default="", index=True)  # NetBIOS upper
     display_name = db.Column(db.String(255), nullable=False, default="")
     email = db.Column(db.String(255), nullable=True)
     ldap_dn = db.Column(db.String(512), nullable=True)
@@ -46,7 +43,6 @@ class EndpointAccount(db.Model):
 
     @property
     def account_key(self) -> str:
-        """DOMAIN\\user или user, если домена нет."""
         if self.domain:
             return f"{self.domain}\\{self.username}"
         return self.username
@@ -85,7 +81,6 @@ class DeviceAccountHistory(db.Model):
     )
     seen_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, index=True)
     session_type = db.Column(db.String(32), nullable=False, default=SessionType.UNKNOWN)
-    # Как вернул WMI / quser — для отладки и аудита.
     raw_value = db.Column(db.String(255), nullable=False, default="")
 
     device = db.relationship("Device", back_populates="account_history")

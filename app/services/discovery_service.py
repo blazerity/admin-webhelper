@@ -295,8 +295,8 @@ def _wmi_query_serial(services) -> str | None:
 def _wmi_query_logged_on_user(services) -> str | None:
     """SELECT UserName FROM Win32_ComputerSystem — интерактивная УЗ.
 
-    Пустая строка типична для серверов без консольного входа или
-    когда сессия заблокирована без владельца — возвращаем None.
+    None — пусто/нет консольной сессии. Вызывающий (_wmi_inventory)
+    превращает это в "" (успешный WMI, никто не залогинен).
     """
     enum_obj = services.ExecQuery("SELECT UserName FROM Win32_ComputerSystem")
     try:

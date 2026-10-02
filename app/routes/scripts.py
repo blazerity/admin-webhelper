@@ -12,7 +12,7 @@ from app.authz import (
     admin_required,
     get_visible_device_or_404,
     get_visible_sector_or_404,
-    user_can_access_device,
+    user_can_see_script_run,
 )
 from app.extensions import db
 from app.models import Device, RunStatus, RunType, Script, ScriptRun, Sector
@@ -85,14 +85,6 @@ def _optional_int(field: str) -> int | None:
         return None
 
 
-def _viewer_can_see(run: ScriptRun) -> bool:
-    if getattr(current_user, "is_admin", False):
-        return True
-    if run.user_id is not None and run.user_id == current_user.id:
-        return True
-    return user_can_access_device(current_user, run.device)
-
-
 def _format_dt(value) -> str:
     if not value:
         return "—"
@@ -163,7 +155,7 @@ def _device_history(run: ScriptRun) -> list[dict]:
             "when": _format_dt(item.started_at),
         }
         for item in rows
-        if _viewer_can_see(item)
+        if user_can_see_script_run(current_user, item)
     ]
 
 
@@ -177,7 +169,7 @@ def _run_for_viewer(run_id: int) -> ScriptRun:
     run = db.session.get(ScriptRun, run_id)
     if run is None:
         abort(404)
-    if not _viewer_can_see(run):
+    if not user_can_see_script_run(current_user, run):
         abort(403)
     return run
 
@@ -295,7 +287,7 @@ def run_detail(run_id: int):
             .order_by(ScriptRun.id)
             .all()
         )
-        batch_runs = [item for item in siblings if _viewer_can_see(item)]
+        batch_runs = [item for item in siblings if user_can_see_script_run(current_user, item)]
     finished = run.status in RunStatus.FINISHED
     state = script_service.run_session_state(run.id, finished)
     return render_template(

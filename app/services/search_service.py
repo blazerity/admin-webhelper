@@ -13,17 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.authz import accessible_sector_ids
 from app.models import Device
-
-
-def _like_pattern(text: str) -> str:
-    """Подстрока для ILIKE: экранирует % _ \\ и сама добавляет звёздочки.
-
-    В LIKE знак % — это «любой хвост», _ — «один любой символ».
-    Если их не экранировать, запрос «10%» найдёт каждый адрес на 10.
-    Сначала экранируется сам обратный слэш, иначе он «съест» следующий знак.
-    """
-    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
+from app.utils import ilike_pattern
 
 
 def search_devices(
@@ -50,7 +40,7 @@ def search_devices(
     else:
         sector_filter = Device.sector_id.in_(allowed_ids)
 
-    pattern = _like_pattern(text)
+    pattern = ilike_pattern(text)
     return (
         Device.query.options(selectinload(Device.sector))
         .filter(sector_filter)

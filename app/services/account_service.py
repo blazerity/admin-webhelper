@@ -1,37 +1,29 @@
 """Справочник УЗ на конечных точках и журнал появлений на устройствах.
 
-Опрос (ping_service) передаёт сырое Win32_ComputerSystem.UserName.
-Здесь нормализуем DOMAIN\\user, upsert в endpoint_accounts и пишем
-device_account_history, если УЗ сменилась или прошло достаточно времени.
+Опрос передаёт сырое Win32_ComputerSystem.UserName. Здесь нормализуем
+DOMAIN\\user, upsert в endpoint_accounts и пишем device_account_history,
+если УЗ сменилась или прошло достаточно времени с прошлого факта.
 """
 
 from __future__ import annotations
 
+import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.authz import accessible_sector_ids
 from app.extensions import db
-from app.models import (
-    Device,
-    DeviceAccountHistory,
-    EndpointAccount,
-    SessionType,
-)
-from app.utils import utcnow
+from app.models import Device, DeviceAccountHistory, EndpointAccount, SessionType
+from app.utils import as_utc, ilike_pattern, utcnow
+
+logger = logging.getLogger(__name__)
 
 # Не плодим строку истории на каждый опрос одной и той же УЗ.
 _SIGHTING_DEDUP = timedelta(hours=1)
-
-
-def _as_utc(value: datetime) -> datetime:
-    """SQLite часто отдаёт naive datetime — считаем его UTC."""
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 # DOMAIN\user, .\user, user@upn, просто user.
 _ACCOUNT_RE = re.compile(
@@ -41,10 +33,26 @@ _ACCOUNT_RE = re.compile(
 )
 
 
+def normalize_domain(domain: str | None) -> str:
+    """Ключ домена: upper-case NetBIOS (первая метка DNS/UPN).
+
+    CORP\\alice и alice@corp.local → один и тот же domain «CORP».
+    Пустая строка или «.» — локальная УЗ.
+    """
+    text = (domain or "").strip().upper()
+    if not text or text == ".":
+        return ""
+    return text.split(".", 1)[0][:128]
+
+
+def normalize_username(username: str | None) -> str:
+    return (username or "").strip().lower()[:128]
+
+
 def parse_windows_account(raw: str | None) -> tuple[str, str] | None:
     """Разбор Win32_ComputerSystem.UserName → (domain, username).
 
-    domain в upper-case ('' для локальной УЗ), username в lower-case.
+    domain — NetBIOS upper-case ('' для локальной), username — lower-case.
     None — пустое/мусорное значение (никто не залогинен).
     """
     if not raw:
@@ -56,27 +64,36 @@ def parse_windows_account(raw: str | None) -> tuple[str, str] | None:
     if match is None:
         return None
     if match.group("user"):
-        domain = (match.group("domain") or "").strip()
-        username = (match.group("user") or "").strip()
+        domain = match.group("domain") or ""
+        username = match.group("user") or ""
     elif match.group("upn_user"):
-        domain = (match.group("upn_domain") or "").strip()
-        username = (match.group("upn_user") or "").strip()
+        domain = match.group("upn_domain") or ""
+        username = match.group("upn_user") or ""
     else:
         domain = ""
-        username = (match.group("local") or "").strip()
-    if domain == ".":
-        domain = ""
-    username = username.lower()
-    domain = domain.upper()
-    if not username or len(username) > 128 or len(domain) > 128:
+        username = match.group("local") or ""
+    domain = normalize_domain(domain)
+    username = normalize_username(username)
+    if not username:
         return None
     return domain, username
 
 
 def normalize_account_key(domain: str, username: str) -> str:
+    domain = normalize_domain(domain)
+    username = normalize_username(username)
     if domain:
         return f"{domain}\\{username}"
     return username
+
+
+def _find_account(domain: str, username: str) -> EndpointAccount | None:
+    return db.session.scalar(
+        select(EndpointAccount).where(
+            EndpointAccount.domain == domain,
+            EndpointAccount.username == username,
+        )
+    )
 
 
 def get_or_create_account(
@@ -86,25 +103,17 @@ def get_or_create_account(
     display_name: str = "",
     seen_at=None,
 ) -> EndpointAccount:
-    """Найти УЗ по (domain, username) или создать строку справочника."""
-    username = username.strip().lower()
-    domain = (domain or "").strip().upper()
-    if domain == ".":
-        domain = ""
+    """Найти УЗ по (domain, username) или создать. Устойчив к гонке insert."""
+    username = normalize_username(username)
+    domain = normalize_domain(domain)
+    if not username:
+        raise ValueError("username пуст")
     now = seen_at or utcnow()
-    found = db.session.scalar(
-        select(EndpointAccount).where(
-            EndpointAccount.domain == domain,
-            EndpointAccount.username == username,
-        )
-    )
+
+    found = _find_account(domain, username)
     if found is not None:
-        previous = found.last_seen_at
-        if previous is None or _as_utc(now) > _as_utc(previous):
-            found.last_seen_at = now
-        if display_name and not found.display_name:
-            found.display_name = display_name
-        return found
+        return _touch_account(found, now=now, display_name=display_name)
+
     account = EndpointAccount(
         username=username,
         domain=domain,
@@ -112,8 +121,35 @@ def get_or_create_account(
         first_seen_at=now,
         last_seen_at=now,
     )
-    db.session.add(account)
-    db.session.flush()
+    try:
+        # SAVEPOINT: гонка unique не откатывает внешнюю транзакцию опроса.
+        with db.session.begin_nested():
+            db.session.add(account)
+            db.session.flush()
+        return account
+    except IntegrityError:
+        found = _find_account(domain, username)
+        if found is None:
+            logger.exception(
+                "Не удалось создать endpoint_account %s\\%s после IntegrityError",
+                domain,
+                username,
+            )
+            raise
+        return _touch_account(found, now=now, display_name=display_name)
+
+
+def _touch_account(
+    account: EndpointAccount,
+    *,
+    now,
+    display_name: str = "",
+) -> EndpointAccount:
+    previous = account.last_seen_at
+    if previous is None or as_utc(now) > as_utc(previous):
+        account.last_seen_at = now
+    if display_name and not account.display_name:
+        account.display_name = display_name
     return account
 
 
@@ -152,7 +188,7 @@ def apply_logged_on_user(
             .order_by(DeviceAccountHistory.seen_at.desc(), DeviceAccountHistory.id.desc())
             .limit(1)
         )
-        if last is None or (_as_utc(now) - _as_utc(last.seen_at)) >= _SIGHTING_DEDUP:
+        if last is None or (as_utc(now) - as_utc(last.seen_at)) >= _SIGHTING_DEDUP:
             should_write = True
 
     if should_write and device.id is not None:
@@ -185,7 +221,7 @@ def list_visible_accounts(user, query: str = "", limit: int = 100) -> list[Endpo
             .distinct()
         )
     if text:
-        pattern = f"%{text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')}%"
+        pattern = ilike_pattern(text)
         stmt = stmt.where(
             or_(
                 EndpointAccount.username.ilike(pattern, escape="\\"),
