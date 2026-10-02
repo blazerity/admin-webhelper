@@ -7,8 +7,10 @@ from sqlalchemy.orm import selectinload
 from app.authz import (
     accessible_sectors,
     admin_required,
+    filter_accessible_devices,
     get_visible_device_or_404,
-    user_can_access_device,
+    user_can_bulk_ping,
+    user_can_bulk_script,
     user_can_run_scripts,
 )
 from app.extensions import db
@@ -90,16 +92,10 @@ def _parse_script_id() -> int | None:
     return parse_optional_int(request.form.get("script_id"))
 
 
-def _filter_accessible_devices(device_ids: list[int]) -> tuple[list[Device], int]:
-    """Доступные устройства в порядке id-списка; skipped — недоступные/несуществующие."""
-    devices: list[Device] = []
-    skipped = 0
-    for device_id in device_ids:
-        device = db.session.get(Device, device_id)
-        if device is None or not user_can_access_device(current_user, device):
-            skipped += 1
-            continue
-        devices.append(device)
+def _bulk_devices(device_ids: list[int]) -> tuple[list[Device], int]:
+    """Доступные устройства через authz.filter_accessible_devices; skipped — остальное."""
+    devices = filter_accessible_devices(current_user, device_ids)
+    skipped = len(device_ids) - len(devices)
     return devices, skipped
 
 
@@ -208,6 +204,8 @@ def map_status():
 @login_required
 def bulk_ping():
     """Массовый Ping: один batch_id, start_run(PING) на каждое доступное устройство."""
+    if not user_can_bulk_ping(current_user):
+        abort(403)
     device_ids = _parse_device_ids()
     if device_ids is None:
         return jsonify({"error": "Укажите device_ids (список id)."}), 400
@@ -218,7 +216,7 @@ def bulk_ping():
             {"error": f"Не больше {batch_service.MAX_BULK_DEVICES} устройств за раз."}
         ), 400
 
-    devices, skipped = _filter_accessible_devices(device_ids)
+    devices, skipped = _bulk_devices(device_ids)
     if not devices:
         abort(403)
 
@@ -229,8 +227,8 @@ def bulk_ping():
 @bp.post("/api/map/bulk/script")
 @login_required
 def bulk_script():
-    """Массовый запуск скрипта библиотеки (только user_can_run_scripts)."""
-    if not user_can_run_scripts(current_user):
+    """Массовый запуск скрипта библиотеки (только user_can_bulk_script)."""
+    if not user_can_bulk_script(current_user):
         abort(403)
 
     device_ids = _parse_device_ids()
@@ -259,7 +257,7 @@ def bulk_script():
             }
         ), 400
 
-    devices, skipped = _filter_accessible_devices(device_ids)
+    devices, skipped = _bulk_devices(device_ids)
     if not devices:
         abort(403)
 
