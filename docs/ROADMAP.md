@@ -3,7 +3,8 @@
 Документ для команды из 5 человек: куда движемся, какие фичи даём, кто за что отвечает.
 Опирается на текущий стек (Flask SSR + сервисы + PostgreSQL + LDAP + PsExec + планировщик) и принцип **не ломать совместимость**.
 
-Связанные материалы: [README.md](../README.md), [ARCHITECTURE.md](ARCHITECTURE.md). Текущая версия на момент плана: **0.2.x**.
+Связанные материалы: [README.md](../README.md), [ARCHITECTURE.md](ARCHITECTURE.md), [agents/](agents/README.md).  
+Волна **W1** закрыта в `0.3.0` (интеграция: PR агентов → `cursor/w1-implementation-2c6a`).
 
 ---
 

@@ -8,6 +8,7 @@ from app.authz import (
     accessible_sectors,
     admin_required,
     get_visible_device_or_404,
+    user_can_run_scripts,
 )
 from app.extensions import db
 from app.models import DeviceHistory, RunType, Script, ScriptRun, Sector
@@ -200,10 +201,12 @@ def detail(device_id: int):
         has_more = (not show_all) and len(rows) > limit
         account_rows = rows[:limit]
 
-    # Пресеты всегда в context; библиотека скриптов — только admin.
+    # Пресеты всегда в context; библиотека скриптов — через authz shim (W1: admin).
     command_presets = list_command_presets()
     scripts = (
-        Script.query.order_by(Script.name).all() if current_user.is_admin else []
+        Script.query.order_by(Script.name).all()
+        if user_can_run_scripts(current_user)
+        else []
     )
 
     return render_template(

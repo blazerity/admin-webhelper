@@ -213,7 +213,11 @@ def test_device_detail_commands_tab(client, app, admin_id):
     assert "echo cmd-5" not in html
     assert "ping 10.0.0.1" not in html
     assert "device-object" not in html
-    assert "btn-outline-primary" not in html  # Ping/Tracert buttons live on polls
+    # W1 presets on commands tab; Ping/Tracert stay on polls.
+    assert "command-preset-btn" in html
+    assert "whoami" in html
+    assert f'action="/devices/{device_id}/ping"' not in html
+    assert f'action="/devices/{device_id}/tracert"' not in html
 
     all_response = client.get(f"/devices/{device_id}?tab=commands&all=1")
     assert all_response.status_code == 200

@@ -88,11 +88,11 @@ bAWH/
 | Файл | Адреса |
 | --- | --- |
 | `auth.py` | `GET/POST /login`, `POST /logout` |
-| `devices.py` | `GET /` карта сети, `GET /devices/<id>` (вкладки overview / accounts / commands / polls) |
+| `devices.py` | `GET /` карта сети, `GET /devices/<id>` (вкладки overview / accounts / commands / polls), `GET /api/network/summary`, `GET /api/command-presets`, `POST /devices/<id>/scripts/run` |
 | `accounts.py` | `/accounts` — справочник УЗ, `/accounts/<id>` — карточка |
 | `actions.py` | `/actions` — справочник типов действий и лента событий |
 | `sectors.py` | `/sectors` — список, создание, карточка, правка, удаление |
-| `search.py` | `GET /search` (редирект на карту), `GET /search/api` (JSON для карты) |
+| `search.py` | `GET /search` (редирект на карту), `GET /search/api` и alias `GET /search/suggest` (JSON для карты) |
 | `diagnostics.py` | `POST /devices/<id>/ping`, `/tracert`, `/command` |
 | `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>` (лог, отмена) |
 | `admin.py` | `GET/POST /admin/settings` — учётка PsExec, учётка WMI, интервал, журнал и ручной запуск опроса; `POST /admin/poll-run`; `GET/POST /admin/updates` — обновление из git и откат |
