@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Параметры</h1>
-    <p class="page-subtitle">Учётка PsExec и интервал опроса сети</p>
+    <p class="page-subtitle">Учётки PsExec и WMI, интервал опроса сети</p>
   </div>
 </div>
 <div class="panel content-card mb-3">
@@ -28,6 +28,29 @@
       </div>
     </div>
     <button class="btn btn-primary" type="submit">Сохранить учётку</button>
+  </form>
+</div>
+<div class="panel content-card mb-3">
+  <p class="text-muted">Глобальная учётка для чтения серийника, MAC и текущей УЗ по WMI после ping. Пароль хранится только как шифротекст Fernet (ключ — FERNET_KEY). Если поля пустые и в .env нет DISCOVERY_*, WMI не вызывается: машина склеивается по hostname, MAC — из ARP в том же L2.</p>
+  <form method="post" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="discovery">
+    <h2 class="h5 mb-3">Учётка WMI (опрос)</h2>
+    <div class="row">
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="discovery_username">Пользователь</label>
+        <input class="form-control" id="discovery_username" name="discovery_username" value="{{ discovery_username|default('') }}" autocomplete="off">
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="discovery_domain">Домен</label>
+        <input class="form-control" id="discovery_domain" name="discovery_domain" value="{{ discovery_domain|default('') }}" autocomplete="off">
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="discovery_password">Пароль</label>
+        <input class="form-control" id="discovery_password" name="discovery_password" type="password" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if discovery_password_set else 'введите пароль' }}">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Сохранить учётку WMI</button>
   </form>
 </div>
 <div class="panel content-card mb-3">

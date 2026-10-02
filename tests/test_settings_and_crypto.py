@@ -1,12 +1,21 @@
 from app.extensions import db
-from app.models import RemoteCredential
+from app.models import AppSetting, RemoteCredential
 from app.services.credential_service import (
     get_remote_admin_credentials,
     remember_login_password,
     save_remote_admin_credentials,
 )
 from app.services.crypto_service import decrypt, encrypt
-from app.services.settings_service import get_poll_interval_seconds, set_poll_interval_seconds
+from app.services.discovery_service import discovery_credentials
+from app.services.settings_service import (
+    DISCOVERY_PASSWORD_KEY,
+    DiscoveryCredentialsError,
+    get_discovery_credential_view,
+    get_poll_interval_seconds,
+    get_stored_discovery_credentials,
+    save_discovery_credentials,
+    set_poll_interval_seconds,
+)
 
 
 def test_encrypt_roundtrip(app):
@@ -80,3 +89,59 @@ def test_poll_interval_is_clamped_and_saved(app):
         assert set_poll_interval_seconds(120) == 120
         assert get_poll_interval_seconds() == 120
         db.session.rollback()
+
+
+def test_discovery_credentials_are_stored_encrypted(app):
+    with app.app_context():
+        save_discovery_credentials("wmisvc", "CORP", "WmiSecret!")
+        view = get_discovery_credential_view()
+        assert view.username == "wmisvc"
+        assert view.domain == "CORP"
+        assert view.password_set is True
+
+        row = db.session.get(AppSetting, DISCOVERY_PASSWORD_KEY)
+        assert row is not None
+        assert "WmiSecret!" not in row.value
+
+        stored = get_stored_discovery_credentials()
+        assert stored is not None
+        assert stored.password == "WmiSecret!"
+        assert "WmiSecret!" not in repr(stored)
+
+
+def test_discovery_blank_password_keeps_previous(app):
+    with app.app_context():
+        save_discovery_credentials("wmisvc", "CORP", "WmiSecret!")
+        save_discovery_credentials("wmisvc", "LAB", "")
+        stored = get_stored_discovery_credentials()
+        assert stored is not None
+        assert stored.domain == "LAB"
+        assert stored.password == "WmiSecret!"
+
+
+def test_discovery_clear_falls_back_to_env(app):
+    with app.app_context():
+        app.config["DISCOVERY_USERNAME"] = "envuser"
+        app.config["DISCOVERY_PASSWORD"] = "envpass"
+        app.config["DISCOVERY_DOMAIN"] = "ENV"
+        save_discovery_credentials("dbuser", "DB", "DbSecret")
+        creds = discovery_credentials()
+        assert creds is not None
+        assert creds.username == "dbuser"
+        assert creds.password == "DbSecret"
+
+        save_discovery_credentials("", "", "")
+        creds = discovery_credentials()
+        assert creds is not None
+        assert creds.username == "envuser"
+        assert creds.password == "envpass"
+        assert creds.domain == "ENV"
+
+
+def test_discovery_requires_password_on_first_save(app):
+    with app.app_context():
+        try:
+            save_discovery_credentials("wmisvc", "CORP", "")
+            assert False, "ожидали DiscoveryCredentialsError"
+        except DiscoveryCredentialsError:
+            pass

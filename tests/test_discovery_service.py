@@ -90,6 +90,27 @@ def test_lookup_wmi_inventory_skips_without_credentials(app, monkeypatch):
     assert lookup_serial("10.0.0.5") is None
 
 
+def test_lookup_wmi_inventory_uses_db_credentials(app, monkeypatch):
+    from app.services.settings_service import save_discovery_credentials
+
+    app.config["DISCOVERY_USERNAME"] = "env"
+    app.config["DISCOVERY_PASSWORD"] = "envpass"
+    app.config["DISCOVERY_DOMAIN"] = "ENV"
+    save_discovery_credentials("dbsvc", "CORP", "dbpass")
+    seen = {}
+
+    def fake_wmi(ip, creds):
+        seen["creds"] = creds
+        return WmiInventory(serial_number="TAG1", mac="AA:BB:CC:DD:EE:FF")
+
+    monkeypatch.setattr("app.services.discovery_service._wmi_inventory", fake_wmi)
+    inventory = lookup_wmi_inventory("10.0.0.5")
+    assert inventory.serial_number == "TAG1"
+    assert seen["creds"].username == "dbsvc"
+    assert seen["creds"].password == "dbpass"
+    assert seen["creds"].domain == "CORP"
+
+
 def test_lookup_wmi_inventory_returns_serial_and_mac(app, monkeypatch):
     app.config["DISCOVERY_USERNAME"] = "svc"
     app.config["DISCOVERY_PASSWORD"] = "secret"

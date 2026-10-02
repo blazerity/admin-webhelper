@@ -3,15 +3,55 @@
 Интервал опроса можно поменять без правки .env и без перезапуска
 кода: планировщик при каждом цикле спрашивает get_poll_interval_seconds().
 APScheduler в scheduler_worker пересоздаёт интервал, прочитав это значение.
+
+Учётка WMI (discovery) — глобальная, одна на всё приложение.
+Пароль только как Fernet-шифротекст; ключ — FERNET_KEY в окружении.
 """
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 
 from flask import current_app
 
 from app.extensions import db
 from app.models import POLL_INTERVAL_KEY, AppSetting
+from app.services.crypto_service import decrypt, encrypt
 
 MIN_POLL_SECONDS = 30
 MAX_POLL_SECONDS = 24 * 60 * 60
+
+DISCOVERY_USERNAME_KEY = "discovery_username"
+DISCOVERY_DOMAIN_KEY = "discovery_domain"
+DISCOVERY_PASSWORD_KEY = "discovery_password_encrypted"
+
+
+class DiscoveryCredentialsError(RuntimeError):
+    """Нельзя сохранить учётку WMI в таком виде."""
+
+
+@dataclass(frozen=True)
+class DiscoveryCredentialView:
+    """Поля для формы: пароль на страницу не отдаём."""
+
+    username: str
+    domain: str
+    password_set: bool
+
+
+@dataclass(frozen=True)
+class StoredDiscoveryCredentials:
+    """Расшифрованная учётка из БД для WMI."""
+
+    username: str
+    domain: str
+    password: str
+
+    def __repr__(self) -> str:
+        return (
+            f"StoredDiscoveryCredentials(username={self.username!r}, "
+            f"domain={self.domain!r}, password='***')"
+        )
 
 
 def get_poll_interval_seconds() -> int:
@@ -40,3 +80,83 @@ def set_poll_interval_seconds(value: int) -> int:
         row.value = str(value)
     db.session.commit()
     return value
+
+
+def get_discovery_credential_view() -> DiscoveryCredentialView:
+    """Имя/домен и флаг «пароль уже задан» — без расшифровки."""
+    username = (_get_setting(DISCOVERY_USERNAME_KEY) or "").strip()
+    domain = (_get_setting(DISCOVERY_DOMAIN_KEY) or "").strip()
+    password_set = bool((_get_setting(DISCOVERY_PASSWORD_KEY) or "").strip())
+    return DiscoveryCredentialView(
+        username=username,
+        domain=domain,
+        password_set=password_set,
+    )
+
+
+def get_stored_discovery_credentials() -> StoredDiscoveryCredentials | None:
+    """Учётка из БД, если заполнены пользователь и шифротекст пароля."""
+    username = (_get_setting(DISCOVERY_USERNAME_KEY) or "").strip()
+    token = (_get_setting(DISCOVERY_PASSWORD_KEY) or "").strip()
+    if not username or not token:
+        return None
+    domain = (_get_setting(DISCOVERY_DOMAIN_KEY) or "").strip()
+    return StoredDiscoveryCredentials(
+        username=username,
+        domain=domain,
+        password=decrypt(token),
+    )
+
+
+def save_discovery_credentials(
+    username: str,
+    domain: str,
+    password: str | None,
+) -> DiscoveryCredentialView:
+    """Сохраняет глобальную учётку WMI. Пустое имя очищает все три ключа.
+
+    Пустой пароль при уже заданном имени оставляет прежний шифротекст.
+    """
+    username = (username or "").strip()
+    domain = (domain or "").strip()
+    password = password or ""
+
+    if not username:
+        if password:
+            raise DiscoveryCredentialsError(
+                "Укажите пользователя WMI или очистите и пользователя, и пароль."
+            )
+        _set_setting(DISCOVERY_USERNAME_KEY, "")
+        _set_setting(DISCOVERY_DOMAIN_KEY, "")
+        _set_setting(DISCOVERY_PASSWORD_KEY, "")
+        db.session.commit()
+        return get_discovery_credential_view()
+
+    existing = (_get_setting(DISCOVERY_PASSWORD_KEY) or "").strip()
+    if password:
+        token = encrypt(password)
+    elif existing:
+        token = existing
+    else:
+        raise DiscoveryCredentialsError("Пароль учётки WMI ещё не задан.")
+
+    _set_setting(DISCOVERY_USERNAME_KEY, username)
+    _set_setting(DISCOVERY_DOMAIN_KEY, domain)
+    _set_setting(DISCOVERY_PASSWORD_KEY, token)
+    db.session.commit()
+    return get_discovery_credential_view()
+
+
+def _get_setting(key: str) -> str | None:
+    row = db.session.get(AppSetting, key)
+    if row is None:
+        return None
+    return row.value
+
+
+def _set_setting(key: str, value: str) -> None:
+    row = db.session.get(AppSetting, key)
+    if row is None:
+        db.session.add(AppSetting(key=key, value=value))
+    else:
+        row.value = value
