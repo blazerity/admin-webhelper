@@ -1,6 +1,7 @@
-{% extends "layouts/settings.html" %}
+{% extends "base.html" %}
 {% block title %}Скрипт{% endblock %}
-{% block settings_content %}
+{% block main_class %}app-main-wide{% endblock %}
+{% block content %}
 <div class="page-header">
   <div>
     <h1 class="page-title">{% if script %}Изменить скрипт{% else %}Новый скрипт{% endif %}</h1>

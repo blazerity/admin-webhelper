@@ -1,21 +1,125 @@
 {% if device is defined and device %}
+{% set presets = command_presets if command_presets is defined and command_presets else [
+  {"id": "whoami", "label": "whoami", "command": "whoami"},
+  {"id": "ipconfig", "label": "ipconfig /all", "command": "ipconfig /all"},
+  {"id": "hostname", "label": "hostname", "command": "hostname"},
+  {"id": "netstat", "label": "netstat -ano", "command": "netstat -ano"}
+] %}
+{% set available_scripts = scripts if scripts is defined and scripts else [] %}
 <div class="device-actions">
   {% if current_user.is_authenticated and current_user.is_admin %}
   <div class="device-actions-group">
+    <p class="device-actions-label">Пресеты</p>
+    <div
+      class="command-presets"
+      id="command-presets"
+      data-presets-url="/api/command-presets"
+      role="group"
+      aria-label="Пресеты команд"
+    >
+      {% for preset in presets %}
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-primary command-preset-btn"
+        data-preset-id="{{ preset.id }}"
+        data-command="{{ preset.command }}"
+      >{{ preset.label }}</button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="device-actions-group">
     <p class="device-actions-label">На устройстве</p>
-    <form method="post" action="{{ url_for('diagnostics.command_device', device_id=device.id) }}" class="device-command-form">
+    <form method="post" action="{{ url_for('diagnostics.command_device', device_id=device.id) }}" class="device-command-form" id="device-command-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label class="form-label" for="command">Команда</label>
       <textarea class="form-control font-monospace mb-2" id="command" name="command" rows="5" placeholder="whoami&#10;ipconfig /all"></textarea>
       <button class="btn btn-warning w-100" type="submit">Выполнить команду</button>
     </form>
   </div>
-  <p class="small text-muted mb-0">
-    Скрипты из библиотеки:
-    <a href="{{ url_for('scripts.list_scripts') }}">открыть список скриптов</a>
-  </p>
+
+  <div class="device-actions-group">
+    <p class="device-actions-label">Скрипт из библиотеки</p>
+    <form
+      method="post"
+      action="/devices/{{ device.id }}/scripts/run"
+      class="device-script-form"
+      id="device-script-form"
+    >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="form-label" for="script_id">Скрипт</label>
+      <select class="form-select mb-2" id="script_id" name="script_id" required {% if not available_scripts %}disabled{% endif %}>
+        {% if available_scripts %}
+        <option value="" selected disabled>Выберите скрипт</option>
+        {% for script in available_scripts %}
+        <option value="{{ script.id }}">{{ script.name }}</option>
+        {% endfor %}
+        {% else %}
+        <option value="">Список скриптов пока недоступен</option>
+        {% endif %}
+      </select>
+      <button class="btn btn-primary w-100" type="submit" {% if not available_scripts %}disabled{% endif %}>Запустить скрипт</button>
+    </form>
+    <p class="small text-muted mb-0">
+      {% if available_scripts %}
+      После запуска откроется страница выполнения.
+      {% else %}
+      Библиотека:
+      <a href="{{ url_for('scripts.list_scripts') }}">открыть список скриптов</a>
+      (селект появится, когда backend передаст список в карточку).
+      {% endif %}
+    </p>
+  </div>
   {% else %}
-  <p class="small text-muted mb-0">Удалённая команда доступна только администратору.</p>
+  <p class="small text-muted mb-0">Удалённая команда и скрипты доступны только администратору.</p>
   {% endif %}
 </div>
+{% if current_user.is_authenticated and current_user.is_admin %}
+<script>
+(() => {
+  const presetsRoot = document.getElementById("command-presets");
+  const commandInput = document.getElementById("command");
+  if (!presetsRoot || !commandInput) return;
+
+  function applyPreset(command) {
+    commandInput.value = command || "";
+    commandInput.focus();
+  }
+
+  presetsRoot.querySelectorAll("[data-command]").forEach((btn) => {
+    btn.addEventListener("click", () => applyPreset(btn.dataset.command || ""));
+  });
+
+  const presetsUrl = presetsRoot.dataset.presetsUrl;
+  if (!presetsUrl) return;
+
+  fetch(presetsUrl, {
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error("presets unavailable");
+      return response.json();
+    })
+    .then((payload) => {
+      const list = Array.isArray(payload?.presets) ? payload.presets : [];
+      if (!list.length) return;
+      presetsRoot.innerHTML = "";
+      list.forEach((preset) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn-sm btn-outline-primary command-preset-btn";
+        btn.dataset.presetId = preset.id || "";
+        btn.dataset.command = preset.command || "";
+        btn.textContent = preset.label || preset.command || preset.id || "preset";
+        btn.addEventListener("click", () => applyPreset(btn.dataset.command || ""));
+        presetsRoot.appendChild(btn);
+      });
+    })
+    .catch(() => {
+      /* SSR / data-атрибуты уже дают базовые пресеты */
+    });
+})();
+</script>
+{% endif %}
 {% endif %}
