@@ -21,6 +21,8 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85rem;
   min-height: 16rem;
+  max-height: 32rem;
+  overflow: auto;
   white-space: pre-wrap;
   padding: 1rem;
   border-radius: 0.5rem;

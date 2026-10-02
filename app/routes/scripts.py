@@ -10,13 +10,15 @@
 - run_script      POST /scripts/<script_id>/run
 - run_detail      GET  /scripts/runs/<run_id>
 - run_status      GET  /scripts/runs/<run_id>/status
+- cancel_run      POST /scripts/runs/<run_id>/cancel
+- close_session   POST /scripts/runs/<run_id>/close-session
 
 Библиотека и удалённый запуск скрипта — только для администратора.
 Страницу лога открывает и тот, кто нажал Ping: он может не быть
 администратором. Поэтому run_detail и run_status не используют
 admin_required.
 
-static/js/run_log.js опрашивает run_status каждые 1.5 секунды.
+static/js/run_log.js опрашивает run_status, пока запуск не закончился.
 Позже этот опрос можно заменить на SSE или WebSocket, не трогая журнал.
 """
 
@@ -34,6 +36,14 @@ from app.models import Device, RunStatus, Script, ScriptRun, Sector
 from app.services import script_service
 
 bp = Blueprint("scripts", __name__, url_prefix="/scripts")
+
+_STATUS_LABELS = {
+    RunStatus.PENDING: "ожидание",
+    RunStatus.RUNNING: "выполняется",
+    RunStatus.SUCCESS: "успешно",
+    RunStatus.FAILED: "ошибка",
+    RunStatus.CANCELLED: "остановлен",
+}
 
 
 def _render_form(script: Script | None):
@@ -62,6 +72,7 @@ def _form_fields():
         target_os=request.form.get("target_os", "windows"),
         interpreter=request.form.get("interpreter", "powershell"),
         storage=request.form.get("storage", "db"),
+        run_as=request.form.get("run_as", "psexec"),
         content=request.form.get("content", ""),
         user_id=current_user.id,
     )
@@ -208,20 +219,49 @@ def run_detail(run_id: int):
             .all()
         )
         batch_runs = [item for item in siblings if _viewer_can_see(item)]
-    return render_template("scripts/run.html", run=run, batch_runs=batch_runs)
+    finished = run.status in RunStatus.FINISHED
+    return render_template(
+        "scripts/run.html",
+        run=run,
+        batch_runs=batch_runs,
+        status_label=_STATUS_LABELS.get(run.status, run.status),
+        session_open=script_service.run_session_open(run.id, finished),
+    )
+
+
+@bp.post("/runs/<int:run_id>/cancel")
+@login_required
+def cancel_run(run_id: int):
+    run = _run_for_viewer(run_id)
+    script_service.cancel_run(run.id)
+    return redirect(url_for("scripts.run_detail", run_id=run.id))
+
+
+@bp.post("/runs/<int:run_id>/close-session")
+@login_required
+def close_run_session(run_id: int):
+    run = _run_for_viewer(run_id)
+    if script_service.close_run_session(run.id):
+        flash("Сессия закрыта.", "success")
+    else:
+        flash("Открытой сессии нет.", "info")
+    return redirect(url_for("scripts.run_detail", run_id=run.id))
 
 
 @bp.get("/runs/<int:run_id>/status")
 @login_required
 def run_status(run_id: int):
-    # Опрос раз в 1.5 с делает static/js/run_log.js.
+    # Опрос делает static/js/run_log.js.
     # Позже его можно заменить на SSE или WebSocket.
     run = _run_for_viewer(run_id)
+    finished = run.status in RunStatus.FINISHED
     return jsonify(
         {
             "status": run.status,
+            "status_label": _STATUS_LABELS.get(run.status, run.status),
             "log_text": run.log_text or "",
             "exit_code": run.exit_code,
-            "finished": run.status in (RunStatus.SUCCESS, RunStatus.FAILED),
+            "finished": finished,
+            "session_open": script_service.run_session_open(run.id, finished),
         }
     )

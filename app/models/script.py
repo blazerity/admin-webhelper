@@ -28,6 +28,22 @@ class RunStatus:
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    FINISHED = frozenset({SUCCESS, FAILED, CANCELLED})
+
+
+class RunAs:
+    """От чьего имени на целевой машине выполняется процесс.
+
+    PSEXEC — процесс от учётки, которой открывается SMB-сессия.
+    SYSTEM — NT AUTHORITY\\SYSTEM. Сессию всё равно открывает
+    учётка PsExec того, кто запустил скрипт: без прав администратора
+    службу не создать.
+    """
+
+    PSEXEC = "psexec"
+    SYSTEM = "system"
 
 
 class Script(TimestampMixin, db.Model):
@@ -40,6 +56,8 @@ class Script(TimestampMixin, db.Model):
     target_os = db.Column(db.String(32), nullable=False, default="windows")
     # powershell, cmd или bash
     interpreter = db.Column(db.String(32), nullable=False, default="powershell")
+    # psexec — процесс от учётки из настроек; system — NT AUTHORITY\SYSTEM
+    run_as = db.Column(db.String(16), nullable=False, default=RunAs.PSEXEC, server_default=RunAs.PSEXEC)
     # db — текст в колонке content; filesystem — файл в SCRIPT_LIBRARY_DIR
     storage = db.Column(db.String(16), nullable=False, default="db")
     file_path = db.Column(db.String(512), nullable=True)
@@ -81,6 +99,8 @@ class ScriptRun(db.Model):
     )
     batch_id = db.Column(db.String(36), nullable=True, index=True)
     run_type = db.Column(db.String(16), nullable=False)
+    # Снимок на момент запуска: psexec или system. Для ping и tracert — psexec.
+    run_as = db.Column(db.String(16), nullable=False, default=RunAs.PSEXEC, server_default=RunAs.PSEXEC)
     # Текст команды без секретов. Пароль PsExec сюда писать нельзя.
     command_text = db.Column(db.Text, nullable=False, default="")
     status = db.Column(db.String(16), nullable=False, default=RunStatus.PENDING, index=True)

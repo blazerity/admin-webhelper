@@ -1,9 +1,10 @@
 """Вход и выход.
 
-Пароль здесь не проверяется и не сохраняется. Маршрут только забирает
-форму, спрашивает каталог через ldap_service и открывает сессию Flask-Login.
-Одинаковый ответ на неверный пароль и на недоступный каталог не даёт
-понять по ошибке, есть ли такая учётка.
+Маршрут забирает форму, спрашивает каталог через ldap_service и открывает
+сессию Flask-Login. Пароль удачного входа шифруется и кладётся в строку
+этого пользователя: пустые поля PsExec запускают команду от этого входа.
+В шаблон и во flash пароль не попадает. Одинаковый ответ на неверный пароль
+и на недоступный каталог не даёт понять по ошибке, есть ли такая учётка.
 
 Имена эндпоинтов нельзя менять: на них ссылается меню и login_view.
 
@@ -11,9 +12,11 @@
 - logout   POST /logout
 """
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
+from app.services.credential_service import remember_login_password
+from app.services.crypto_service import CryptoError, CryptoNotConfigured
 from app.services.ldap_service import authenticate, upsert_local_user
 
 bp = Blueprint("auth", __name__)
@@ -49,6 +52,13 @@ def login():
             return render_template("auth/login.html")
         # Сессия хранит id локальной строки. Пока её нет, login_user не к чему привязаться.
         user = upsert_local_user(identity)
+        try:
+            remember_login_password(user.id, password)
+        except (CryptoNotConfigured, CryptoError):
+            current_app.logger.warning(
+                "Пароль входа пользователя id=%s не сохранён для PsExec.",
+                user.id,
+            )
         login_user(user)
         return redirect(_safe_next_url())
 

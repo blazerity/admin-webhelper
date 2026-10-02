@@ -6,6 +6,7 @@ from app.extensions import db
 from app.models import Device, RunStatus, RunType, ScriptRun, Sector
 from app.services.credential_service import (
     get_remote_admin_credentials,
+    remember_login_password,
     save_remote_admin_credentials,
 )
 from app.services.psexec_service import RemoteExecError, run_remote_command, run_remote_script
@@ -66,11 +67,11 @@ def test_decrypted_password_goes_to_client_and_not_into_script_run(app, admin_id
         save_remote_admin_credentials("winadmin", "CORP", secret, admin_id)
         created, fake = _fake_client(stdout="Привет".encode("utf-8"), stderr=None, rc=0)
         with patch("pypsexec.client.Client", fake):
-            rc, output = run_remote_command("10.1.1.5", "hostname")
+            rc, output = run_remote_command("10.1.1.5", "hostname", user_id=admin_id)
         client = created[0]
         assert rc == 0
         assert output == "Привет"
-        assert client.password == get_remote_admin_credentials().password == secret
+        assert client.password == get_remote_admin_credentials(admin_id).password == secret
         assert client.username == r"CORP\winadmin"
         assert client.encrypt is True
         assert client.executable == "cmd.exe"
@@ -113,11 +114,45 @@ def test_failure_does_not_leak_password_and_still_cleans_up(app, admin_id):
         created, fake = _fake_client(raise_with_password=True)
         with patch("pypsexec.client.Client", fake):
             with pytest.raises(RemoteExecError) as caught:
-                run_remote_command("10.1.1.5", "hostname")
+                run_remote_command("10.1.1.5", "hostname", user_id=admin_id)
         assert secret not in str(caught.value)
         assert caught.value.__cause__ is None
         assert created[0].removed is True
         assert created[0].disconnected is True
+
+
+def test_script_can_run_as_nt_authority_system(app, admin_id):
+    secret = "Sup3rSecret"
+    with app.app_context():
+        save_remote_admin_credentials("winadmin", "CORP", secret, admin_id)
+        created, fake = _fake_client(stdout=b"nt authority\\system", rc=0)
+        with patch("pypsexec.client.Client", fake):
+            rc, output = run_remote_script(
+                "10.1.1.5",
+                "cmd",
+                "whoami",
+                as_system=True,
+                user_id=admin_id,
+            )
+        client = created[0]
+        assert rc == 0
+        assert output == "nt authority\\system"
+        assert client.username == r"CORP\winadmin"
+        assert client.password == secret
+        assert client.run_kwargs.get("use_system_account") is True
+
+
+def test_empty_psexec_user_runs_as_the_site_admin(app, admin_id):
+    with app.app_context():
+        app.config["LDAP_DOMAIN"] = "CORP"
+        remember_login_password(admin_id, "SiteSecret")
+        created, fake = _fake_client(stdout=b"admin", rc=0)
+        with patch("pypsexec.client.Client", fake):
+            rc, output = run_remote_command("10.1.1.5", "whoami", user_id=admin_id)
+        assert rc == 0
+        assert output == "admin"
+        assert created[0].username == r"CORP\admin"
+        assert created[0].password == "SiteSecret"
 
 
 def test_bash_is_rejected_without_opening_a_client(app):

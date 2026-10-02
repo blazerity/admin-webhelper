@@ -29,6 +29,16 @@
       </select>
     </div>
     <div class="col-md-4 mb-3">
+      <label class="form-label" for="run_as">От чьего имени на машине</label>
+      <select class="form-select" id="run_as" name="run_as">
+        <option value="psexec" {% if not script or script.run_as != 'system' %}selected{% endif %}>учётка PsExec</option>
+        <option value="system" {% if script and script.run_as == 'system' %}selected{% endif %}>NT AUTHORITY\SYSTEM</option>
+      </select>
+      <div class="form-text">Сессию по SMB всё равно открывает учётка из настроек. SYSTEM — только процесс скрипта.</div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-4 mb-3">
       <label class="form-label" for="storage">Где хранить</label>
       <select class="form-select" id="storage" name="storage">
         <option value="db" {% if not script or script.storage == 'db' %}selected{% endif %}>в базе</option>

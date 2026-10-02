@@ -2,7 +2,7 @@
 {% block title %}Настройки{% endblock %}
 {% block content %}
 <h1 class="h3">Настройки</h1>
-<p class="text-muted">Пароль удалённого администратора шифруется перед записью в базу. Ключ шифрования — FERNET_KEY в окружении, не в этой форме.</p>
+<p class="text-muted">Пароль шифруется перед записью в базу. Ключ шифрования — FERNET_KEY в окружении, не в этой форме. Учётка ниже только ваша: у другого администратора свои поля. Если пользователь и пароль пустые, PsExec запускается от имени вашего входа на сайт.</p>
 <form method="post" class="mb-5">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="form" value="psexec">
@@ -18,7 +18,7 @@
     </div>
     <div class="col-md-4 mb-3">
       <label class="form-label" for="password">Пароль</label>
-      <input class="form-control" id="password" name="password" type="password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if password_set else 'TODO: задайте пароль' }}">
+      <input class="form-control" id="password" name="password" type="password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if password_set else 'пусто — вход на сайт' }}">
     </div>
   </div>
   <button class="btn btn-primary" type="submit">Сохранить учётку</button>

@@ -6,14 +6,15 @@
 
 Две формы на странице настроек различаются скрытым полем form:
 psexec или poll. Открытый пароль в шаблон и во flash не попадает.
-Пустой пароль при сохранении оставляет прежний шифротекст —
-так устроен save_remote_admin_credentials.
+Форма пишет учётку только текущего администратора. Пустые пользователь
+и пароль означают запуск от его входа на сайт. Пустой пароль при уже
+заданном имени оставляет прежний шифротекст.
 
 Обновление — отдельные кнопки на /admin/updates. Замена кода
 начинается только после резервной копии, см. update_service.
 """
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 
 from app.authz import admin_required
@@ -29,19 +30,17 @@ from app.services.update_service import UpdateError, begin_rollback, begin_updat
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
-def _credential_view() -> tuple[str, str, bool]:
-    """Имя и домен для формы. password_set — в базе уже есть шифротекст.
+def _credential_view(user_id: int) -> tuple[str, str, bool]:
+    """Имя и домен учётки PsExec этого пользователя.
 
+    password_set — в его строке уже есть шифротекст пароля PsExec.
     Расшифровку на GET не вызываем: странице пароль не нужен.
-    «Оставьте пустым, чтобы не менять» верно только для уже сохранённого
-    шифротекста. Пароль из PSEXEC_PASSWORD в шаблон не подставляется.
+    Пустые поля — запуск от входа на сайт, чужая строка сюда не попадает.
     """
-    row = get_stored_credential()
-    if row is not None and (row.username or row.password_encrypted):
-        return row.username or "", row.domain or "", bool(row.password_encrypted)
-    username = (current_app.config.get("PSEXEC_USERNAME") or "").strip()
-    domain = (current_app.config.get("PSEXEC_DOMAIN") or "").strip()
-    return username, domain, False
+    row = get_stored_credential(user_id)
+    if row is None:
+        return "", "", False
+    return row.username or "", row.domain or "", bool(row.password_encrypted)
 
 
 @bp.route("/settings", methods=["GET", "POST"])
@@ -51,7 +50,7 @@ def settings():
         kind = (request.form.get("form") or "").strip()
         if kind == "psexec":
             try:
-                save_remote_admin_credentials(
+                saved = save_remote_admin_credentials(
                     request.form.get("username", ""),
                     request.form.get("domain", ""),
                     request.form.get("password", ""),
@@ -60,7 +59,13 @@ def settings():
             except (CredentialsNotConfigured, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
                 return redirect(url_for("admin.settings"))
-            flash("Учётка PsExec сохранена.", "success")
+            if saved.username:
+                flash("Учётка PsExec сохранена.", "success")
+            else:
+                flash(
+                    "Поля PsExec пустые. Команда запустится от имени вашего входа на сайт.",
+                    "success",
+                )
             return redirect(url_for("admin.settings"))
         if kind == "poll":
             raw = (request.form.get("poll_interval") or "").strip()
@@ -79,7 +84,7 @@ def settings():
         flash("Неизвестная форма.", "warning")
         return redirect(url_for("admin.settings"))
 
-    username, domain, password_set = _credential_view()
+    username, domain, password_set = _credential_view(current_user.id)
     return render_template(
         "admin/settings.html",
         username=username,

@@ -20,8 +20,11 @@
 
 import logging
 import os
+import queue
 import re
 import subprocess
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -69,7 +72,13 @@ class _Probe:
     mac: str | None
 
 
-def ping_host(ip: str, timeout_s: int = 1) -> PingResult:
+def ping_host(
+    ip: str,
+    timeout_s: int = 1,
+    on_output=None,
+    cancel_event: threading.Event | None = None,
+    on_process=None,
+) -> PingResult:
     """Один ICMP-запрос. Команду собираем только из проверенного адреса.
 
     На Windows ключ -w — миллисекунды, поэтому timeout_s умножается на 1000.
@@ -80,6 +89,23 @@ def ping_host(ip: str, timeout_s: int = 1) -> PingResult:
         argv = ["ping", "-n", "1", "-w", str(timeout_s * 1000), ip]
     else:
         argv = ["ping", "-c", "1", "-W", str(timeout_s), ip]
+    if on_output is not None or cancel_event is not None or on_process is not None:
+        try:
+            rc, output = _stream_command(
+                argv,
+                timeout_s + 2,
+                on_output,
+                cancel_event,
+                on_process,
+                "Превышено время ожидания ping.",
+            )
+        except OSError as exc:
+            return PingResult(DeviceStatus.OFFLINE, None, str(exc))
+        if rc != 0:
+            if not output:
+                output = f"ping завершился с кодом {rc}"
+            return PingResult(DeviceStatus.OFFLINE, None, output)
+        return PingResult(DeviceStatus.ONLINE, _parse_response_time_ms(output), output)
     try:
         completed = subprocess.run(
             argv,
@@ -101,7 +127,12 @@ def ping_host(ip: str, timeout_s: int = 1) -> PingResult:
     return PingResult(DeviceStatus.ONLINE, _parse_response_time_ms(output), output)
 
 
-def trace_host(ip: str) -> tuple[int, str]:
+def trace_host(
+    ip: str,
+    on_output=None,
+    cancel_event: threading.Event | None = None,
+    on_process=None,
+) -> tuple[int, str]:
     """Трассировка с этого сервера, не PsExec и не удалённая команда.
 
     Возвращает (код возврата, stdout и stderr вместе).
@@ -112,6 +143,24 @@ def trace_host(ip: str) -> tuple[int, str]:
         argv = ["tracert", "-d", "-h", "15", "-w", "1000", ip]
     else:
         argv = ["traceroute", "-n", "-m", "15", "-w", "1", "-q", "1", ip]
+    if on_output is not None or cancel_event is not None or on_process is not None:
+        try:
+            return _stream_command(
+                argv,
+                _TRACE_TIMEOUT_S,
+                on_output,
+                cancel_event,
+                on_process,
+                "Превышено время ожидания трассировки.",
+            )
+        except FileNotFoundError:
+            return (
+                127,
+                "Не найдена программа трассировки. "
+                "На Linux установите пакет traceroute, на Windows используйте tracert.",
+            )
+        except OSError as exc:
+            return 1, str(exc)
     try:
         completed = subprocess.run(
             argv,
@@ -131,6 +180,72 @@ def trace_host(ip: str) -> tuple[int, str]:
     except OSError as exc:
         return 1, str(exc)
     return completed.returncode, _combined(completed.stdout, completed.stderr)
+
+
+def _stream_command(
+    argv: list[str],
+    timeout_s: int,
+    on_output,
+    cancel_event: threading.Event | None,
+    on_process,
+    timeout_message: str,
+) -> tuple[int, str]:
+    """Читает stdout построчно, чтобы страница лога обновлялась до конца команды."""
+    proc = subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        shell=False,
+    )
+    if on_process is not None:
+        on_process(proc)
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def reader() -> None:
+        try:
+            if proc.stdout is None:
+                return
+            for line in proc.stdout:
+                lines.put(line)
+        finally:
+            lines.put(None)
+
+    threading.Thread(target=reader, daemon=True).start()
+    chunks: list[str] = []
+    deadline = time.monotonic() + timeout_s
+    timed_out = False
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            if proc.poll() is None:
+                proc.terminate()
+            break
+        if time.monotonic() > deadline:
+            timed_out = True
+            if proc.poll() is None:
+                proc.kill()
+            chunks.append(timeout_message + "\n")
+            break
+        try:
+            line = lines.get(timeout=0.2)
+        except queue.Empty:
+            if proc.poll() is not None:
+                break
+            continue
+        if line is None:
+            break
+        chunks.append(line)
+        if on_output is not None:
+            on_output(line)
+    try:
+        rc = proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        rc = proc.wait(timeout=5)
+    output = "".join(chunks)
+    if timed_out and timeout_message not in output:
+        output = (output + "\n" + timeout_message).strip()
+    return rc if rc is not None else 1, output
 
 
 def poll_all_sectors() -> dict[str, int]:
