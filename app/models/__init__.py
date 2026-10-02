@@ -3,6 +3,7 @@
 from app.models.account import DeviceAccountHistory, EndpointAccount, SessionType
 from app.models.action import ACTION_KIND_SEED, ActionKind, ActionKindCode, seed_action_kinds
 from app.models.device import Device, DeviceHistory, DeviceStatus
+from app.models.password_expiry import PasswordExpiryRun, PasswordNotification
 from app.models.script import RunAs, RunStatus, RunType, Script, ScriptRun
 from app.models.sector import Sector, SectorAccess, SectorRange
 from app.models.setting import POLL_INTERVAL_KEY, AppSetting, RemoteCredential
@@ -18,6 +19,8 @@ __all__ = [
     "DeviceHistory",
     "DeviceStatus",
     "EndpointAccount",
+    "PasswordExpiryRun",
+    "PasswordNotification",
     "POLL_INTERVAL_KEY",
     "RemoteCredential",
     "RunAs",

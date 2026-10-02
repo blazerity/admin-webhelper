@@ -85,6 +85,7 @@ def _register_blueprints(app: Flask) -> None:
     from app.routes.accounts import bp as accounts_bp
     from app.routes.actions import bp as actions_bp
     from app.routes.admin import bp as admin_bp
+    from app.routes.password_expiry import bp as password_expiry_bp
     from app.routes.auth import bp as auth_bp
     from app.routes.devices import bp as devices_bp
     from app.routes.diagnostics import bp as diagnostics_bp
@@ -101,6 +102,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(accounts_bp)
     app.register_blueprint(actions_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(password_expiry_bp)
 
 
 def _register_error_handlers(app: Flask) -> None:
