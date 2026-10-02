@@ -1,38 +1,49 @@
-{% extends "base.html" %}
-{% block title %}Настройки{% endblock %}
-{% block content %}
-<h1 class="h3">Настройки</h1>
-<p class="text-muted">Пароль шифруется перед записью в базу. Ключ шифрования — FERNET_KEY в окружении, не в этой форме. Учётка ниже только ваша: у другого администратора свои поля. Если пользователь и пароль пустые, PsExec запускается от имени вашего входа на сайт.</p>
-<form method="post" class="mb-5">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input type="hidden" name="form" value="psexec">
-  <h2 class="h5">Учётка PsExec</h2>
-  <div class="row">
-    <div class="col-md-4 mb-3">
-      <label class="form-label" for="username">Пользователь</label>
-      <input class="form-control" id="username" name="username" value="{{ username|default('') }}">
-    </div>
-    <div class="col-md-4 mb-3">
-      <label class="form-label" for="domain">Домен</label>
-      <input class="form-control" id="domain" name="domain" value="{{ domain|default('') }}">
-    </div>
-    <div class="col-md-4 mb-3">
-      <label class="form-label" for="password">Пароль</label>
-      <input class="form-control" id="password" name="password" type="password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if password_set else 'пусто — вход на сайт' }}">
-    </div>
+{% extends "layouts/settings.html" %}
+{% block title %}Параметры{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Параметры</h1>
+    <p class="page-subtitle">Учётка PsExec и интервал опроса сети</p>
   </div>
-  <button class="btn btn-primary" type="submit">Сохранить учётку</button>
-</form>
-<form method="post">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input type="hidden" name="form" value="poll">
-  <h2 class="h5">Интервал опроса, секунды</h2>
-  <div class="col-md-3 mb-3">
-    <input class="form-control" name="poll_interval" type="number" min="30" max="86400" value="{{ poll_interval|default(300) }}">
-  </div>
-  <button class="btn btn-primary" type="submit">Сохранить интервал</button>
-</form>
-<h2 class="h5 mt-5">Обновление из git</h2>
-<p class="text-muted">Новая версия скачивается из публичного репозитория. Перед заменой кода всегда создаётся копия для отката.</p>
-<a class="btn btn-outline-primary" href="{{ url_for('admin.updates') }}">Открыть обновления</a>
+</div>
+<div class="panel content-card mb-3">
+  <p class="text-muted">Пароль шифруется перед записью в базу. Ключ шифрования — FERNET_KEY в окружении, не в этой форме. Учётка ниже только ваша: у другого администратора свои поля. Если пользователь и пароль пустые, PsExec запускается от имени вашего входа на сайт.</p>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="psexec">
+    <h2 class="h5 mb-3">Учётка PsExec</h2>
+    <div class="row">
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="username">Пользователь</label>
+        <input class="form-control" id="username" name="username" value="{{ username|default('') }}">
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="domain">Домен</label>
+        <input class="form-control" id="domain" name="domain" value="{{ domain|default('') }}">
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="password">Пароль</label>
+        <input class="form-control" id="password" name="password" type="password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if password_set else 'пусто — вход на сайт' }}">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Сохранить учётку</button>
+  </form>
+</div>
+<div class="panel content-card mb-3">
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="poll">
+    <h2 class="h5 mb-3">Интервал опроса, секунды</h2>
+    <div class="col-md-3 mb-3">
+      <input class="form-control" name="poll_interval" type="number" min="30" max="86400" value="{{ poll_interval|default(300) }}">
+    </div>
+    <button class="btn btn-primary" type="submit">Сохранить интервал</button>
+  </form>
+</div>
+<div class="panel content-card">
+  <h2 class="h5">Обновление из git</h2>
+  <p class="text-muted">Новая версия скачивается из публичного репозитория. Перед заменой кода всегда создаётся копия для отката.</p>
+  <a class="btn btn-outline-primary" href="{{ url_for('admin.updates') }}">Открыть обновления</a>
+</div>
 {% endblock %}

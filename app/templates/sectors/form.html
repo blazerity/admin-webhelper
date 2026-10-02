@@ -1,33 +1,42 @@
-{% extends "base.html" %}
+{% extends "layouts/settings.html" %}
 {% block title %}{% if sector and sector.id %}Изменить сектор{% else %}Новый сектор{% endif %}{% endblock %}
-{% block content %}
-<h1 class="h3">{% if sector and sector.id %}Изменить сектор{% else %}Новый сектор{% endif %}</h1>
-<form method="post" action="{% if sector and sector.id %}{{ url_for('sectors.update_sector', sector_id=sector.id) }}{% else %}{{ url_for('sectors.create_sector') }}{% endif %}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="mb-3">
-    <label class="form-label" for="name">Название</label>
-    <input class="form-control" id="name" name="name" required value="{{ sector.name if sector else '' }}">
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{% if sector and sector.id %}Изменить сектор{% else %}Новый сектор{% endif %}</h1>
+    <p class="page-subtitle">IP, CIDR и кому сектор виден</p>
   </div>
-  <div class="mb-3">
-    <label class="form-label" for="description">Описание</label>
-    <textarea class="form-control" id="description" name="description" rows="2">{{ sector.description if sector else '' }}</textarea>
-  </div>
-  <div class="mb-3">
-    <label class="form-label" for="ranges">IP и CIDR, по одному на строку</label>
-    <textarea class="form-control font-monospace" id="ranges" name="ranges" rows="6" placeholder="10.0.1.10&#10;10.0.2.0/28">{% if sector %}{% for item in sector.ranges %}{{ item.cidr }}
+</div>
+<div class="panel content-card">
+  <form method="post" action="{% if sector and sector.id %}{{ url_for('sectors.update_sector', sector_id=sector.id) }}{% else %}{{ url_for('sectors.create_sector') }}{% endif %}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+      <label class="form-label" for="name">Название</label>
+      <input class="form-control" id="name" name="name" required value="{{ sector.name if sector else '' }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="description">Описание</label>
+      <textarea class="form-control" id="description" name="description" rows="2">{{ sector.description if sector else '' }}</textarea>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="ranges">IP и CIDR, по одному на строку</label>
+      <textarea class="form-control font-monospace" id="ranges" name="ranges" rows="6" placeholder="10.0.1.10&#10;10.0.2.0/28">{% if sector %}{% for item in sector.ranges %}{{ item.cidr }}
 {% endfor %}{% endif %}</textarea>
-  </div>
-  <div class="mb-3">
-    <label class="form-label" for="access_users">Пользователи (логины через запятую)</label>
-    <input class="form-control" id="access_users" name="access_users" value="{{ access_users|default('') }}">
-  </div>
-  <div class="mb-3">
-    <label class="form-label" for="access_groups">Группы LDAP (CN через запятую)</label>
-    <input class="form-control" id="access_groups" name="access_groups" value="{{ access_groups|default('') }}">
-  </div>
-  <button class="btn btn-primary" type="submit">Сохранить</button>
-  <a class="btn btn-link" href="{{ url_for('sectors.list_sectors') }}">Отмена</a>
-</form>
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="access_users">Пользователи (логины через запятую)</label>
+      <input class="form-control" id="access_users" name="access_users" value="{{ access_users|default('') }}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label" for="access_groups">Группы LDAP (CN через запятую)</label>
+      <input class="form-control" id="access_groups" name="access_groups" value="{{ access_groups|default('') }}">
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+      <a class="btn btn-ghost" href="{{ url_for('sectors.list_sectors') }}">Отмена</a>
+    </div>
+  </form>
+</div>
 {% if sector and sector.id %}
 <form method="post" action="{{ url_for('sectors.delete_sector', sector_id=sector.id) }}" class="mt-3">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

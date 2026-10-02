@@ -1,98 +1,110 @@
-{% extends "base.html" %}
+{% extends "layouts/settings.html" %}
 {% block title %}Обновления{% endblock %}
-{% block content %}
-<h1 class="h3">Обновления</h1>
-<p class="text-muted">Кнопка «Обновить» сначала сохраняет текущий код в каталог backups, и только потом скачивает публичный репозиторий. Если копия не создалась, файлы не меняются. Не перезаписываются .env, виртуальное окружение, журналы, библиотека скриптов и база данных.</p>
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Обновления</h1>
+    <p class="page-subtitle">Обновление кода из git и откат к резервной копии</p>
+  </div>
+</div>
 
 {% if status.operation_state == 'running' %}
-<div class="alert alert-info">{{ status.operation_message }}</div>
+<div class="alert alert-info app-flash">{{ status.operation_message }}</div>
 {% elif status.operation_state == 'success' %}
-<div class="alert alert-success">{{ status.operation_message }}</div>
+<div class="alert alert-success app-flash">{{ status.operation_message }}</div>
 {% elif status.operation_state == 'error' %}
-<div class="alert alert-danger">{{ status.operation_message }}</div>
+<div class="alert alert-danger app-flash">{{ status.operation_message }}</div>
 {% endif %}
 
 {% if status.remote_error %}
-<div class="alert alert-warning">{{ status.remote_error }}</div>
+<div class="alert alert-warning app-flash">{{ status.remote_error }}</div>
 {% endif %}
 {% if not status.git_available %}
-<div class="alert alert-warning">На сервере не найдена команда git. На Debian: <code>sudo apt install git</code>.</div>
+<div class="alert alert-warning app-flash">На сервере не найдена команда git. На Debian: <code>sudo apt install git</code>.</div>
 {% endif %}
 
-<dl class="row">
-  <dt class="col-sm-3">Каталог</dt>
-  <dd class="col-sm-9"><code>{{ status.root }}</code></dd>
-  <dt class="col-sm-3">Сейчас</dt>
-  <dd class="col-sm-9">
-    {% if status.local_commit %}
-      <code>{{ status.local_commit[:12] }}</code>
-      {% if status.local_subject %}{{ status.local_subject }}{% endif %}
-    {% else %}
-      версия из git ещё не записывалась
-    {% endif %}
-  </dd>
-  <dt class="col-sm-3">Репозиторий</dt>
-  <dd class="col-sm-9">{% if status.remote_url %}<code>{{ status.remote_url }}</code>{% else %}не задан{% endif %}</dd>
-  <dt class="col-sm-3">Ветка</dt>
-  <dd class="col-sm-9"><code>{{ status.branch }}</code></dd>
-  <dt class="col-sm-3">На сервере git</dt>
-  <dd class="col-sm-9">
-    {% if status.remote_commit %}
-      <code>{{ status.remote_commit[:12] }}</code>
-      {% if status.update_available %}
-        <span class="badge text-bg-primary">есть обновление</span>
+<div class="panel content-card mb-3">
+  <p class="text-muted">Кнопка «Обновить» сначала сохраняет текущий код в каталог backups, и только потом скачивает публичный репозиторий. Если копия не создалась, файлы не меняются. Не перезаписываются .env, виртуальное окружение, журналы, библиотека скриптов и база данных.</p>
+  <dl class="meta-list">
+    <dt>Каталог</dt>
+    <dd><code>{{ status.root }}</code></dd>
+    <dt>Сейчас</dt>
+    <dd>
+      {% if status.local_commit %}
+        <code>{{ status.local_commit[:12] }}</code>
+        {% if status.local_subject %}{{ status.local_subject }}{% endif %}
       {% else %}
-        <span class="badge text-bg-secondary">совпадает</span>
+        версия из git ещё не записывалась
       {% endif %}
-      <span class="text-muted">проверено {{ status.remote_checked_at }}</span>
-    {% else %}
-      ещё не проверяли
-    {% endif %}
-  </dd>
-</dl>
-
-<div class="d-flex flex-wrap gap-2 mb-4">
-  <form method="post" action="{{ url_for('admin.updates') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="form" value="check">
-    <button class="btn btn-outline-primary" type="submit" {% if status.running or status.remote_error or not status.git_available %}disabled{% endif %}>Проверить обновления</button>
-  </form>
-  <form method="post" action="{{ url_for('admin.updates') }}" onsubmit="return confirm('Сначала будет сохранена копия текущего кода, затем файлы заменятся версией из git. Продолжить?');">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="form" value="update">
-    <button class="btn btn-primary" type="submit" {% if status.running or status.remote_error or not status.git_available %}disabled{% endif %}>Обновить из git</button>
-  </form>
+    </dd>
+    <dt>Репозиторий</dt>
+    <dd>{% if status.remote_url %}<code>{{ status.remote_url }}</code>{% else %}не задан{% endif %}</dd>
+    <dt>Ветка</dt>
+    <dd><code>{{ status.branch }}</code></dd>
+    <dt>На сервере git</dt>
+    <dd>
+      {% if status.remote_commit %}
+        <code>{{ status.remote_commit[:12] }}</code>
+        {% if status.update_available %}
+          <span class="badge text-bg-primary">есть обновление</span>
+        {% else %}
+          <span class="badge text-bg-secondary">совпадает</span>
+        {% endif %}
+        <span class="text-muted">проверено {{ status.remote_checked_at }}</span>
+      {% else %}
+        ещё не проверяли
+      {% endif %}
+    </dd>
+  </dl>
+  <div class="d-flex flex-wrap gap-2 mt-3">
+    <form method="post" action="{{ url_for('admin.updates') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="form" value="check">
+      <button class="btn btn-outline-primary" type="submit" {% if status.running or status.remote_error or not status.git_available %}disabled{% endif %}>Проверить обновления</button>
+    </form>
+    <form method="post" action="{{ url_for('admin.updates') }}" onsubmit="return confirm('Сначала будет сохранена копия текущего кода, затем файлы заменятся версией из git. Продолжить?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="form" value="update">
+      <button class="btn btn-primary" type="submit" {% if status.running or status.remote_error or not status.git_available %}disabled{% endif %}>Обновить из git</button>
+    </form>
+  </div>
 </div>
 
-<h2 class="h5">Резервные копии</h2>
-<p class="text-muted">Откат возвращает файлы выбранной копии. Перед откатом текущий код тоже сохраняется. Схема базы при этом назад не откатывается.</p>
-<table class="table">
-  <thead>
-    <tr><th>Когда</th><th>Коммит</th><th>Зачем</th><th></th></tr>
-  </thead>
-  <tbody>
-  {% for backup in status.backups %}
-    <tr>
-      <td>{{ backup.created_at }}</td>
-      <td>
-        {% if backup.commit %}<code>{{ backup.commit[:12] }}</code>{% else %}—{% endif %}
-        {% if backup.subject %}<div class="text-muted">{{ backup.subject }}</div>{% endif %}
-      </td>
-      <td>{{ backup.reason_label }}</td>
-      <td>
-        <form method="post" action="{{ url_for('admin.updates') }}" onsubmit="return confirm('Вернуть файлы из этой копии? Текущая версия тоже будет сохранена.');">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="form" value="rollback">
-          <input type="hidden" name="backup_id" value="{{ backup.id }}">
-          <button class="btn btn-outline-secondary btn-sm" type="submit" {% if status.running %}disabled{% endif %}>Откатить</button>
-        </form>
-      </td>
-    </tr>
-  {% else %}
-    <tr><td colspan="4" class="text-muted">Копий ещё нет. Они появляются перед обновлением и перед откатом.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="panel content-card p-0 overflow-hidden">
+  <div class="px-3 pt-3">
+    <h2 class="h5 mb-1">Резервные копии</h2>
+    <p class="text-muted">Откат возвращает файлы выбранной копии. Перед откатом текущий код тоже сохраняется. Схема базы при этом назад не откатывается.</p>
+  </div>
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr><th>Когда</th><th>Коммит</th><th>Зачем</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for backup in status.backups %}
+        <tr>
+          <td>{{ backup.created_at }}</td>
+          <td>
+            {% if backup.commit %}<code>{{ backup.commit[:12] }}</code>{% else %}—{% endif %}
+            {% if backup.subject %}<div class="text-muted">{{ backup.subject }}</div>{% endif %}
+          </td>
+          <td>{{ backup.reason_label }}</td>
+          <td class="text-end">
+            <form method="post" action="{{ url_for('admin.updates') }}" onsubmit="return confirm('Вернуть файлы из этой копии? Текущая версия тоже будет сохранена.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="form" value="rollback">
+              <input type="hidden" name="backup_id" value="{{ backup.id }}">
+              <button class="btn btn-ghost btn-sm" type="submit" {% if status.running %}disabled{% endif %}>Откатить</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="text-muted">Копий ещё нет. Они появляются перед обновлением и перед откатом.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 {% if status.running %}
