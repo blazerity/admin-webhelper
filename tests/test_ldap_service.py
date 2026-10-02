@@ -182,6 +182,17 @@ def test_bad_bind_returns_none(app, monkeypatch, caplog):
     assert "SecretPass" not in caplog.text
 
 
+def test_netbios_domain_binds_as_down_level_name(app, monkeypatch):
+    """Короткое имя домена, как domain в AD Password Notifier, — это DOMAIN\\user."""
+    _configure_ldap(app)
+    app.config["LDAP_DOMAIN"] = "EXAMPLE"
+    directory = _Directory(_admin_entry())
+    _install_directory(monkeypatch, directory)
+
+    assert authenticate("Alice", "correct") is not None
+    assert directory.binds == ["EXAMPLE\\Alice"]
+
+
 def test_ldap_url_does_not_keep_explicit_port(app, monkeypatch):
     """ldap:// как в AD Password Notifier не должен оставаться на порту 636."""
     _configure_ldap(app)
