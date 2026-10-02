@@ -5,11 +5,12 @@
 1. Главный поток читает секторы и разворачивает CIDR в IP.
    Сессия SQLAlchemy живёт только здесь: она не потокобезопасна,
    один и тот же db.session нельзя отдать рабочим потокам.
-2. ThreadPoolExecutor вызывает только ping_host и функции discovery.
-   Воркер получает строку IP и возвращает обычный объект Probe.
+2. Главный поток один раз читает учётку WMI (app_settings / .env).
+3. ThreadPoolExecutor вызывает только ping_host и функции discovery.
+   Воркер получает IP и заранее загруженные creds, возвращает Probe.
    Объектов ORM в потоке нет. Строку devices заранее не создаём:
    пустой адрес на карте не нужен.
-3. Снова главный поток:
+4. Снова главный поток:
    * офлайн по уже известному IP → статус и device_history;
    * онлайн → serial+MAC+УЗ (WMI) / hostname / IP как ключ идентичности,
      обновление или создание одной машины, история сохраняется
@@ -361,12 +362,29 @@ def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
 def _probe_all(ips: list[str], stats: dict[str, int]) -> list[_Probe]:
     """Пинг и discovery в пуле. Сессию здесь не передаём и не открываем.
 
+    Учётку WMI читаем один раз в главном потоке (есть app context / БД)
+    и передаём в воркеры: у ThreadPoolExecutor своего Flask-контекста нет,
+    иначе UI-учётка из app_settings молча не подхватывается.
+
     with у ThreadPoolExecutor дожидается потоков. К return снова работает
     только главный поток — можно писать в БД.
     """
+    wmi_creds = discovery_service.discovery_credentials()
+    if wmi_creds is None:
+        logger.warning(
+            "Учётка WMI не задана: серийник и MAC по WMI не запрашиваются "
+            "(Параметры → Учётка WMI или DISCOVERY_* в .env)."
+        )
+    else:
+        logger.info(
+            "WMI-опрос: учётка %s\\%s",
+            wmi_creds.domain or ".",
+            wmi_creds.username,
+        )
+
     probes: list[_Probe] = []
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
-        futures = [pool.submit(_probe, ip) for ip in ips]
+        futures = [pool.submit(_probe, ip, wmi_creds) for ip in ips]
         for future in futures:
             try:
                 probes.append(future.result())
@@ -376,8 +394,14 @@ def _probe_all(ips: list[str], stats: dict[str, int]) -> list[_Probe]:
     return probes
 
 
-def _probe(ip: str) -> _Probe:
-    """Только сеть. Любой db.session в этой функции будет гонкой."""
+def _probe(
+    ip: str,
+    wmi_creds: discovery_service.DiscoveryCredentials | None = None,
+) -> _Probe:
+    """Только сеть. Любой db.session в этой функции будет гонкой.
+
+    wmi_creds — заранее прочитанная учётка с главного потока (или None).
+    """
     result = ping_host(ip)
     hostname = None
     mac = None
@@ -389,7 +413,7 @@ def _probe(ip: str) -> _Probe:
         hostname = discovery_service.lookup_hostname(ip)
         # ARP — только свой L2. Через маршрутизатор MAC доберём из WMI.
         mac = discovery_service.lookup_mac(ip)
-        inventory = discovery_service.lookup_wmi_inventory(ip)
+        inventory = discovery_service.lookup_wmi_inventory(ip, creds=wmi_creds)
         serial_number = inventory.serial_number
         logged_on_user = inventory.logged_on_user
         if not mac and inventory.mac:
