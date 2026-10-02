@@ -139,17 +139,51 @@ def test_search_api_returns_accessible_devices(app, client, alice_id):
     with app.app_context():
         own = _sector("Склад", "alice")
         other = _sector("Офис", "bob")
-        _device(ip="10.0.0.5", sector=own, hostname="printer")
+        mine = _device(ip="10.0.0.5", sector=own, hostname="printer")
         _device(ip="10.0.0.6", sector=other, hostname="printer")
         db.session.commit()
+        mine_id = mine.id
 
     _login(client, alice_id)
     response = client.get("/search/api", query_string={"q": "printer"})
     assert response.status_code == 200
     items = response.get_json()
     assert len(items) == 1
+    assert items[0]["id"] == mine_id
     assert items[0]["ip"] == "10.0.0.5"
+    assert items[0]["hostname"] == "printer"
     assert items[0]["sector"] == "Склад"
+    assert f"/devices/{mine_id}" in items[0]["url"]
+
+
+def test_map_search_query_embeds_matching_device_ids(app, client, alice_id):
+    """При ?q= страница отдаёт id совпадений для фильтрации секторов в JS."""
+    with app.app_context():
+        warehouse = _sector("Склад", "alice")
+        office = _sector("Офис", "alice")
+        match = _device(ip="10.0.0.5", sector=warehouse, hostname="printer-a")
+        other = _device(ip="10.0.0.8", sector=office, hostname="nbook-b")
+        db.session.commit()
+        match_id = match.id
+        other_id = other.id
+        warehouse_id = warehouse.id
+        office_id = office.id
+
+    _login(client, alice_id)
+    response = client.get("/", query_string={"q": "printer"})
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+
+    assert 'class="map-search panel"' in text
+    assert "map-search-inner" in text
+    assert f'data-initial-ids="{match_id}"' in text
+    assert f'data-device-id="{match_id}"' in text
+    assert f'data-device-id="{other_id}"' in text
+    assert f'data-sector-id="{warehouse_id}"' in text
+    assert f'data-sector-id="{office_id}"' in text
+    assert "printer-a" in text
+    assert 'value="printer"' in text
+    assert "<aside" not in text
 
 
 def test_map_shows_accessible_devices_ordered_by_ip(app, client, alice_id):

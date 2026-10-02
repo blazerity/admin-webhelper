@@ -91,10 +91,14 @@ def test_map_shows_collapsed_sectors_with_active_count(client, app, admin_id):
     assert ">СБ<" in html
     assert "map.js" in html
     assert "map-search" in html
+    assert "map-search-inner" in html
+    assert "map-search-input" in html
+    assert "<aside" not in html
     assert "search.js" in html
     assert "NB-SERIAL-01" in html
     assert "AA:BB:CC:DD:00:01" in html
     assert "device-card-meta" in html
+    assert "на карте останутся подходящие машины" in html
 
 
 def test_map_status_json(client, app, admin_id):
