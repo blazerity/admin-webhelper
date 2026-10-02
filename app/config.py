@@ -42,6 +42,11 @@ class Config:
     MIN_CIDR_PREFIX = int(os.environ.get("MIN_CIDR_PREFIX", "22"))
     MAX_HOSTS_PER_POLL = int(os.environ.get("MAX_HOSTS_PER_POLL", "2048"))
 
+    # Учётка для WMI (серийник / service tag) при опросе. Пусто — только hostname.
+    DISCOVERY_USERNAME = os.environ.get("DISCOVERY_USERNAME", "").strip()
+    DISCOVERY_PASSWORD = os.environ.get("DISCOVERY_PASSWORD", "")
+    DISCOVERY_DOMAIN = os.environ.get("DISCOVERY_DOMAIN", "").strip()
+
     FERNET_KEY = os.environ.get("FERNET_KEY", "")
 
     PROJECT_ROOT = os.environ.get(

@@ -9,6 +9,7 @@ from app.extensions import db
 from app.models import Device, DeviceHistory, DeviceStatus, Sector, SectorRange
 from app.services.net_utils import NetworkInputError
 from app.services.ping_service import PingResult, ping_host, poll_all_sectors, trace_host
+from app.utils import utcnow
 
 
 def test_ping_host_online_parses_time(monkeypatch):
@@ -68,6 +69,21 @@ def test_trace_host_shell_is_not_true(monkeypatch):
     assert calls[0][0][-1] == "10.0.0.5"
 
 
+def _patch_discovery(monkeypatch, *, hostname="lab-pc.example", mac="AA:BB:CC:DD:EE:FF", serial="ABC1234"):
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_hostname",
+        lambda ip: hostname,
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_mac",
+        lambda ip: mac,
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_serial",
+        lambda ip: serial,
+    )
+
+
 def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
     sector = Sector(name="lab", description="")
     sector.ranges.append(SectorRange(cidr="10.0.0.5"))
@@ -80,6 +96,7 @@ def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
     )
     names = iter(["lab-pc.example", None])
     macs = iter(["AA:BB:CC:DD:EE:FF", None])
+    serials = iter(["ABC1234", None])
     monkeypatch.setattr(
         "app.services.discovery_service.lookup_hostname",
         lambda ip: next(names),
@@ -87,6 +104,10 @@ def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
     monkeypatch.setattr(
         "app.services.discovery_service.lookup_mac",
         lambda ip: next(macs),
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_serial",
+        lambda ip: next(serials),
     )
 
     stats = poll_all_sectors()
@@ -100,6 +121,7 @@ def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
     assert device.last_seen is not None
     assert device.hostname == "lab-pc.example"
     assert device.mac == "AA:BB:CC:DD:EE:FF"
+    assert device.serial_number == "ABC1234"
 
     history = db.session.scalars(
         select(DeviceHistory).where(DeviceHistory.device_id == device.id)
@@ -108,13 +130,151 @@ def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
     assert history[0].status == DeviceStatus.ONLINE
     assert history[0].response_time_ms == 12
 
-    # Второй проход: lookup пустой, вчерашние имя и MAC остаются.
+    # Второй проход: lookup пустой, вчерашние имя, MAC и serial остаются.
     again = poll_all_sectors()
     assert again["online"] == 1
     db.session.refresh(device)
     assert device.hostname == "lab-pc.example"
     assert device.mac == "AA:BB:CC:DD:EE:FF"
+    assert device.serial_number == "ABC1234"
     history = db.session.scalars(
         select(DeviceHistory).where(DeviceHistory.device_id == device.id)
     ).all()
     assert len(history) == 2
+
+
+def test_poll_does_not_create_device_for_empty_ip(app, monkeypatch):
+    sector = Sector(name="lab", description="")
+    sector.ranges.append(SectorRange(cidr="10.0.0.5"))
+    db.session.add(sector)
+    db.session.commit()
+
+    monkeypatch.setattr(
+        "app.services.ping_service.ping_host",
+        lambda ip, timeout_s=1: PingResult(DeviceStatus.OFFLINE, None, "timeout"),
+    )
+    stats = poll_all_sectors()
+    assert stats["scanned"] == 1
+    assert stats["online"] == 0
+    assert stats["offline"] == 0
+    assert db.session.scalars(select(Device)).all() == []
+
+
+def test_poll_keeps_history_when_ip_and_sector_change(app, monkeypatch):
+    lab = Sector(name="lab", description="")
+    lab.ranges.append(SectorRange(cidr="10.0.0.5"))
+    office = Sector(name="office", description="")
+    office.ranges.append(SectorRange(cidr="10.1.0.8"))
+    db.session.add_all([lab, office])
+    db.session.commit()
+
+    answers = {
+        "10.0.0.5": PingResult(DeviceStatus.ONLINE, 10, "time=10 ms"),
+        "10.1.0.8": PingResult(DeviceStatus.OFFLINE, None, "down"),
+    }
+
+    def fake_ping(ip, timeout_s=1):
+        return answers[ip]
+
+    monkeypatch.setattr("app.services.ping_service.ping_host", fake_ping)
+    _patch_discovery(monkeypatch, hostname="n14002.example", serial="DELLTAG1")
+
+    first = poll_all_sectors()
+    assert first["online"] == 1
+    device = db.session.scalar(select(Device).where(Device.serial_number == "DELLTAG1"))
+    assert device is not None
+    assert device.ip == "10.0.0.5"
+    assert device.sector_id == lab.id
+    device_id = device.id
+
+    # Ноутбук переехал: старый IP молчит, новый отвечает с тем же serial.
+    answers = {
+        "10.0.0.5": PingResult(DeviceStatus.OFFLINE, None, "down"),
+        "10.1.0.8": PingResult(DeviceStatus.ONLINE, 8, "time=8 ms"),
+    }
+    second = poll_all_sectors()
+    assert second["online"] == 1
+    assert second["offline"] == 0
+
+    devices = db.session.scalars(select(Device)).all()
+    assert len(devices) == 1
+    device = devices[0]
+    assert device.id == device_id
+    assert device.ip == "10.1.0.8"
+    assert device.sector_id == office.id
+    assert device.serial_number == "DELLTAG1"
+    history = db.session.scalars(
+        select(DeviceHistory).where(DeviceHistory.device_id == device_id)
+    ).all()
+    assert len(history) == 2
+    assert {row.status for row in history} == {DeviceStatus.ONLINE}
+
+
+def test_poll_matches_by_hostname_when_serial_missing(app, monkeypatch):
+    sector = Sector(name="lab", description="")
+    sector.ranges.append(SectorRange(cidr="10.0.0.5"))
+    sector.ranges.append(SectorRange(cidr="10.0.0.6"))
+    db.session.add(sector)
+    db.session.commit()
+
+    answers = {
+        "10.0.0.5": PingResult(DeviceStatus.ONLINE, 5, "time=5 ms"),
+        "10.0.0.6": PingResult(DeviceStatus.OFFLINE, None, "down"),
+    }
+    monkeypatch.setattr(
+        "app.services.ping_service.ping_host",
+        lambda ip, timeout_s=1: answers[ip],
+    )
+    _patch_discovery(monkeypatch, hostname="n14002.corp.local", serial=None)
+
+    poll_all_sectors()
+    device = db.session.scalar(select(Device).where(Device.hostname == "n14002.corp.local"))
+    assert device is not None
+    device_id = device.id
+
+    answers = {
+        "10.0.0.5": PingResult(DeviceStatus.OFFLINE, None, "down"),
+        "10.0.0.6": PingResult(DeviceStatus.ONLINE, 7, "time=7 ms"),
+    }
+    # Короткое имя без суффикса — та же машина.
+    _patch_discovery(monkeypatch, hostname="N14002", serial=None)
+    poll_all_sectors()
+
+    devices = db.session.scalars(select(Device)).all()
+    assert len(devices) == 1
+    assert devices[0].id == device_id
+    assert devices[0].ip == "10.0.0.6"
+    assert devices[0].hostname == "N14002"
+
+
+def test_poll_marks_known_device_offline(app, monkeypatch):
+    sector = Sector(name="lab", description="")
+    sector.ranges.append(SectorRange(cidr="10.0.0.5"))
+    db.session.add(sector)
+    db.session.flush()
+    device = Device(
+        ip="10.0.0.5",
+        hostname="n14002",
+        serial_number="TAG1",
+        sector_id=sector.id,
+        last_status=DeviceStatus.ONLINE,
+        last_seen=utcnow(),
+    )
+    db.session.add(device)
+    db.session.commit()
+    device_id = device.id
+
+    monkeypatch.setattr(
+        "app.services.ping_service.ping_host",
+        lambda ip, timeout_s=1: PingResult(DeviceStatus.OFFLINE, None, "down"),
+    )
+    stats = poll_all_sectors()
+    assert stats["offline"] == 1
+    db.session.refresh(device)
+    assert device.id == device_id
+    assert device.last_status == DeviceStatus.OFFLINE
+    history = db.session.scalars(
+        select(DeviceHistory).where(DeviceHistory.device_id == device_id)
+    ).all()
+    assert len(history) == 1
+    assert history[0].status == DeviceStatus.OFFLINE

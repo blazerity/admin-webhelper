@@ -29,8 +29,11 @@ APScheduler>=3.10
 cryptography>=42.0
 
 # Удалённый запуск команд на Windows с Debian-сервера.
-# Почему pypsexec, а не psexec.exe и не Impacket — см. app/services/psexec_service.py
+# Почему pypsexec, а не psexec.exe — см. app/services/psexec_service.py
 pypsexec>=0.3
+
+# WMI (Win32_BIOS.SerialNumber) с Linux при опросе устройств
+impacket>=0.11
 
 # Прод-сервер приложений (перед ним ставится Nginx)
 gunicorn>=22.0

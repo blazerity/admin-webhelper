@@ -28,7 +28,13 @@ _RUN_TYPE_LABELS = {
 
 
 def _load_visible_sectors():
-    """Секторы текущего пользователя с устройствами, отсортированными по IP."""
+    """Секторы текущего пользователя с устройствами, отсортированными по IP.
+
+    На карте только машины, которые хотя бы раз отвечали (last_seen).
+    Пустые адреса из CIDR в devices больше не создаются.
+    Список кладём в sector.visible_devices — relationship не трогаем,
+    иначе SQLAlchemy мог бы обнулить sector_id у отфильтрованных строк.
+    """
     allowed = accessible_sectors(current_user)
     if not allowed:
         return []
@@ -41,7 +47,9 @@ def _load_visible_sectors():
     by_id = {sector.id: sector for sector in loaded}
     sectors = [by_id[sector.id] for sector in allowed if sector.id in by_id]
     for sector in sectors:
-        sector.devices.sort(key=lambda device: device.ip)
+        visible = [device for device in sector.devices if device.last_seen is not None]
+        visible.sort(key=lambda device: device.ip)
+        sector.visible_devices = visible
     return sectors
 
 
@@ -89,7 +97,7 @@ def map_status():
                 "status": device.last_status,
                 "kind": device.kind,
             }
-            for device in sector.devices
+            for device in sector.visible_devices
         ]
         online = sum(1 for device in devices if device["status"] == "online")
         sectors_payload.append(

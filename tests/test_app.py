@@ -1,5 +1,6 @@
 from app.extensions import db
 from app.models import Device, Sector, SectorAccess
+from app.utils import utcnow
 
 
 def _login(client, user_id):
@@ -14,10 +15,32 @@ def _seed_office(app, owner="admin"):
         sector.access_rules.append(SectorAccess(subject_type="user", subject_name=owner))
         db.session.add(sector)
         db.session.flush()
+        seen = utcnow()
         devices = [
-            Device(ip="10.0.0.1", hostname="NBOOK01", sector_id=sector.id, last_status="online"),
-            Device(ip="10.0.0.2", hostname="WDESK01", sector_id=sector.id, last_status="offline"),
-            Device(ip="10.0.0.3", hostname="SRV01", sector_id=sector.id, last_status="online"),
+            Device(
+                ip="10.0.0.1",
+                hostname="NBOOK01",
+                serial_number="NB-SERIAL-01",
+                sector_id=sector.id,
+                last_status="online",
+                last_seen=seen,
+            ),
+            Device(
+                ip="10.0.0.2",
+                hostname="WDESK01",
+                serial_number="WD-SERIAL-02",
+                sector_id=sector.id,
+                last_status="offline",
+                last_seen=seen,
+            ),
+            Device(
+                ip="10.0.0.3",
+                hostname="SRV01",
+                serial_number="SRV-SERIAL-03",
+                sector_id=sector.id,
+                last_status="online",
+                last_seen=seen,
+            ),
         ]
         db.session.add_all(devices)
         db.session.commit()
@@ -113,6 +136,8 @@ def test_device_detail_shows_object_card(client, app, admin_id):
     assert "device-portrait" in html
     assert "Ноутбук" in html
     assert "NBOOK01" in html
+    assert "NB-SERIAL-01" in html
+    assert "Серийный номер" in html
     assert "10.0.0.1" in html
     assert "Проверки доступности" in html
     assert "Запуски на этом ПК" in html
