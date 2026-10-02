@@ -17,6 +17,7 @@
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from sqlalchemy.orm import selectinload
 
 from app.authz import accessible_sectors, admin_required, get_visible_sector_or_404
 from app.extensions import db
@@ -32,9 +33,19 @@ bp = Blueprint("sectors", __name__, url_prefix="/sectors")
 @bp.get("/")
 @login_required
 def list_sectors():
+    sectors = accessible_sectors(current_user)
+    if sectors:
+        # ranges нужны для |length в шаблоне — без N+1 lazy-load.
+        loaded = (
+            Sector.query.options(selectinload(Sector.ranges))
+            .filter(Sector.id.in_([sector.id for sector in sectors]))
+            .all()
+        )
+        by_id = {sector.id: sector for sector in loaded}
+        sectors = [by_id[sector.id] for sector in sectors if sector.id in by_id]
     return render_template(
         "sectors/list.html",
-        sectors=accessible_sectors(current_user),
+        sectors=sectors,
     )
 
 

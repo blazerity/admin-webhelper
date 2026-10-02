@@ -310,7 +310,7 @@ def perform_update(
     """Скачать ветку и заменить код. Без готовой копии замена не начинается."""
     url = validate_remote_url(remote_url)
     branch = validate_branch(branch)
-    progress = _progress(on_progress)
+    progress = on_progress or (lambda _message: None)
     progress("Проверяю версию в репозитории")
     remote_commit = remote_head(url, branch, cwd=root)
     local_commit, _subject, local_ver = local_version(root)
@@ -389,7 +389,7 @@ def perform_rollback(
     """Вернуть файлы из копии. Текущий код перед этим тоже сохраняется."""
     selected = backup_path(root, backup_id)
     branch = validate_branch(branch)
-    progress = _progress(on_progress)
+    progress = on_progress or (lambda _message: None)
     manifest = _read_manifest(selected)
     progress("Создаю копию текущей версии перед откатом")
     try:
@@ -991,14 +991,6 @@ def _keep_count() -> int:
         return max(1, int(current_app.config.get("UPDATE_BACKUP_KEEP", 5)))
     except (TypeError, ValueError):
         return 5
-
-
-def _progress(callback):
-    def emit(message: str) -> None:
-        if callback is not None:
-            callback(message)
-
-    return emit
 
 
 def _git(*args: str) -> list[str]:

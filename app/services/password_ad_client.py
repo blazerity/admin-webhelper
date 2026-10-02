@@ -154,8 +154,8 @@ def _open_service_connection() -> Connection:
         port = int(cfg.get("LDAP_PORT") or 636)
     except (TypeError, ValueError):
         port = 636
-    use_ssl = ldap_service._as_bool(cfg.get("LDAP_USE_SSL", True), default=True)
-    host, port, use_ssl = ldap_service._ldap_endpoint(host, port, use_ssl)
+    use_ssl = ldap_service.as_bool(cfg.get("LDAP_USE_SSL", True), default=True)
+    host, port, use_ssl = ldap_service.ldap_endpoint(host, port, use_ssl)
 
     server = Server(host, port=port, use_ssl=use_ssl, get_info=NONE, connect_timeout=10)
     try:
@@ -260,7 +260,7 @@ def fetch_password_users(
         )
         return users
     finally:
-        ldap_service._unbind(connection)
+        ldap_service.unbind(connection)
 
 
 def verify_password_directory_access(
@@ -294,4 +294,4 @@ def verify_password_directory_access(
         host = str(current_app.config.get("LDAP_HOST") or "")
         return f"LDAP OK: {host}, search_base={dn}"
     finally:
-        ldap_service._unbind(connection)
+        ldap_service.unbind(connection)

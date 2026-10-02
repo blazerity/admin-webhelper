@@ -6,7 +6,7 @@
 процессе ОС — app/scheduler_worker.py.
 
 Позже вместо APScheduler может появиться Celery beat. Задача beat
-вызовет ту же start_scheduler или напрямую poll_all_sectors.
+вызовет ту же start_scheduler или напрямую run_network_poll.
 Сама проверка хостов от очереди не зависит и не переписывается.
 
 Команда `flask poll` регистрируется здесь, а create_app вызывает
@@ -122,7 +122,7 @@ def start_scheduler(app) -> BackgroundScheduler:
 
     Запускать только из scheduler_worker, не из воркера Gunicorn.
     Иначе каждый веб-процесс начнёт пинговать сеть. Когда появится
-    Celery beat, он вызовет эту же функцию; poll_all_sectors останется прежним.
+    Celery beat, он вызовет эту же функцию; run_network_poll останется прежним.
     """
     existing = app.extensions.get(SCHEDULER_EXT_KEY)
     if existing is not None and getattr(existing, "running", False):

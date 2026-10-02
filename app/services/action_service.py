@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
-from app.authz import accessible_sector_ids, user_can_see_script_run
+from app.authz import accessible_sector_ids
 from app.extensions import db
 from app.models import (
     ActionKind,
@@ -48,6 +48,11 @@ def ensure_action_kinds() -> dict[str, ActionKind]:
     db.session.flush()
     rows = list(db.session.scalars(select(ActionKind)).all())
     return {row.code: row for row in rows}
+
+
+def list_action_kinds() -> list[ActionKind]:
+    """Справочник типов для UI, по названию."""
+    return sorted(ensure_action_kinds().values(), key=lambda item: item.title)
 
 
 def action_kind_title(kinds: dict[str, ActionKind], code: str) -> str:
@@ -118,8 +123,12 @@ def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
 
     items: list[SystemActionItem] = []
     for run in db.session.scalars(run_stmt).all():
-        if not user_can_see_script_run(user, run):
-            continue
+        # Запрос уже отфильтровал видимые запуски; повторный accessible_sectors
+        # через user_can_see_script_run давал N+1 на каждой строке.
+        if not user.is_admin and run.user_id != user.id:
+            device = run.device
+            if device is None or not sector_ids or device.sector_id not in sector_ids:
+                continue
         code = run.run_type or ActionKindCode.COMMAND
         items.append(
             SystemActionItem(

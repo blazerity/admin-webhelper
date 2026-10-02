@@ -17,8 +17,8 @@
      при смене адреса и сектора. MAC сначала из ARP, иначе из WMI.
      Текущая УЗ пишется в endpoint_accounts / device_account_history.
 
-Позже ту же функцию poll_all_sectors вызовет задача Celery. Менять
-разбор пинга и запись истории для этого не нужно.
+Позже ту же функцию run_network_poll / poll_all_sectors вызовет задача Celery.
+Менять разбор пинга и запись истории для этого не нужно.
 """
 
 import logging
@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.models import Device, DeviceHistory, DeviceStatus, NetworkPollRun, Sector
@@ -329,12 +330,6 @@ def load_recent_poll_runs(limit: int = _RECENT_POLL_RUNS_LIMIT) -> list[NetworkP
     )
 
 
-def load_last_poll_run() -> NetworkPollRun | None:
-    return db.session.scalars(
-        select(NetworkPollRun).order_by(NetworkPollRun.id.desc()).limit(1)
-    ).first()
-
-
 def run_network_poll(*, mode: str = "scheduled") -> dict[str, int]:
     """Опрос с записью в network_poll_runs. Без параллельных запусков.
 
@@ -414,7 +409,9 @@ def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
     за один проход и снова каждые POLL_INTERVAL_SECONDS. Одна сводка
     на проход — сколько адресов и какие пары секторов.
     """
-    sectors = db.session.scalars(select(Sector).order_by(Sector.id)).all()
+    sectors = db.session.scalars(
+        select(Sector).options(selectinload(Sector.ranges)).order_by(Sector.id)
+    ).all()
     assigned: dict[str, int] = {}
     # (проигравший sector_id, победитель) → число адресов.
     overlaps: dict[tuple[int, int], int] = {}

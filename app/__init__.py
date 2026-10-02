@@ -64,9 +64,9 @@ def create_app(config_name: str | None = None) -> Flask:
 
     @app.template_filter("dt")
     def format_dt(value):
-        if not value:
-            return "—"
-        return value.strftime("%Y-%m-%d %H:%M:%S UTC")
+        from app.utils import format_utc
+
+        return format_utc(value)
 
     @app.context_processor
     def inject_globals():

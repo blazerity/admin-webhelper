@@ -832,13 +832,6 @@ code {
   box-shadow: inset -3px 0 0 var(--accent);
 }
 
-.device-detail-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 1rem;
-  align-items: start;
-}
-
 .device-actions-panel {
   position: sticky;
   top: calc(var(--topbar-h) + 1rem);
@@ -896,7 +889,6 @@ code {
     grid-template-columns: 1fr;
   }
 
-  .device-detail-layout,
   .device-settings-layout {
     grid-template-columns: 1fr;
   }
@@ -1097,12 +1089,6 @@ code {
   white-space: pre-wrap;
   max-height: 10rem;
   overflow: auto;
-}
-
-.suggest-list {
-  position: absolute;
-  z-index: 10;
-  width: 100%;
 }
 
 /* Endpoint account card */

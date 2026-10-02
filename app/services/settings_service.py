@@ -255,16 +255,23 @@ def set_update_sudo_user(value: str) -> str:
     return view.username
 
 
-def _get_setting(key: str) -> str | None:
+def get_app_setting(key: str) -> str | None:
+    """Сырое значение из app_settings или None."""
     row = db.session.get(AppSetting, key)
     if row is None:
         return None
     return row.value
 
 
-def _set_setting(key: str, value: str) -> None:
+def set_app_setting(key: str, value: str) -> None:
+    """Upsert строки app_settings без commit (caller коммитит)."""
     row = db.session.get(AppSetting, key)
     if row is None:
         db.session.add(AppSetting(key=key, value=value))
     else:
         row.value = value
+
+
+# Совместимость внутри модуля.
+_get_setting = get_app_setting
+_set_setting = set_app_setting

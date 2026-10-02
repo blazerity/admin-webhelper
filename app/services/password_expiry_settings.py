@@ -13,8 +13,8 @@ from datetime import date
 from flask import current_app
 
 from app.extensions import db
-from app.models import AppSetting
 from app.services.crypto_service import CryptoError, CryptoNotConfigured, decrypt, encrypt
+from app.utils import as_truthy
 
 PWD_MAX_AGE_DAYS = "pwd_max_age_days"
 PWD_FIRST_WARNING_DAYS = "pwd_first_warning_days"
@@ -102,18 +102,15 @@ class SmtpSettings:
 
 
 def _get_raw(key: str) -> str | None:
-    row = db.session.get(AppSetting, key)
-    if row is None:
-        return None
-    return row.value
+    from app.services.settings_service import get_app_setting
+
+    return get_app_setting(key)
 
 
 def _set_raw(key: str, value: str) -> None:
-    row = db.session.get(AppSetting, key)
-    if row is None:
-        db.session.add(AppSetting(key=key, value=value))
-    else:
-        row.value = value
+    from app.services.settings_service import set_app_setting
+
+    set_app_setting(key, value)
 
 
 def _split_list(raw: str, sep: str = ",") -> list[str]:
@@ -216,7 +213,7 @@ def get_smtp_settings() -> SmtpSettings:
         use_starttls_override = None
         use_starttls = env_starttls
     else:
-        use_starttls_override = str(starttls_raw).strip().lower() in {"1", "true", "yes", "on"}
+        use_starttls_override = as_truthy(starttls_raw, default=False)
         use_starttls = use_starttls_override
 
     host = _pref(host_override, env_host)
@@ -307,7 +304,7 @@ def get_password_expiry_settings() -> PasswordExpirySettings:
 
     cron = (_get_raw(PWD_SCHEDULE_CRON) or "").strip() or DEFAULT_SCHEDULE_CRON
     enabled_raw = (_get_raw(PWD_SCHEDULE_ENABLED) or "0").strip().lower()
-    schedule_enabled = enabled_raw in {"1", "true", "yes", "on"}
+    schedule_enabled = as_truthy(enabled_raw, default=False)
 
     return PasswordExpirySettings(
         max_pwd_age_days=max_age,
