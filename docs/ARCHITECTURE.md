@@ -113,7 +113,7 @@ bAWH/
   app/
     __init__.py · config.py · extensions.py · authz.py · utils.py
     models/ · services/ · routes/ · templates/ · static/
-  migrations/versions/   # Alembic, сейчас до 0005_accounts_actions
+  migrations/versions/   # Alembic, сейчас до 0006_password_expiry
   tests/
   deploy/                # Debian 12: systemd, Nginx, install script
   docs/ARCHITECTURE.md   # этот файл
