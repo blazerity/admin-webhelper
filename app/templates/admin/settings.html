@@ -32,4 +32,7 @@
   </div>
   <button class="btn btn-primary" type="submit">Сохранить интервал</button>
 </form>
+<h2 class="h5 mt-5">Обновление из git</h2>
+<p class="text-muted">Новая версия скачивается из публичного репозитория. Перед заменой кода всегда создаётся копия для отката.</p>
+<a class="btn btn-outline-primary" href="{{ url_for('admin.updates') }}">Открыть обновления</a>
 {% endblock %}

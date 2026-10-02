@@ -119,6 +119,7 @@ install_sources() {
         --exclude .git \
         --exclude .pytest_cache \
         --exclude logs \
+        --exclude backups \
         --exclude '*.db' \
         --exclude '*.pyc' \
         "$LOCAL_REPO/" "$INSTALL_DIR/"
@@ -155,7 +156,8 @@ ensure_venv() {
 
 write_env_file() {
   log "Создаю $INSTALL_DIR/.env с новыми SECRET_KEY, FERNET_KEY и паролем базы."
-  BAWH_INSTALL_DIR="$INSTALL_DIR" "$INSTALL_DIR/.venv/bin/python" - <<'PY'
+  BAWH_INSTALL_DIR="$INSTALL_DIR" BAWH_REPO="$BAWH_REPO" BAWH_REF="$BAWH_REF" \
+    "$INSTALL_DIR/.venv/bin/python" - <<'PY'
 import os
 import secrets
 from pathlib import Path
@@ -173,6 +175,12 @@ replacements = {
     "DATABASE_URL": database_url,
     "FERNET_KEY": fernet,
 }
+remote = os.environ.get("BAWH_REPO", "").strip()
+ref = os.environ.get("BAWH_REF", "main").strip() or "main"
+if remote.startswith("https://") and " " not in remote:
+    replacements["GIT_REMOTE_URL"] = remote
+if ref and not any(char in ref for char in " \t\r\n"):
+    replacements["GIT_BRANCH"] = ref
 out = []
 seen = set()
 for line in example.splitlines(keepends=True):
@@ -218,6 +226,48 @@ ensure_database() {
     chown bawh:bawh "$INSTALL_DIR/.env"
     chmod 600 "$INSTALL_DIR/.env"
   fi
+  # Кнопка «Обновить» читает GIT_REMOTE_URL. Пустое значение и старая заглушка
+  # не должны уводить установку с адреса, с которого скрипт клонирует код.
+  # Уже записанный свой адрес не переписывается.
+  BAWH_INSTALL_DIR="$INSTALL_DIR" BAWH_REPO="$BAWH_REPO" BAWH_REF="$BAWH_REF" \
+    "$INSTALL_DIR/.venv/bin/python" - <<'PY'
+import os
+from pathlib import Path
+
+install_dir = Path(os.environ["BAWH_INSTALL_DIR"])
+env_path = install_dir / ".env"
+remote = os.environ.get("BAWH_REPO", "").strip()
+ref = os.environ.get("BAWH_REF", "main").strip() or "main"
+placeholder = "https://github.com/ORG/bAWH.git"
+lines = env_path.read_text(encoding="utf-8").splitlines(keepends=True)
+
+def fill(lines: list[str], key: str, value: str, replaceable: set[str]) -> list[str]:
+    found = False
+    out = []
+    for line in lines:
+        if line.startswith(key + "="):
+            found = True
+            current = line.split("=", 1)[1].strip()
+            if current in replaceable:
+                out.append(f"{key}={value}\n")
+            else:
+                out.append(line if line.endswith("\n") else line + "\n")
+        else:
+            out.append(line if line.endswith("\n") else line + "\n")
+    if not found:
+        if out and not out[-1].endswith("\n"):
+            out[-1] += "\n"
+        out.append(f"{key}={value}\n")
+    return out
+
+if remote.startswith("https://") and " " not in remote:
+    lines = fill(lines, "GIT_REMOTE_URL", remote, {"", placeholder})
+if ref and not any(char in ref for char in " \t\r\n"):
+    lines = fill(lines, "GIT_BRANCH", ref, {""})
+env_path.write_text("".join(lines), encoding="utf-8")
+PY
+  chown bawh:bawh "$INSTALL_DIR/.env"
+  chmod 600 "$INSTALL_DIR/.env"
 
   wait_for_postgres
   # .env принадлежит bawh и закрыт от остальных. Пароль читает root и передаёт

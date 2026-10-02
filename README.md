@@ -72,6 +72,7 @@ bAWH/
 - `search_service.py` — поиск устройств по IP, MAC, hostname.
 - `psexec_service.py` — удалённая команда на Windows.
 - `script_service.py` — библиотека скриптов и запуск в фоновом потоке.
+- `update_service.py` — обновление кода из публичного git и откат на резервную копию.
 
 Процесс опроса — модуль `app.scheduler_worker`. Запуск: `python -m app.scheduler_worker`. Он создаёт приложение, чтобы читать конфигурацию и БД, и сам HTTP не обслуживает. Внутри APScheduler берёт интервал через `get_poll_interval_seconds()` и вызывает опрос секторов.
 
@@ -87,7 +88,7 @@ bAWH/
 | `search.py` | `GET /search`, `GET /search/suggest` |
 | `diagnostics.py` | `POST /devices/<id>/ping`, `/tracert`, `/command` |
 | `scripts.py` | `/scripts` и страница запуска `/scripts/runs/<id>` |
-| `admin.py` | `GET/POST /admin/settings` — учётка PsExec и интервал опроса |
+| `admin.py` | `GET/POST /admin/settings` — учётка PsExec и интервал опроса; `GET/POST /admin/updates` — обновление из git и откат |
 
 Маршрут только читает форму и вызывает сервис. `POST /login` проверяет пароль в LDAP. Сектора, настройки, поиск и карточка устройства пишут и читают PostgreSQL. Ping и трассировка стартуют с сервера приложения, команда администратора и скрипт — через `psexec_service`, а страница `/scripts/runs/<id>` дочитывает лог опросом раз в 1,5 секунды.
 
@@ -212,7 +213,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo bash
 ```
 
-Скрипт `deploy/install-debian12.sh` ставит пакеты, заводит пользователя Linux `bawh`, кладёт код в `/opt/bawh`, создаёт роль и базу PostgreSQL `bawh`, собирает виртуальное окружение, применяет миграции и включает сервисы `bawh-web`, `bawh-scheduler` и сайт Nginx. `SECRET_KEY`, `FERNET_KEY` и пароль базы он записывает в `/opt/bawh/.env` (права `600`). Имя сайта берётся из `hostname -f`. Своё имя передают так:
+Скрипт `deploy/install-debian12.sh` ставит пакеты, заводит пользователя Linux `bawh`, кладёт код в `/opt/bawh`, создаёт роль и базу PostgreSQL `bawh`, собирает виртуальное окружение, применяет миграции и включает сервисы `bawh-web`, `bawh-scheduler` и сайт Nginx. `SECRET_KEY`, `FERNET_KEY` и пароль базы он записывает в `/opt/bawh/.env` (права `600`). Туда же попадает `GIT_REMOTE_URL` из `BAWH_REPO` и `GIT_BRANCH` из `BAWH_REF`, чтобы кнопка «Обновить» смотрела в тот же репозиторий, который скрипт клонирует. Уже записанный свой адрес скрипт не меняет; пустой адрес и заглушку `https://github.com/ORG/bAWH.git` заменяет. Имя сайта берётся из `hostname -f`. Своё имя передают так:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo BAWH_SERVER_NAME=bawh.example.com bash
@@ -246,7 +247,7 @@ sudo systemctl restart bawh-web bawh-scheduler
 
 ```bash
 sudo apt update
-sudo apt install -y python3.11 python3.11-venv postgresql nginx iputils-ping traceroute
+sudo apt install -y python3.11 python3.11-venv postgresql nginx git iputils-ping traceroute
 ```
 
 `iputils-ping` и `traceroute` нужны диагностике с самого сервера. Python-пакеты ставятся в venv на следующем шаге, не через apt.
@@ -331,6 +332,31 @@ journalctl -u bawh-web -u bawh-scheduler -f
 ```bash
 systemctl status bawh-web bawh-scheduler
 ```
+
+### 9. Обновление из веб-интерфейса
+
+Администратор открывает пункт «Обновления». Кнопка «Обновить из git» сначала копирует текущий код в `backups/`, и только если копия создалась — скачивает публичный репозиторий и заменяет файлы программы. Кнопка «Откатить» у выбранной копии возвращает эти файлы. Перед откатом текущая версия тоже сохраняется.
+
+В копию не входят и при замене не перезаписываются `.env`, `.venv`, `logs/`, `script_library/`, файлы `*.db` и сам каталог `backups/`. Схема PostgreSQL при откате назад не откатывается: миграции применяются только вперёд.
+
+В `.env` адрес может быть пустым: тогда берётся `origin` каталога, который клонировал установщик. Свой публичный HTTPS без логина и пароля задают так:
+
+```
+GIT_REMOTE_URL=https://github.com/blazerity/admin-webhelper.git
+GIT_BRANCH=main
+```
+
+Каталог установки может быть скопирован через `rsync`, как в шаге 2: для кнопки достаточно пакета `git`. Повторный запуск `deploy/install-debian12.sh` по-прежнему обновляет такой каталог командой `git pull --ff-only`, если в нём есть `.git`.
+
+Чтобы службы подхватили новый код сами, разрешите пользователю `bawh` одну команду перезапуска:
+
+```bash
+sudo cp /opt/bawh/deploy/bawh-update.sudoers /etc/sudoers.d/bawh-update
+sudo chmod 440 /etc/sudoers.d/bawh-update
+sudo visudo -cf /etc/sudoers.d/bawh-update
+```
+
+Без этого правила код всё равно обновится, а в интерфейсе останется команда `sudo systemctl restart bawh-scheduler bawh-web`. Пока сайт открыт у пользователей, нажмите обновление, когда короткий обрыв на время перезапуска допустим.
 
 ## Почему два сервиса
 

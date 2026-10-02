@@ -52,6 +52,20 @@ class Config:
     PSEXEC_PASSWORD = os.environ.get("PSEXEC_PASSWORD", "")
     FERNET_KEY = os.environ.get("FERNET_KEY", "")
 
+    # Корень установки: отсюда читается код и сюда кладётся каталог backups.
+    PROJECT_ROOT = os.environ.get(
+        "PROJECT_ROOT",
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    )
+    # Публичный HTTPS-адрес. Пусто — берётся origin, если он тоже https.
+    GIT_REMOTE_URL = os.environ.get("GIT_REMOTE_URL", "").strip()
+    GIT_BRANCH = os.environ.get("GIT_BRANCH", "main").strip() or "main"
+    # Сколько последних копий кода хранить. Копия, на которую только что
+    # откатились, не удаляется, даже если она старше этого числа.
+    UPDATE_BACKUP_KEEP = int(os.environ.get("UPDATE_BACKUP_KEEP", "5"))
+    # После удачной замены перезапустить bawh-web и bawh-scheduler через sudo.
+    UPDATE_RESTART = _flag("UPDATE_RESTART", "1")
+
     SCRIPT_LIBRARY_DIR = os.environ.get("SCRIPT_LIBRARY_DIR", "script_library")
     # Сколько символов лога хранить в script_runs.log_text
     MAX_LOG_CHARS = 200_000
@@ -82,6 +96,7 @@ class TestingConfig(Config):
     LDAP_ADMIN_GROUP = "bawh-admins"
     LDAP_DOMAIN = "example.com"
     FERNET_KEY = os.environ.get("FERNET_KEY", "")
+    UPDATE_RESTART = False
 
 
 class DevelopmentConfig(Config):

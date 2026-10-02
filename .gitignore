@@ -9,6 +9,7 @@ __pycache__/
 instance/
 logs/*
 !logs/.gitkeep
+backups/
 dist/
 build/
 *.egg-info/

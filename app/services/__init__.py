@@ -17,6 +17,7 @@ scheduler_service.py   цикл опроса для отдельного про�
 search_service.py      поиск устройств по IP, MAC, hostname
 psexec_service.py      удалённая команда на Windows
 script_service.py      библиотека скриптов и запуск в фоновом потоке
+update_service.py      обновление кода из публичного git и откат на копию
 
 Куда расти
 ----------

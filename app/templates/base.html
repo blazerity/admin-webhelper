@@ -23,6 +23,7 @@
           {% if current_user.is_admin %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.settings') }}">Настройки</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.updates') }}">Обновления</a></li>
           {% endif %}
         </ul>
         <span class="navbar-text me-3">{{ current_user.display_name or current_user.username }}</span>

@@ -1,12 +1,16 @@
-"""Настройки администратора: учётка PsExec и интервал опроса.
+"""Настройки администратора: учётка PsExec, интервал опроса, обновление из git.
 
-Эндпоинт:
+Эндпоинты:
 - settings   GET/POST /admin/settings
+- updates    GET/POST /admin/updates
 
-Две формы на одной странице различаются скрытым полем form:
+Две формы на странице настроек различаются скрытым полем form:
 psexec или poll. Открытый пароль в шаблон и во flash не попадает.
 Пустой пароль при сохранении оставляет прежний шифротекст —
 так устроен save_remote_admin_credentials.
+
+Обновление — отдельные кнопки на /admin/updates. Замена кода
+начинается только после резервной копии, см. update_service.
 """
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
@@ -20,6 +24,7 @@ from app.services.credential_service import (
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
 from app.services.settings_service import get_poll_interval_seconds, set_poll_interval_seconds
+from app.services.update_service import UpdateError, begin_rollback, begin_update, build_page, check_for_updates
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -82,3 +87,26 @@ def settings():
         password_set=password_set,
         poll_interval=get_poll_interval_seconds(),
     )
+
+
+@bp.route("/updates", methods=["GET", "POST"])
+@admin_required
+def updates():
+    if request.method == "POST":
+        kind = (request.form.get("form") or "").strip()
+        try:
+            if kind == "check":
+                flash(check_for_updates(), "info")
+            elif kind == "update":
+                begin_update()
+                flash("Обновление запущено. Сначала создаётся резервная копия.", "info")
+            elif kind == "rollback":
+                begin_rollback(request.form.get("backup_id", ""))
+                flash("Откат запущен. Текущая версия тоже сохраняется в копию.", "info")
+            else:
+                flash("Неизвестная форма.", "warning")
+        except UpdateError as exc:
+            flash(str(exc), "danger")
+        return redirect(url_for("admin.updates"))
+
+    return render_template("admin/updates.html", status=build_page())
