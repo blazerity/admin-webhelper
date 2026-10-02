@@ -1,4 +1,4 @@
-// Поиск на карте сети → /search/api.
+// Поиск на карте сети → /search/api; фильтрует секторы и карточки устройств.
 (function () {
   const form = document.getElementById("map-search-form");
   const input = document.getElementById("map-search-q");
@@ -19,6 +19,16 @@
     offline: "недоступен",
     unknown: "неизвестно",
   };
+
+  function syncMapFilter(matchIds) {
+    if (window.MapFilters && typeof window.MapFilters.setSearchMatchIds === "function") {
+      window.MapFilters.setSearchMatchIds(matchIds);
+    }
+  }
+
+  function clearMapFilter() {
+    syncMapFilter(null);
+  }
 
   function renderEmpty(message) {
     results.innerHTML = '<p class="text-muted small mb-0">' + message + "</p>";
@@ -74,10 +84,11 @@
     window.history.replaceState({}, "", nextUrl);
 
     if (value.length < 2) {
+      clearMapFilter();
       renderEmpty(
         value
           ? "Введите ещё символ для поиска."
-          : "Начните вводить запрос — результаты появятся здесь."
+          : "Начните вводить запрос — на карте останутся подходящие машины."
       );
       return;
     }
@@ -89,8 +100,14 @@
       .then(function (response) {
         return response.json();
       })
-      .then(renderItems)
+      .then(function (items) {
+        renderItems(items);
+        syncMapFilter(items.map(function (item) {
+          return item.id;
+        }));
+      })
       .catch(function () {
+        clearMapFilter();
         renderEmpty("Не удалось выполнить поиск.");
       });
   }
@@ -108,4 +125,21 @@
     event.preventDefault();
     runSearch();
   });
+
+  // Стартовый фильтр: при ?q=… или SSR-результатах сразу сужаем карту.
+  const initialValue = input.value.trim();
+  if (initialValue.length >= 2) {
+    const initialIds = (results.dataset.initialIds || "")
+      .split(",")
+      .map(function (part) {
+        return part.trim();
+      })
+      .filter(Boolean);
+    if (initialIds.length) {
+      syncMapFilter(initialIds);
+    }
+    runSearch();
+  } else {
+    clearMapFilter();
+  }
 })();

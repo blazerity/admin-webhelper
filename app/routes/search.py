@@ -22,7 +22,7 @@ def _sector_id_from_args() -> int | None:
 @bp.get("/search")
 @login_required
 def search_page():
-    """Старый адрес поиска ведёт на карту с панелью поиска справа."""
+    """Старый адрес поиска ведёт на карту с полем поиска."""
     args = {}
     query = (request.args.get("q") or "").strip()
     sector_id = _sector_id_from_args()
@@ -43,7 +43,7 @@ def suggest():
 @bp.get("/search/api")
 @login_required
 def search_api():
-    """JSON для боковой панели поиска на карте сети."""
+    """JSON для поиска на карте сети (список и фильтр секторов)."""
     query = (request.args.get("q") or "").strip()
     sector_id = _sector_id_from_args()
     devices = search_devices(current_user, query, sector_id=sector_id)

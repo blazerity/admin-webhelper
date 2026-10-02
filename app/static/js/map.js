@@ -16,6 +16,9 @@
     return;
   }
 
+  /** @type {Set<string>|null} null — поиск неактивен; Set — показывать только эти id */
+  let searchMatchIds = null;
+
   function selectedValues(group) {
     return Array.from(
       filtersRoot.querySelectorAll(
@@ -27,6 +30,7 @@
   function applyFilters() {
     const statuses = selectedValues("status");
     const types = selectedValues("type");
+    const searchActive = searchMatchIds !== null;
     let anyVisibleSector = false;
 
     mapRoot.querySelectorAll(".sector-panel").forEach((panel) => {
@@ -38,7 +42,9 @@
           statuses.length === 0 || statuses.includes(card.dataset.status);
         const typeOk =
           types.length === 0 || types.includes(card.dataset.type);
-        const show = statusOk && typeOk;
+        const searchOk =
+          !searchActive || searchMatchIds.has(String(card.dataset.deviceId));
+        const show = statusOk && typeOk && searchOk;
         card.classList.toggle("d-none", !show);
         if (show) {
           visibleCount += 1;
@@ -47,23 +53,39 @@
 
       const emptyFilterHint = panel.querySelector("[data-sector-empty-filter]");
       const hasDevices = cards.length > 0;
-      const hidePanel = hasDevices && visibleCount === 0 && (statuses.length > 0 || types.length > 0);
-      panel.classList.toggle("d-none", hidePanel);
+      const filtering =
+        statuses.length > 0 || types.length > 0 || searchActive;
+      const hidePanel = hasDevices && visibleCount === 0 && filtering;
+      // Пустые секторы без устройств скрываем при активном поиске.
+      const hideEmptySector = !hasDevices && searchActive;
+      panel.classList.toggle("d-none", hidePanel || hideEmptySector);
       if (emptyFilterHint) {
         emptyFilterHint.classList.add("d-none");
       }
-      if (!hidePanel && hasDevices) {
-        anyVisibleSector = true;
-      }
-      if (!hasDevices) {
-        anyVisibleSector = true;
+      if (!hidePanel && !hideEmptySector) {
+        if (hasDevices || !searchActive) {
+          anyVisibleSector = true;
+        }
       }
     });
 
     if (filtersEmpty) {
-      const filtering = statuses.length > 0 || types.length > 0;
+      const filtering =
+        statuses.length > 0 || types.length > 0 || searchActive;
+      filtersEmpty.textContent = searchActive
+        ? "Нет секторов с подходящими машинами."
+        : "Ни один сектор не подходит под выбранные фильтры.";
       filtersEmpty.classList.toggle("d-none", !filtering || anyVisibleSector);
     }
+  }
+
+  function setSearchMatchIds(ids) {
+    if (ids === null || ids === undefined) {
+      searchMatchIds = null;
+    } else {
+      searchMatchIds = new Set(Array.from(ids, (id) => String(id)));
+    }
+    applyFilters();
   }
 
   function toggleFilterButton(btn) {
@@ -178,6 +200,11 @@
       }
     }
   }
+
+  window.MapFilters = {
+    setSearchMatchIds,
+    applyFilters,
+  };
 
   applyFilters();
   window.setInterval(refreshStatuses, REFRESH_MS);
