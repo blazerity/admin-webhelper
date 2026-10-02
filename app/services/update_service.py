@@ -674,27 +674,58 @@ def schedule_restart(root: Path, previous: str) -> str:
     if systemctl is None:
         return "Перезапустите процесс приложения, чтобы подхватить новую версию."
 
+    sudo_user = _resolve_sudo_user()
+    command = restart_command(systemctl, sudo_user)
+
     def _later() -> None:
         time.sleep(2)
         result = subprocess.run(
-            ["sudo", "-n", systemctl, "restart", "bawh-scheduler", "bawh-web"],
+            command,
             capture_output=True,
             text=True,
             timeout=90,
             check=False,
         )
         if result.returncode != 0:
+            hint = "sudo systemctl restart bawh-scheduler bawh-web"
+            if sudo_user:
+                hint = f"sudo -u {sudo_user} systemctl restart bawh-scheduler bawh-web"
             _write_operation(
                 root,
                 "success",
                 previous
                 + " Службы сами не перезапустились. "
-                + "Выполните: sudo systemctl restart bawh-scheduler bawh-web. "
+                + f"Выполните: {hint}. "
+                + "Проверьте sudo-пользователя в Параметрах и правило "
+                + "deploy/bawh-update.sudoers. "
                 + _tail(result.stderr),
             )
 
     threading.Thread(target=_later, name="bawh-restart", daemon=True).start()
     return "Службы bawh-scheduler и bawh-web будут перезапущены через несколько секунд."
+
+
+def restart_command(systemctl: str, sudo_user: str = "") -> list[str]:
+    """Команда passwordless sudo для перезапуска служб.
+
+    sudo_user — цель sudo -u (обычно root). Пусто — sudo без -u.
+    """
+    command = ["sudo", "-n"]
+    user = (sudo_user or "").strip()
+    if user:
+        command.extend(["-u", user])
+    command.extend([systemctl, "restart", "bawh-scheduler", "bawh-web"])
+    return command
+
+
+def _resolve_sudo_user() -> str:
+    """Sudo-пользователь из Параметров, иначе UPDATE_SUDO_USER из конфига."""
+    try:
+        from app.services.settings_service import get_update_sudo_user
+
+        return get_update_sudo_user()
+    except Exception:  # noqa: BLE001 — поток перезапуска не должен падать из‑за БД
+        return str(current_app.config.get("UPDATE_SUDO_USER") or "").strip()
 
 
 def iter_managed(root: Path):

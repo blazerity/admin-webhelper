@@ -363,6 +363,22 @@ install_systemd() {
   systemctl restart bawh-web bawh-scheduler
 }
 
+install_update_sudoers() {
+  local src="$INSTALL_DIR/deploy/bawh-update.sudoers"
+  local dest=/etc/sudoers.d/bawh-update
+  if [[ ! -f "$src" ]]; then
+    log "Нет $src — правило для автоперезапуска после обновления не ставлю."
+    return 0
+  fi
+  log "Ставлю passwordless sudo для перезапуска служб после обновления из UI."
+  cp "$src" "$dest"
+  chmod 440 "$dest"
+  if ! visudo -cf "$dest" >/dev/null; then
+    rm -f "$dest"
+    die "Файл $src не прошёл проверку visudo. Автоперезапуск после обновления не настроен."
+  fi
+}
+
 install_nginx() {
   local server_name
   server_name="${BAWH_SERVER_NAME:-}"
@@ -455,6 +471,7 @@ main() {
   ensure_database
   run_migrations
   install_systemd
+  install_update_sudoers
   install_nginx
   wait_for_health
   print_summary

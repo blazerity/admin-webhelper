@@ -72,6 +72,9 @@ class Config:
     UPDATE_BACKUP_KEEP = int(os.environ.get("UPDATE_BACKUP_KEEP", "5"))
     # После удачной замены перезапустить bawh-web и bawh-scheduler через sudo.
     UPDATE_RESTART = _flag("UPDATE_RESTART", "1")
+    # Linux-пользователь для sudo -u при перезапуске (пусто — root по умолчанию).
+    # В интерфейсе: Параметры → Обновление из git. Нужен sudoers, см. deploy/bawh-update.sudoers.
+    UPDATE_SUDO_USER = os.environ.get("UPDATE_SUDO_USER", "").strip()
 
     SCRIPT_LIBRARY_DIR = os.environ.get("SCRIPT_LIBRARY_DIR", "script_library")
     MAX_LOG_CHARS = 200_000

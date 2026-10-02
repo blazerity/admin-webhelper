@@ -45,7 +45,32 @@ def test_admin_sees_update_and_rollback_controls(client, app, admin_id, tmp_path
     assert "Откатить" not in text
 
     settings = client.get("/admin/settings")
-    assert "Открыть обновления" in settings.get_data(as_text=True)
+    text = settings.get_data(as_text=True)
+    assert "Открыть обновления" in text
+    assert "Sudo-пользователь" in text
+    assert 'name="form" value="update"' in text
+
+
+def test_admin_can_save_update_sudo_user(client, admin_id):
+    _login(client, admin_id)
+    response = client.post(
+        "/admin/settings",
+        data={"form": "update", "update_sudo_user": "root"},
+        follow_redirects=True,
+    )
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Sudo-пользователь для перезапуска служб: root" in body
+    assert 'id="update_sudo_user" name="update_sudo_user" value="root"' in body or (
+        'name="update_sudo_user" value="root"' in body
+    )
+
+    cleared = client.post(
+        "/admin/settings",
+        data={"form": "update", "update_sudo_user": ""},
+        follow_redirects=True,
+    )
+    assert "Sudo-пользователь очищен" in cleared.get_data(as_text=True)
 
 
 def test_update_button_starts_the_job(client, app, admin_id, tmp_path, monkeypatch):

@@ -10,11 +10,14 @@ from app.services.discovery_service import discovery_credentials
 from app.services.settings_service import (
     DISCOVERY_PASSWORD_KEY,
     DiscoveryCredentialsError,
+    UpdateSudoUserError,
     get_discovery_credential_view,
     get_poll_interval_seconds,
     get_stored_discovery_credentials,
+    get_update_sudo_user,
     save_discovery_credentials,
     set_poll_interval_seconds,
+    set_update_sudo_user,
 )
 
 
@@ -145,3 +148,23 @@ def test_discovery_requires_password_on_first_save(app):
             assert False, "ожидали DiscoveryCredentialsError"
         except DiscoveryCredentialsError:
             pass
+
+
+def test_update_sudo_user_saved_and_falls_back_to_env(app):
+    with app.app_context():
+        app.config["UPDATE_SUDO_USER"] = "fromenv"
+        assert get_update_sudo_user() == "fromenv"
+        assert set_update_sudo_user("root") == "root"
+        assert get_update_sudo_user() == "root"
+        assert set_update_sudo_user("") == ""
+        assert get_update_sudo_user() == "fromenv"
+
+
+def test_update_sudo_user_rejects_bad_names(app):
+    with app.app_context():
+        for bad in ("Root", "has space", "../etc", "a" * 40, "user;rm"):
+            try:
+                set_update_sudo_user(bad)
+                assert False, f"ожидали ошибку для {bad!r}"
+            except UpdateSudoUserError:
+                pass

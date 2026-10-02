@@ -331,7 +331,7 @@ GIT_BRANCH=main
 
 Пустой `GIT_REMOTE_URL` — берётся `origin` каталога установки. Повторный `deploy/install-debian12.sh` обновляет каталог с `.git` через `git pull --ff-only`.
 
-Автоперезапуск служб после обновления:
+Автоперезапуск служб после обновления: установщик кладёт правило в `/etc/sudoers.d/bawh-update`. Вручную:
 
 ```bash
 sudo cp /opt/bawh/deploy/bawh-update.sudoers /etc/sudoers.d/bawh-update
@@ -339,7 +339,7 @@ sudo chmod 440 /etc/sudoers.d/bawh-update
 sudo visudo -cf /etc/sudoers.d/bawh-update
 ```
 
-Без правила код обновится, в интерфейсе останется команда `sudo systemctl restart bawh-scheduler bawh-web`.
+В Параметрах можно задать **sudo-пользователя** (цель `sudo -u …` при `systemctl restart`). Пусто или `root` — как в файле выше (`ALL=(root)`). Без правила код обновится, в интерфейсе останется команда перезапуска и ссылка на sudoers.
 
 ## Почему два сервиса
 

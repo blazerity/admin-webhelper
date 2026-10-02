@@ -6,7 +6,7 @@
 - updates       GET/POST /admin/updates
 
 Формы на странице настроек различаются скрытым полем form:
-psexec, discovery или poll. Открытый пароль в шаблон и во flash не попадает.
+psexec, discovery, poll или update. Открытый пароль в шаблон и во flash не попадает.
 
 PsExec: учётка только текущего администратора. Пустые пользователь
 и пароль означают запуск от его входа на сайт. Пустой пароль при уже
@@ -41,10 +41,13 @@ from app.services.ping_service import (
 )
 from app.services.settings_service import (
     DiscoveryCredentialsError,
+    UpdateSudoUserError,
     get_discovery_credential_view,
     get_poll_interval_seconds,
+    get_update_sudo_user,
     save_discovery_credentials,
     set_poll_interval_seconds,
+    set_update_sudo_user,
 )
 from app.services.update_service import UpdateError, begin_rollback, begin_update, build_page, check_for_updates
 
@@ -123,6 +126,23 @@ def settings():
                 return redirect(url_for("admin.settings"))
             flash("Интервал опроса сохранён.", "success")
             return redirect(url_for("admin.settings"))
+        if kind == "update":
+            try:
+                saved = set_update_sudo_user(request.form.get("update_sudo_user", ""))
+            except UpdateSudoUserError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.settings"))
+            if saved:
+                flash(
+                    f"Sudo-пользователь для перезапуска служб: {saved}.",
+                    "success",
+                )
+            else:
+                flash(
+                    "Sudo-пользователь очищен. Перезапуск пойдёт через sudo без -u (root).",
+                    "success",
+                )
+            return redirect(url_for("admin.settings"))
         flash("Неизвестная форма.", "warning")
         return redirect(url_for("admin.settings"))
 
@@ -138,6 +158,7 @@ def settings():
         discovery_password_set=discovery.password_set,
         poll_interval=get_poll_interval_seconds(),
         poll_runs=load_recent_poll_runs(),
+        update_sudo_user=get_update_sudo_user(),
     )
 
 
