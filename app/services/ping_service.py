@@ -5,14 +5,15 @@
 1. Главный поток читает секторы и разворачивает CIDR в IP.
    Сессия SQLAlchemy живёт только здесь: она не потокобезопасна,
    один и тот же db.session нельзя отдать рабочим потокам.
-2. Адреса записываются в devices (новые — со статусом unknown).
-   COMMIT делается до пула потоков, чтобы пинг шёл уже по сохранённым строкам.
-3. ThreadPoolExecutor вызывает только ping_host и функции discovery.
+2. ThreadPoolExecutor вызывает только ping_host и функции discovery.
    Воркер получает строку IP и возвращает обычный объект Probe.
-   Объектов ORM в потоке нет.
-4. Снова главный поток: статус, время, имя, MAC и строка device_history.
-   COMMIT на каждое устройство. Иначе одна ошибка записи откатит
-   весь проход, включая уже успешные хосты.
+   Объектов ORM в потоке нет. Строку devices заранее не создаём:
+   пустой адрес на карте не нужен.
+3. Снова главный поток:
+   * офлайн по уже известному IP → статус и device_history;
+   * онлайн → serial (WMI) / hostname / IP как ключ идентичности,
+     обновление или создание одной машины, история сохраняется
+     при смене адреса и сектора.
 
 Позже ту же функцию poll_all_sectors вызовет задача Celery. Менять
 разбор пинга и запись истории для этого не нужно.
@@ -28,7 +29,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from app.extensions import db
 from app.models import Device, DeviceHistory, DeviceStatus, Sector
@@ -70,6 +71,7 @@ class _Probe:
     result: PingResult
     hostname: str | None
     mac: str | None
+    serial_number: str | None
 
 
 def ping_host(
@@ -256,27 +258,38 @@ def poll_all_sectors() -> dict[str, int]:
 
     Сводка:
     scanned — сколько адресов пинговали и попытались записать;
-    online / offline — из них, чья запись в БД прошла;
+    online / offline — из них, чья запись в БД прошла
+      (offline считается только для уже известных машин);
     errors — битый диапазон сектора, сбой рабочего потока или ошибка COMMIT.
     """
     stats = {"scanned": 0, "online": 0, "offline": 0, "errors": 0}
     assignments = _collect_assignments(stats)
-    _upsert_devices(assignments)
-    # Фиксируем состав devices до потоков. Дальше воркеры БД не трогают.
-    db.session.commit()
-
     if not assignments:
         return stats
 
     probes = _probe_all(list(assignments), stats)
-    for probe in probes:
+    # Сначала онлайн: если машина сменила IP в этом же проходе,
+    # строка devices уже уедет на новый адрес, и офлайн по старому
+    # IP не запишет лишнюю историю.
+    ordered = sorted(
+        probes,
+        key=lambda item: 0 if item.result.status == DeviceStatus.ONLINE else 1,
+    )
+    for probe in ordered:
         stats["scanned"] += 1
-        if not _save_probe(probe):
+        sector_id = assignments[probe.ip]
+        if probe.result.status == DeviceStatus.ONLINE:
+            if not _save_online_probe(probe, sector_id):
+                stats["errors"] += 1
+                continue
+            stats["online"] += 1
+            continue
+        updated = _save_offline_probe(probe)
+        if updated is None:
             stats["errors"] += 1
             continue
-        if probe.result.status == DeviceStatus.ONLINE:
-            stats["online"] += 1
-        else:
+        # Пустой адрес не создаём и в offline не считаем.
+        if updated:
             stats["offline"] += 1
 
     logger.info(
@@ -325,33 +338,6 @@ def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
     return assigned
 
 
-def _upsert_devices(assignments: dict[str, int]) -> None:
-    """Создаёт недостающие devices. Существующий IP переносится в новый сектор.
-
-    Новая строка начинает с unknown: онлайн она станет только после пинга,
-    а не в момент добавления диапазона.
-    """
-    for ip, sector_id in assignments.items():
-        device = db.session.scalar(select(Device).where(Device.ip == ip))
-        if device is None:
-            db.session.add(
-                Device(
-                    ip=ip,
-                    sector_id=sector_id,
-                    last_status=DeviceStatus.UNKNOWN,
-                )
-            )
-            continue
-        if device.sector_id != sector_id:
-            logger.warning(
-                "Адрес %s уже был в секторе %s, переносим в сектор %s.",
-                ip,
-                device.sector_id,
-                sector_id,
-            )
-            device.sector_id = sector_id
-
-
 def _probe_all(ips: list[str], stats: dict[str, int]) -> list[_Probe]:
     """Пинг и discovery в пуле. Сессию здесь не передаём и не открываем.
 
@@ -375,52 +361,171 @@ def _probe(ip: str) -> _Probe:
     result = ping_host(ip)
     hostname = None
     mac = None
+    serial_number = None
     if result.status == DeviceStatus.ONLINE:
         # Ищем атрибут на модуле в момент вызова, а не копией функции:
         # так подмена в тестах (и будущий кэш DNS) видна без правки этого файла.
         hostname = discovery_service.lookup_hostname(ip)
         mac = discovery_service.lookup_mac(ip)
-    return _Probe(ip=ip, result=result, hostname=hostname, mac=mac)
+        serial_number = discovery_service.lookup_serial(ip)
+    return _Probe(
+        ip=ip,
+        result=result,
+        hostname=hostname,
+        mac=mac,
+        serial_number=serial_number,
+    )
 
 
-def _save_probe(probe: _Probe) -> bool:
-    """Одна транзакция = одно устройство + одна строка истории.
-
-    False — записать не удалось, остальные адреса этого прохода не откатываются.
-    Имя и MAC не затираем, если lookup вернул None: хост мог просто
-    не ответить DNS, а вчерашнее имя всё ещё верное.
-    """
-    device = db.session.scalar(select(Device).where(Device.ip == probe.ip))
-    if device is None:
-        logger.error("Адрес %s опрошен, но строки в devices нет", probe.ip)
-        return False
-
-    device.last_status = probe.result.status
+def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
+    """Найти машину по serial → hostname → IP и записать онлайн + историю."""
+    device = _resolve_device(
+        ip=probe.ip,
+        hostname=probe.hostname,
+        serial_number=probe.serial_number,
+        sector_id=sector_id,
+    )
+    device.ip = probe.ip
+    device.sector_id = sector_id
+    device.last_status = DeviceStatus.ONLINE
     device.last_response_time_ms = probe.result.response_time_ms
-    if probe.result.status == DeviceStatus.ONLINE:
-        device.last_seen = utcnow()
+    device.last_seen = utcnow()
     if probe.hostname:
         device.hostname = probe.hostname
     if probe.mac:
         device.mac = probe.mac
+    if probe.serial_number:
+        device.serial_number = probe.serial_number
 
-    # Не через device.history.append: связь при доступе загрузила бы
-    # всю историю устройства в память.
-    db.session.add(
-        DeviceHistory(
-            device_id=device.id,
-            timestamp=utcnow(),
-            status=probe.result.status,
-            response_time_ms=probe.result.response_time_ms,
-        )
-    )
     try:
+        # Сначала id новой строки, потом история с внешним ключом.
+        db.session.flush()
+        db.session.add(
+            DeviceHistory(
+                device_id=device.id,
+                timestamp=utcnow(),
+                status=DeviceStatus.ONLINE,
+                response_time_ms=probe.result.response_time_ms,
+            )
+        )
         db.session.commit()
     except Exception:
-        logger.exception("Не удалось сохранить опрос %s", probe.ip)
+        logger.exception("Не удалось сохранить онлайн-опрос %s", probe.ip)
         db.session.rollback()
         return False
     return True
+
+
+def _save_offline_probe(probe: _Probe) -> bool | None:
+    """Офлайн пишем только если машина уже известна по этому IP.
+
+    True — обновили хотя бы одну строку; False — пустой адрес, ничего не создаём;
+    None — ошибка COMMIT.
+    """
+    devices = db.session.scalars(select(Device).where(Device.ip == probe.ip)).all()
+    if not devices:
+        return False
+    now = utcnow()
+    for device in devices:
+        device.last_status = DeviceStatus.OFFLINE
+        device.last_response_time_ms = None
+        db.session.add(
+            DeviceHistory(
+                device_id=device.id,
+                timestamp=now,
+                status=DeviceStatus.OFFLINE,
+                response_time_ms=None,
+            )
+        )
+    try:
+        db.session.commit()
+    except Exception:
+        logger.exception("Не удалось сохранить офлайн-опрос %s", probe.ip)
+        db.session.rollback()
+        return None
+    return True
+
+
+def _resolve_device(
+    *,
+    ip: str,
+    hostname: str | None,
+    serial_number: str | None,
+    sector_id: int,
+) -> Device:
+    """Ключ идентичности: serial, иначе hostname, иначе текущий IP.
+
+    При совпадении по serial/hostname IP и сектор обновляются у той же
+    строки — история опросов не рвётся при смене адреса.
+    """
+    if serial_number:
+        found = db.session.scalar(
+            select(Device).where(Device.serial_number == serial_number)
+        )
+        if found is not None:
+            return found
+
+    if hostname:
+        found = _find_by_hostname(hostname)
+        if found is not None:
+            # Если у найденной по имени уже другой serial — это другая машина
+            # с тем же DNS-именем (редко). Тогда не склеиваем.
+            if not found.serial_number or not serial_number:
+                return found
+            if found.serial_number == serial_number:
+                return found
+
+    found = db.session.scalar(select(Device).where(Device.ip == ip))
+    if found is not None:
+        # IP занял кто-то без своего serial/hostname — переиспользуем строку.
+        # Если у строки уже есть чужой serial, а у зонда тоже другой/пустой —
+        # всё равно обновляем эту «точку» только когда зонд без идентичности
+        # или serial совпал; иначе создаём новую и оставляем старую офлайн.
+        if serial_number and found.serial_number and found.serial_number != serial_number:
+            pass
+        elif hostname and found.hostname and not discovery_service.hostnames_match(
+            found.hostname, hostname
+        ) and (found.serial_number or serial_number):
+            pass
+        else:
+            return found
+
+    device = Device(
+        ip=ip,
+        sector_id=sector_id,
+        hostname=hostname,
+        serial_number=serial_number,
+        last_status=DeviceStatus.UNKNOWN,
+    )
+    db.session.add(device)
+    return device
+
+
+def _find_by_hostname(hostname: str) -> Device | None:
+    """Точное имя или то же короткое имя без DNS-суффикса."""
+    key = discovery_service.hostname_key(hostname)
+    if not key:
+        return None
+    # Сначала полное совпадение без регистра.
+    found = db.session.scalar(
+        select(Device).where(func.lower(Device.hostname) == hostname.strip().rstrip(".").lower())
+    )
+    if found is not None:
+        return found
+    # Короткое имя и варианты с суффиксом: n14002, n14002.example.com
+    candidates = db.session.scalars(
+        select(Device).where(
+            Device.hostname.is_not(None),
+            or_(
+                func.lower(Device.hostname) == key,
+                Device.hostname.ilike(f"{key}.%"),
+            ),
+        )
+    ).all()
+    for device in candidates:
+        if discovery_service.hostnames_match(device.hostname, hostname):
+            return device
+    return None
 
 
 def _parse_response_time_ms(output: str) -> int | None:

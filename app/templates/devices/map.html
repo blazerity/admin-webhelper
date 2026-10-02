@@ -34,8 +34,8 @@
 
 <div class="sector-map" id="sector-map" data-status-url="{{ url_for('devices.map_status') }}">
   {% for sector in sectors %}
-  {% set online_count = sector.devices|selectattr('last_status', 'equalto', 'online')|list|length %}
-  {% set total_count = sector.devices|length %}
+  {% set online_count = sector.visible_devices|selectattr('last_status', 'equalto', 'online')|list|length %}
+  {% set total_count = sector.visible_devices|length %}
   {% set panel_id = 'sector-panel-' ~ sector.id %}
   <section class="sector-panel" data-sector-id="{{ sector.id }}">
     <button
@@ -56,9 +56,9 @@
     </button>
     <div class="collapse" id="{{ panel_id }}">
       <div class="sector-devices">
-        {% if sector.devices %}
+        {% if sector.visible_devices %}
         <div class="row g-2" data-sector-devices>
-          {% for device in sector.devices %}
+          {% for device in sector.visible_devices %}
           <div
             class="col-6 col-sm-4 col-md-3 col-xl-2"
             data-device-card
