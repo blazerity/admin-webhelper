@@ -1,13 +1,6 @@
 """Откуда брать логин и пароль для PsExec.
 
-У каждого пользователя сайта своя строка remote_credentials.
-
-Порядок для конкретного пользователя:
-1. Его поля формы: username и зашифрованный пароль PsExec.
-2. Если эти поля пустые — имя, под которым он вошёл на сайт,
-   домен LDAP_DOMAIN и пароль этого входа (тоже шифротекст).
-
-Пароль входа пишется при логине и не затирает отдельно заданную учётку.
+Своя учётка пользователя → иначе вход на сайт (LDAP_DOMAIN + пароль входа).
 Открытый пароль в лог, шаблон и flash не попадает.
 """
 
@@ -31,7 +24,7 @@ class RemoteAdminCredentials:
     password: str
 
     def __repr__(self) -> str:
-        # Пароль не должен попасть в лог, если кто-то напечатает объект.
+        # Пароль не должен попасть в лог при печати объекта.
         return (
             f"RemoteAdminCredentials(username={self.username!r}, "
             f"domain={self.domain!r}, password='***')"
@@ -42,22 +35,8 @@ def get_stored_credential(user_id: int) -> RemoteCredential | None:
     return RemoteCredential.query.filter_by(user_id=user_id).one_or_none()
 
 
-def credentials_configured(user_id: int) -> bool:
-    """Есть либо своя учётка PsExec, либо пароль последнего входа на сайт."""
-    row = get_stored_credential(user_id)
-    if row is None:
-        return False
-    if row.username and row.password_encrypted:
-        return True
-    return bool(row.login_password_encrypted)
-
-
 def get_remote_admin_credentials(user_id: int) -> RemoteAdminCredentials:
-    """Учётка PsExec того, кто запустил команду.
-
-    Чужую строку не читает. Пустая форма означает вход на сайт, а не
-    общую учётку из окружения.
-    """
+    """Учётка PsExec того, кто запустил команду (чужую строку не читает)."""
     row = get_stored_credential(user_id)
     if row and row.username and row.password_encrypted:
         return RemoteAdminCredentials(
@@ -80,12 +59,9 @@ def save_remote_admin_credentials(
     password: str | None,
     user_id: int,
 ) -> RemoteCredential:
-    """Сохраняет учётку этого пользователя.
+    """Сохраняет учётку; пустые имя/пароль очищают свою и оставляют вход на сайт.
 
-    Пустые имя и пароль очищают свою учётку PsExec: дальше берётся вход
-    на сайт. Пустой пароль при уже заданном имени оставляет прежний
-    шифротекст, чтобы форма «изменить только логин» его не затирала.
-    Пароль входа при этом не трогается.
+    Пустой пароль при уже заданном имени сохраняет прежний шифротекст.
     """
     username = (username or "").strip()
     domain = (domain or "").strip()
@@ -115,11 +91,7 @@ def save_remote_admin_credentials(
 
 
 def remember_login_password(user_id: int, password: str) -> None:
-    """Шифрует пароль входа и кладёт его в строку этого пользователя.
-
-    Отдельно заданные username и password PsExec не меняются.
-    Пустой пароль не записывается.
-    """
+    """Шифрует пароль входа; отдельно заданные поля PsExec не трогает."""
     secret = password or ""
     if not secret:
         return

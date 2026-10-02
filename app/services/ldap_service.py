@@ -328,9 +328,9 @@ def _first(attrs: dict[str, list[str]], name: str) -> str | None:
 def _bind_user(username: str, domain: str) -> str:
     """Имя для простого bind в Active Directory.
 
-    Поле domain в AD Password Notifier — короткое NetBIOS-имя, вход там
-    идёт как DOMAIN\\user. Строка user@DOMAIN для такого имени не является
-    UPN: контроллер отвечает invalidCredentials даже при верном пароле.
+    Короткое NetBIOS-имя (без точки) даёт вход как DOMAIN\\user.
+    Строка user@DOMAIN для такого имени не является UPN: контроллер
+    отвечает invalidCredentials даже при верном пароле.
     Если в LDAP_DOMAIN есть точка, это DNS-суффикс UPN: user@domain.
     Без домена каталог получает имя как есть.
     """
@@ -345,11 +345,11 @@ def _bind_user(username: str, domain: str) -> str:
 def _ldap_endpoint(host: str, port: int, use_ssl: bool) -> tuple[str, int | None, bool]:
     """Адрес, порт и SSL для ldap3.Server.
 
-    AD Password Notifier хранит сервер одной строкой: ldap://хост — это
-    порт 389 без шифрования, ldaps://хост — порт 636 с TLS. Если такую
-    строку передать вместе с явным LDAP_PORT=636, ldap3 снимет префикс
-    ldap:// (и выключит SSL), а порт 636 оставит. Контроллер домена на
-    636 ждёт TLS и рвёт открытый текст: Connection reset by peer.
+    URL ldap://хост — порт 389 без шифрования, ldaps://хост — порт 636
+    с TLS. Если такую строку передать вместе с явным LDAP_PORT=636,
+    ldap3 снимет префикс ldap:// (и выключит SSL), а порт 636 оставит.
+    Контроллер домена на 636 ждёт TLS и рвёт открытый текст:
+    Connection reset by peer.
 
     Порт в аргументах Server для URL не передаём: его выбирает схема.
     Хвост «/» срезаем сами: ldap3 вызывает rstrip, но результат не сохраняет,
@@ -364,8 +364,8 @@ def _ldap_endpoint(host: str, port: int, use_ssl: bool) -> tuple[str, int | None
     if port == 636 and not use_ssl:
         logger.warning(
             "LDAP_PORT=636 при LDAP_USE_SSL=false: порт 636 принимает только TLS. "
-            "Подключение пойдёт с SSL. Для LDAP без шифрования, как ldap:// в "
-            "AD Password Notifier, укажите LDAP_PORT=389."
+            "Подключение пойдёт с SSL. Для LDAP без шифрования (ldap://) "
+            "укажите LDAP_PORT=389."
         )
         return raw, port, True
     return raw, port, use_ssl

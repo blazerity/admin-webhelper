@@ -1,16 +1,8 @@
 """Устройства и история опросов.
 
-devices — текущее состояние (последний статус, имя, MAC).
-device_history — каждая проверка отдельной строкой.
-
-Когда строк станет очень много, device_history стоит перевести
-на партиции PostgreSQL по месяцам:
-
-    CREATE TABLE device_history (...) PARTITION BY RANGE (timestamp);
-
-Миграция 0001 этого ещё не делает: одна таблица и индекс
-(device_id, timestamp) проще для первого запуска. Граница
-будущего разреза — эта таблица, её не нужно смешивать с devices.
+devices — текущее состояние; device_history — каждая проверка.
+При росте истории — партиции PostgreSQL по месяцам (миграция 0001
+ещё одной таблицы).
 """
 
 from app.extensions import db
@@ -28,10 +20,10 @@ class Device(TimestampMixin, db.Model):
     __tablename__ = "devices"
 
     id = db.Column(db.Integer, primary_key=True)
-    # IPv4 в виде строки. IPv6 сознательно отложен: пинг и CIDR проще объяснять на v4.
+    # IPv4 строкой; IPv6 сознательно отложен.
     ip = db.Column(db.String(45), unique=True, nullable=False, index=True)
     hostname = db.Column(db.String(255), nullable=True, index=True)
-    # Нормализованный вид AA:BB:CC:DD:EE:FF. Пусто, если ARP не увидел адрес.
+    # Нормализованный AA:BB:CC:DD:EE:FF; пусто, если ARP не видел.
     mac = db.Column(db.String(17), nullable=True, index=True)
     sector_id = db.Column(
         db.Integer,

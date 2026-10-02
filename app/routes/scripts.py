@@ -1,25 +1,7 @@
 """Библиотека скриптов и просмотр лога запуска.
 
-Эндпоинты:
-- list_scripts    GET  /scripts/
-- new_script      GET  /scripts/new
-- create_script   POST /scripts/
-- edit_script     GET  /scripts/<script_id>/edit
-- update_script   POST /scripts/<script_id>
-- delete_script   POST /scripts/<script_id>/delete
-- run_script      POST /scripts/<script_id>/run
-- run_detail      GET  /scripts/runs/<run_id>
-- run_status      GET  /scripts/runs/<run_id>/status
-- cancel_run      POST /scripts/runs/<run_id>/cancel
-- close_session   POST /scripts/runs/<run_id>/close-session
-
-Библиотека и удалённый запуск скрипта — только для администратора.
-Страницу лога открывает и тот, кто нажал Ping: он может не быть
-администратором. Поэтому run_detail и run_status не используют
-admin_required.
-
-static/js/run_log.js опрашивает run_status, пока запуск не закончился.
-Позже этот опрос можно заменить на SSE или WebSocket, не трогая журнал.
+CRUD/запуск — admin_required; run_detail/status доступны автору Ping
+и тем, кто видит устройство (опрос лога — static/js/run_log.js).
 """
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
@@ -358,8 +340,6 @@ def close_run_session(run_id: int):
 @bp.get("/runs/<int:run_id>/status")
 @login_required
 def run_status(run_id: int):
-    # Опрос делает static/js/run_log.js.
-    # Позже его можно заменить на SSE или WebSocket.
     run = _run_for_viewer(run_id)
     finished = run.status in RunStatus.FINISHED
     state = script_service.run_session_state(run.id, finished)

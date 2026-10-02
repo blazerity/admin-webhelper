@@ -1,14 +1,7 @@
-"""Сборка Flask-приложения.
+"""Фабрика Flask-приложения: расширения, модели, маршруты.
 
-create_app — единственное место, где расширения, модели и маршруты
-соединяются. Веб-процесс (Gunicorn) и тесты вызывают её.
-Процесс опроса (scheduler_worker) тоже создаёт приложение,
-чтобы была конфигурация и доступ к БД, но не обслуживает HTTP.
-
-Слои, которые подключаются ниже:
-- models    таблицы
-- routes    HTTP (blueprints). Внутри они вызывают services.
-- authz     кто что видит (используется из routes, не отсюда)
+Веб (Gunicorn), тесты и scheduler_worker вызывают create_app;
+процесс опроса HTTP не обслуживает.
 """
 
 import os
@@ -40,7 +33,7 @@ def create_app(config_name: str | None = None) -> Flask:
     login_manager.init_app(app)
     csrf.init_app(app)
 
-    # Импорт регистрирует таблицы в metadata до первой миграции и create_all.
+    # Регистрирует таблицы в metadata до миграций / create_all.
     from app import models
 
     login_manager.login_view = "auth.login"
@@ -58,16 +51,15 @@ def create_app(config_name: str | None = None) -> Flask:
     _register_blueprints(app)
     _register_error_handlers(app)
 
-    # Команда `flask poll` живёт в сервисе планировщика.
-    # Сам APScheduler здесь не стартует: его поднимает scheduler_worker,
-    # иначе каждый воркер Gunicorn начал бы свой опрос.
+    # flask poll — в сервисе планировщика. APScheduler стартует только
+    # в scheduler_worker, иначе каждый воркер Gunicorn запустит свой опрос.
     from app.services.scheduler_service import register_commands
 
     register_commands(app)
 
     @app.get("/health")
     def health():
-        # Без авторизации: так systemd или Nginx могут проверить, что процесс жив.
+        # Без авторизации — для systemd / Nginx probe.
         return {"status": "ok"}
 
     @app.template_filter("dt")
@@ -88,8 +80,8 @@ def create_app(config_name: str | None = None) -> Flask:
 
 
 def _register_blueprints(app: Flask) -> None:
-    # Импорты внутри функции, чтобы создать расширения раньше маршрутов
-    # и не словить цикл «route -> service -> create_app».
+    # Импорты здесь, чтобы расширения инициализировались раньше маршрутов
+    # и не было цикла route → service → create_app.
     from app.routes.admin import bp as admin_bp
     from app.routes.auth import bp as auth_bp
     from app.routes.devices import bp as devices_bp

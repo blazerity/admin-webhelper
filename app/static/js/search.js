@@ -1,4 +1,4 @@
-// Подсказки поиска. Запрос уходит на /search/suggest, без отдельного фреймворка.
+// Подсказки поиска → /search/suggest.
 (function () {
   const input = document.getElementById("q");
   const box = document.getElementById("suggest");

@@ -1,8 +1,4 @@
-"""Сектор — логическая группа устройств (проект, площадка, VLAN).
-
-Диапазоны и права хранятся отдельными строками, чтобы их можно было
-добавлять и удалять через веб-интерфейс без правки файлов.
-"""
+"""Сектор — логическая группа устройств (диапазоны и права — отдельные строки)."""
 
 from app.extensions import db
 from app.models.base import TimestampMixin
@@ -37,12 +33,7 @@ class Sector(TimestampMixin, db.Model):
 
 
 class SectorRange(db.Model):
-    """Один IP или CIDR, как его ввёл администратор.
-
-    Текст хранится как есть (после нормализации через ipaddress),
-    чтобы на экране редактирования показать исходный диапазон,
-    а не тысячи развёрнутых адресов.
-    """
+    """Один IP или CIDR как ввёл администратор (после нормализации ipaddress)."""
 
     __tablename__ = "sector_ranges"
 
@@ -60,12 +51,7 @@ class SectorRange(db.Model):
 
 
 class SectorAccess(db.Model):
-    """Кому виден сектор: конкретному пользователю или LDAP-группе.
-
-    subject_type: 'user' или 'group'.
-    subject_name: username или CN группы.
-    Администратор приложения видит все секторы и без строки в этой таблице.
-    """
+    """Кому виден сектор: subject_type 'user'|'group', subject_name — username или CN."""
 
     __tablename__ = "sector_access"
     __table_args__ = (

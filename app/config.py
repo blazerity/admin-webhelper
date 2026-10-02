@@ -1,10 +1,7 @@
 """Настройки приложения из переменных окружения.
 
-Класс Config читается один раз при создании приложения.
-Секреты (пароль БД, LDAP, Fernet, PsExec) не имеют значений
-по умолчанию в коде — только в .env / EnvironmentFile systemd.
-
-Для тестов есть TestingConfig: SQLite в памяти, без LDAP и без планировщика.
+Секреты задаются только в .env / EnvironmentFile. TestingConfig —
+SQLite в памяти, без LDAP и планировщика.
 """
 
 import os
@@ -25,8 +22,7 @@ class Config:
         "postgresql+psycopg2://bawh:bawh@localhost:5432/bawh",
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    # pool_pre_ping проверяет соединение перед выдачей из пула.
-    # Полезно, если PostgreSQL разорвал простаивающую сессию.
+    # Проверка соединения перед выдачей из пула (PostgreSQL мог оборвать idle).
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
 
     LOG_FILE = os.environ.get("LOG_FILE", "logs/bawh.log")
@@ -46,37 +42,27 @@ class Config:
     MIN_CIDR_PREFIX = int(os.environ.get("MIN_CIDR_PREFIX", "22"))
     MAX_HOSTS_PER_POLL = int(os.environ.get("MAX_HOSTS_PER_POLL", "2048"))
 
-    # TODO: реальные значения задаются в .env или в веб-форме администратора.
-    PSEXEC_USERNAME = os.environ.get("PSEXEC_USERNAME", "")
-    PSEXEC_DOMAIN = os.environ.get("PSEXEC_DOMAIN", "")
-    PSEXEC_PASSWORD = os.environ.get("PSEXEC_PASSWORD", "")
     FERNET_KEY = os.environ.get("FERNET_KEY", "")
 
-    # Корень установки: отсюда читается код и сюда кладётся каталог backups.
     PROJECT_ROOT = os.environ.get(
         "PROJECT_ROOT",
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     )
-    # Публичный HTTPS-адрес. Пусто — берётся origin, если он тоже https.
+    # Публичный HTTPS-адрес; пусто — берётся origin, если он тоже https.
     GIT_REMOTE_URL = os.environ.get("GIT_REMOTE_URL", "").strip()
     GIT_BRANCH = os.environ.get("GIT_BRANCH", "main").strip() or "main"
-    # Сколько последних копий кода хранить. Копия, на которую только что
-    # откатились, не удаляется, даже если она старше этого числа.
+    # Сколько последних копий кода хранить (активный откат не удаляется).
     UPDATE_BACKUP_KEEP = int(os.environ.get("UPDATE_BACKUP_KEEP", "5"))
     # После удачной замены перезапустить bawh-web и bawh-scheduler через sudo.
     UPDATE_RESTART = _flag("UPDATE_RESTART", "1")
 
     SCRIPT_LIBRARY_DIR = os.environ.get("SCRIPT_LIBRARY_DIR", "script_library")
-    # Сколько символов лога хранить в script_runs.log_text
     MAX_LOG_CHARS = 200_000
     MAX_REMOTE_COMMAND_CHARS = 4_000
 
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = _flag("SESSION_COOKIE_SECURE", "0")
-
-    # Планировщик в процессе Gunicorn не включаем.
-    SCHEDULER_ENABLED = False
 
     WTF_CSRF_ENABLED = True
 
@@ -90,7 +76,6 @@ class TestingConfig(Config):
         "connect_args": {"check_same_thread": False},
     }
     WTF_CSRF_ENABLED = False
-    SCHEDULER_ENABLED = False
     LDAP_HOST = "ldap.invalid"
     LDAP_BASE_DN = "DC=example,DC=com"
     LDAP_ADMIN_GROUP = "bawh-admins"

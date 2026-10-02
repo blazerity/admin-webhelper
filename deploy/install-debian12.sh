@@ -373,7 +373,6 @@ install_nginx() {
     die "BAWH_SERVER_NAME может содержать только буквы, цифры, точку, дефис и подчёркивание."
   fi
   log "Настраиваю Nginx на порту 80 (default_server), имя $server_name."
-  log "Порт 8787 (AD Password Notifier, uvicorn) не меняется."
   sed "s/server_name _ bawh.example.com;/server_name _ ${server_name};/" \
     "$INSTALL_DIR/deploy/nginx-bawh.conf" > /etc/nginx/sites-available/bawh
   ln -sfn /etc/nginx/sites-available/bawh /etc/nginx/sites-enabled/bawh
@@ -434,11 +433,10 @@ print_summary() {
   fi
   log "  Сайт по имени: http://${SERVER_NAME}/"
   log "  Проверка: curl -s http://127.0.0.1:8000/health"
-  log "  AD Password Notifier на порту 8787 не изменялся."
   log ""
   log "Заполните LDAP в $INSTALL_DIR/.env (LDAP_HOST, LDAP_BASE_DN, LDAP_DOMAIN) и перезапустите сервисы:"
   log "  systemctl restart bawh-web bawh-scheduler"
-  log "Учётку PsExec задают там же или на странице /admin/settings. Пока Nginx отдаёт HTTP, оставьте SESSION_COOKIE_SECURE=0."
+  log "Учётку PsExec задают на странице /admin/settings (на пользователя). Пока Nginx отдаёт HTTP, оставьте SESSION_COOKIE_SECURE=0."
 }
 
 main() {
