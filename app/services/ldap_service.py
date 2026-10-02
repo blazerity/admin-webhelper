@@ -64,8 +64,9 @@ def authenticate(username: str, password: str) -> LdapIdentity | None:
         # Страница входа должна остаться формой с сообщением, а не ответом 500.
         service_password = str(current_app.config.get("LDAP_BIND_PASSWORD") or "")
         logger.warning(
-            "Вход пользователя %s через LDAP не удался (%s): %s",
+            "Вход пользователя %s через LDAP не удался (bind %s, %s): %s",
             typed,
+            _bind_user(typed, str(current_app.config.get("LDAP_DOMAIN") or "")),
             _endpoint_label(),
             _public_error(exc, (password, service_password)),
         )
@@ -148,9 +149,7 @@ def _bind_and_search(username: str, password: str) -> LdapIdentity | None:
     # escape_filter_chars — вторая линия после белого списка: шаблон фильтра
     # приходит из настроек, и имя не должно стать частью его синтаксиса.
     search_filter = user_filter.format(username=escape_filter_chars(username))
-    # user@domain — это UPN. Active Directory принимает его простым bind
-    # без знания полного DN. Без домена каталог ждёт имя как есть.
-    bind_user = f"{username}@{domain}" if domain else username
+    bind_user = _bind_user(username, domain)
 
     # get_info=NONE: иначе ldap3 после bind сам читает схему каталога.
     # Сбой этого лишнего запроса выглядел бы как неверный пароль.
@@ -324,6 +323,23 @@ def _attribute_map(entry: object) -> dict[str, list[str]]:
 def _first(attrs: dict[str, list[str]], name: str) -> str | None:
     values = attrs.get(name.lower()) or []
     return values[0] if values else None
+
+
+def _bind_user(username: str, domain: str) -> str:
+    """Имя для простого bind в Active Directory.
+
+    Поле domain в AD Password Notifier — короткое NetBIOS-имя, вход там
+    идёт как DOMAIN\\user. Строка user@DOMAIN для такого имени не является
+    UPN: контроллер отвечает invalidCredentials даже при верном пароле.
+    Если в LDAP_DOMAIN есть точка, это DNS-суффикс UPN: user@domain.
+    Без домена каталог получает имя как есть.
+    """
+    cleaned = domain.strip().strip("\\")
+    if not cleaned:
+        return username
+    if "." in cleaned:
+        return f"{username}@{cleaned}"
+    return f"{cleaned}\\{username}"
 
 
 def _ldap_endpoint(host: str, port: int, use_ssl: bool) -> tuple[str, int | None, bool]:
