@@ -1,22 +1,116 @@
 {% extends "base.html" %}
 {% block title %}Пачка {{ batch_id }}{% endblock %}
+{% block main_class %}app-main-wide{% endblock %}
 {% block content %}
-{# Minimal stub for A3 route load; A2 owns the full batch progress UI. #}
+{% set done = success + failed + cancelled %}
 <div
   id="batch-progress"
   data-batch-id="{{ batch_id }}"
   data-status-url="{{ status_url }}"
   data-finished="{{ '1' if finished else '0' }}"
 >
-  <h1 class="page-title">Пачка запусков</h1>
-  <p class="page-subtitle">{{ success }}/{{ total }} успешно · batch {{ batch_id }}</p>
-  <ul>
-    {% for run in runs %}
-    <li>
-      <a href="{{ run.url }}">{{ run.hostname or run.ip or run.id }}</a>
-      — {{ run.status }}
-    </li>
-    {% endfor %}
-  </ul>
+  <div class="page-header">
+    <div>
+      <p class="mb-1">
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('devices.map') }}">К карте сети</a>
+      </p>
+      <h1 class="page-title">Пачка запусков</h1>
+      <p class="page-subtitle">
+        Прогресс <span id="batch-progress-label">{{ done }}/{{ total }}</span>
+        · batch <span class="font-monospace">{{ batch_id }}</span>
+      </p>
+    </div>
+    <p class="map-refresh-status mb-0" id="batch-poll-status">
+      {% if finished %}Завершено{% else %}Обновление каждые 2 с{% endif %}
+    </p>
+  </div>
+
+  <div class="panel content-card mb-3">
+    <div class="batch-metrics" aria-live="polite">
+      <span class="batch-metric">
+        <span class="batch-metric-label">Всего</span>
+        <strong id="batch-total">{{ total }}</strong>
+      </span>
+      <span class="batch-metric">
+        <span class="batch-metric-label">Успешно</span>
+        <strong id="batch-success" class="text-success">{{ success }}</strong>
+      </span>
+      <span class="batch-metric">
+        <span class="batch-metric-label">Ошибки</span>
+        <strong id="batch-failed" class="text-danger">{{ failed }}</strong>
+      </span>
+      <span class="batch-metric">
+        <span class="batch-metric-label">Остановлено</span>
+        <strong id="batch-cancelled">{{ cancelled }}</strong>
+      </span>
+      <span class="batch-metric">
+        <span class="batch-metric-label">В очереди</span>
+        <strong id="batch-pending">{{ pending }}</strong>
+      </span>
+      <span class="batch-metric">
+        <span class="batch-metric-label">Выполняется</span>
+        <strong id="batch-running">{{ running }}</strong>
+      </span>
+    </div>
+    <div class="progress batch-progress-bar mt-3" role="progressbar" aria-valuemin="0" aria-valuemax="{{ total or 1 }}" aria-valuenow="{{ done }}">
+      <div
+        class="progress-bar bg-success"
+        id="batch-progress-bar"
+        style="width: {% if total %}{{ (done * 100 / total)|round(1) }}{% else %}0{% endif %}%"
+      ></div>
+    </div>
+  </div>
+
+  <div class="panel content-card p-0 overflow-hidden">
+    <div class="px-3 pt-3">
+      <h2 class="h5 mb-2">Компьютеры в пачке</h2>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Компьютер</th>
+            <th>IP</th>
+            <th>Тип</th>
+            <th>Статус</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="batch-runs">
+          {% for run in runs %}
+          <tr data-run-id="{{ run.id }}" data-run-status="{{ run.status }}">
+            <td>
+              <a href="{{ run.url }}">{{ run.hostname or run.ip or ('запуск #' ~ run.id) }}</a>
+            </td>
+            <td class="font-monospace">{{ run.ip or '—' }}</td>
+            <td>{{ 'Ping' if run.run_type == 'ping' else ('Скрипт' if run.run_type == 'script' else (run.run_type or '—')) }}</td>
+            <td>
+              <span class="batch-run-status" data-status="{{ run.status }}">
+                {% if run.status == 'pending' %}ожидание
+                {% elif run.status == 'running' %}выполняется
+                {% elif run.status == 'success' %}успешно
+                {% elif run.status == 'failed' %}ошибка
+                {% elif run.status == 'cancelled' %}остановлен
+                {% elif run.status == 'error' %}ошибка
+                {% else %}{{ run.status }}{% endif %}
+              </span>
+            </td>
+            <td class="text-end">
+              <a class="btn btn-sm btn-ghost" href="{{ run.url }}">Открыть</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr data-batch-empty>
+            <td colspan="5" class="text-muted px-3 py-3">В этой пачке пока нет видимых запусков.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/batch.js') }}"></script>
 {% endblock %}

@@ -473,6 +473,187 @@ code {
   color: var(--muted);
 }
 
+[data-filter-fav].active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Device card select / favorites */
+.device-card-shell {
+  position: relative;
+  height: 100%;
+}
+
+.device-select-hit,
+.device-fav-btn {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  border: 1px solid #c9d4dd;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.device-select-hit {
+  top: 0.35rem;
+  left: 0.35rem;
+}
+
+.device-fav-btn {
+  top: 0.35rem;
+  right: 0.35rem;
+}
+
+.device-select-box {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1.5px solid #8aa0ae;
+  border-radius: 3px;
+  background: #fff;
+}
+
+.device-select-hit.is-active,
+.device-select-hit[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.device-select-hit.is-active .device-select-box,
+.device-select-hit[aria-pressed="true"] .device-select-box {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px #fff;
+}
+
+.device-fav-btn:hover {
+  border-color: #e0b35a;
+  color: #b45309;
+}
+
+.device-fav-btn.is-active,
+.device-fav-btn[aria-pressed="true"] {
+  border-color: #e0b35a;
+  background: #fff7e8;
+  color: #b45309;
+}
+
+.device-fav-btn.is-active svg,
+.device-fav-btn[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+
+[data-device-card].is-selected .device-card {
+  border-color: #9ec9c3;
+  background: #f3faf8;
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.25);
+}
+
+[data-device-card] .device-card {
+  padding-top: 1.55rem;
+}
+
+/* Sticky bulk action bar */
+.map-bulk-bar {
+  position: sticky;
+  bottom: 0.85rem;
+  z-index: 40;
+  margin-top: 1rem;
+  pointer-events: none;
+}
+
+.map-bulk-bar-inner {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  border-radius: var(--radius);
+  background: rgba(248, 252, 251, 0.96);
+  box-shadow: 0 12px 28px rgba(24, 33, 43, 0.14);
+  backdrop-filter: blur(10px);
+}
+
+.map-bulk-count {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.map-bulk-count strong {
+  color: var(--accent-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.map-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
+.map-bulk-error {
+  flex: 1 1 100%;
+  color: var(--bad);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+/* Batch progress */
+.batch-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.25rem;
+}
+
+.batch-metric {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 4.5rem;
+}
+
+.batch-metric-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.batch-metric strong {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-progress-bar {
+  height: 0.55rem;
+  background: #e4ecef;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.batch-progress-bar .progress-bar {
+  transition: width 0.25s ease;
+}
+
+.batch-run-status[data-status="success"] { color: var(--ok); font-weight: 600; }
+.batch-run-status[data-status="failed"],
+.batch-run-status[data-status="error"] { color: var(--bad); font-weight: 600; }
+.batch-run-status[data-status="running"] { color: var(--accent-ink); font-weight: 600; }
+.batch-run-status[data-status="pending"] { color: var(--muted); }
+.batch-run-status[data-status="cancelled"] { color: var(--warn); font-weight: 600; }
+
 .sector-map {
   display: flex;
   flex-direction: column;

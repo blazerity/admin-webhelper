@@ -18,6 +18,7 @@
   <p class="text-muted mb-0">Нет секторов, которые вам доступны. Администратор создаёт их в «Настройки → Сектора».</p>
 </div>
 {% else %}
+{% set can_run_scripts = map_scripts|default([])|length > 0 %}
 <div
   class="map-summary"
   id="map-summary"
@@ -122,10 +123,23 @@
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="other" aria-pressed="false">Прочие</button>
         </div>
       </div>
+      <div class="map-filter-group">
+        <span class="map-filter-label">Прочее</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-filter-fav aria-pressed="false">Избранные</button>
+      </div>
       <button type="button" class="btn btn-sm btn-link" id="map-filters-reset">Сбросить</button>
     </div>
 
-    <div class="sector-map" id="sector-map" data-status-url="{{ url_for('devices.map_status') }}">
+    <div
+      class="sector-map"
+      id="sector-map"
+      data-status-url="{{ url_for('devices.map_status') }}"
+      data-csrf-token="{{ csrf_token() }}"
+      data-bulk-ping-url="{{ url_for('devices.bulk_ping') }}"
+      data-bulk-script-url="{{ url_for('devices.bulk_script') }}"
+      data-can-run-scripts="{{ '1' if can_run_scripts else '0' }}"
+      data-scripts-json='{{ map_scripts|default([])|tojson }}'
+    >
       {% for sector in sectors %}
       {% set online_count = sector.visible_devices|selectattr('last_status', 'equalto', 'online')|list|length %}
       {% set total_count = sector.visible_devices|length %}
@@ -149,7 +163,6 @@
         </button>
         <div class="collapse show" id="{{ panel_id }}">
           <div class="sector-devices">
-            {% if sector.visible_devices %}
             <div class="row g-2" data-sector-devices>
               {% for device in sector.visible_devices %}
               <div
@@ -161,10 +174,8 @@
               >{{ device_card(device) }}</div>
               {% endfor %}
             </div>
+            <p class="text-muted small mb-0 px-1 py-2{% if sector.visible_devices %} d-none{% endif %}" data-sector-empty>Устройств пока нет. Они появятся после опроса.</p>
             <p class="text-muted small mb-0 px-1 py-2 d-none" data-sector-empty-filter>Нет машин по выбранным фильтрам.</p>
-            {% else %}
-            <p class="text-muted small mb-0 px-1 py-2">Устройств пока нет. Они появятся после опроса.</p>
-            {% endif %}
           </div>
         </div>
       </section>
@@ -173,6 +184,51 @@
     <p class="text-muted small mt-2 d-none" id="map-filters-empty">Ни один сектор не подходит под выбранные фильтры.</p>
   </div>
 </div>
+
+<div
+  class="map-bulk-bar d-none"
+  id="map-bulk-bar"
+  role="region"
+  aria-label="Массовые действия"
+  hidden
+>
+  <div class="map-bulk-bar-inner">
+    <span class="map-bulk-count">Выбрано <strong id="map-bulk-count">0</strong></span>
+    <div class="map-bulk-actions">
+      <button type="button" class="btn btn-sm btn-primary" id="map-bulk-ping">Ping</button>
+      {% if can_run_scripts %}
+      <button type="button" class="btn btn-sm btn-outline-primary" id="map-bulk-script" data-bs-toggle="modal" data-bs-target="#map-bulk-script-modal">Запустить скрипт</button>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-ghost" id="map-bulk-clear">Снять выбор</button>
+    </div>
+    <p class="map-bulk-error d-none mb-0" id="map-bulk-error" role="alert"></p>
+  </div>
+</div>
+
+{% if can_run_scripts %}
+<div class="modal fade" id="map-bulk-script-modal" tabindex="-1" aria-labelledby="map-bulk-script-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="map-bulk-script-title">Запустить скрипт</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" for="map-bulk-script-select">Скрипт</label>
+        <select class="form-select" id="map-bulk-script-select">
+          {% for script in map_scripts %}
+          <option value="{{ script.id }}">{{ script.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-primary" id="map-bulk-script-confirm">Запустить</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}
 
