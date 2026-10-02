@@ -2,20 +2,87 @@
 {% from "macros/status.html" import device_card %}
 {% block title %}Карта сети{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4">Карта сети</h1>
+<div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+  <h1 class="h4 mb-0">Карта сети</h1>
+  {% if sectors %}
+  <p class="small text-muted mb-0" id="map-refresh-status">Автообновление каждые 15 с</p>
+  {% endif %}
+</div>
+
 {% if not sectors %}
 <p class="text-muted">Нет секторов, которые вам доступны. Администратор создаёт их в разделе «Сектора».</p>
-{% endif %}
-{% for sector in sectors %}
-<section class="mb-4">
-  <h2 class="h5">{{ sector.name }}</h2>
-  <div class="row g-3">
-    {% for device in sector.devices %}
-    <div class="col-md-4 col-lg-3">{{ device_card(device) }}</div>
-    {% else %}
-    <p class="text-muted">Устройств пока нет. Они появятся после опроса.</p>
-    {% endfor %}
+{% else %}
+<div class="map-toolbar mb-3" id="map-filters" aria-label="Фильтры карты">
+  <div class="map-filter-group">
+    <span class="map-filter-label">Статус</span>
+    <div class="btn-group btn-group-sm" role="group">
+      <button type="button" class="btn btn-outline-success" data-filter-group="status" data-filter-value="online" aria-pressed="false">Онлайн</button>
+      <button type="button" class="btn btn-outline-danger" data-filter-group="status" data-filter-value="offline" aria-pressed="false">Офлайн</button>
+      <button type="button" class="btn btn-outline-secondary" data-filter-group="status" data-filter-value="unknown" aria-pressed="false">Неизвестно</button>
+    </div>
   </div>
-</section>
-{% endfor %}
+  <div class="map-filter-group">
+    <span class="map-filter-label">Тип</span>
+    <div class="btn-group btn-group-sm" role="group">
+      <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="notebook" aria-pressed="false">Ноутбуки</button>
+      <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="desktop" aria-pressed="false">СБ</button>
+      <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="other" aria-pressed="false">Прочие</button>
+    </div>
+  </div>
+  <button type="button" class="btn btn-sm btn-link" id="map-filters-reset">Сбросить</button>
+</div>
+
+<div class="sector-map" id="sector-map" data-status-url="{{ url_for('devices.map_status') }}">
+  {% for sector in sectors %}
+  {% set online_count = sector.devices|selectattr('last_status', 'equalto', 'online')|list|length %}
+  {% set total_count = sector.devices|length %}
+  {% set panel_id = 'sector-panel-' ~ sector.id %}
+  <section class="sector-panel" data-sector-id="{{ sector.id }}">
+    <button
+      class="sector-toggle collapsed"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#{{ panel_id }}"
+      aria-expanded="false"
+      aria-controls="{{ panel_id }}"
+    >
+      <span class="sector-toggle-main">
+        <span class="sector-toggle-name">{{ sector.name }}</span>
+        <span class="sector-toggle-meta">
+          <strong data-sector-online>{{ online_count }}</strong> активн. · <span data-sector-total>{{ total_count }}</span> всего
+        </span>
+      </span>
+      <span class="sector-toggle-chevron" aria-hidden="true"></span>
+    </button>
+    <div class="collapse" id="{{ panel_id }}">
+      <div class="sector-devices">
+        {% if sector.devices %}
+        <div class="row g-2" data-sector-devices>
+          {% for device in sector.devices %}
+          <div
+            class="col-6 col-sm-4 col-md-3 col-xl-2"
+            data-device-card
+            data-device-id="{{ device.id }}"
+            data-status="{{ device.last_status }}"
+            data-type="{{ device.kind }}"
+          >{{ device_card(device) }}</div>
+          {% endfor %}
+        </div>
+        <p class="text-muted small mb-0 px-1 py-2 d-none" data-sector-empty-filter>Нет машин по выбранным фильтрам.</p>
+        {% else %}
+        <p class="text-muted small mb-0 px-1 py-2">Устройств пока нет. Они появятся после опроса.</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+</div>
+<p class="text-muted small mt-2 d-none" id="map-filters-empty">Ни один сектор не подходит под выбранные фильтры.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if sectors %}
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
+{% endif %}
 {% endblock %}
