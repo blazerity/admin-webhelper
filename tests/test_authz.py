@@ -416,3 +416,38 @@ def test_role_matrix_summary(app, admin_id, operator_id, viewer_id, password_vie
             assert user_can_run_script(user, draft) is run_draft, user.username
             assert user_can_run_diagnostics(user) is diag, user.username
             assert user_can_view_password_expiry(user) is pwd_ok, user.username
+
+
+def test_no_access_and_viewer_http_edges(client, app, viewer_id, password_viewer_id):
+    """W3-07 edges: no_access empty ACL; viewer scripts 403; password_viewer role flag."""
+    with app.app_context():
+        nobody = _user(username="nobody", display_name="Без доступа")
+        nobody_id = nobody.id
+        sector = _sector("Склад", users=["viewer"])
+        device = Device(ip="10.0.0.40", sector_id=sector.id, last_status="unknown")
+        db.session.add(device)
+        _script("edge-pub", published=True)
+        db.session.commit()
+        device_id = device.id
+
+        assert accessible_sectors(nobody) == []
+        assert accessible_devices(nobody) == []
+        assert user_can_access_device(nobody, device) is False
+        assert user_can_run_scripts(nobody) is False
+        assert user_can_run_diagnostics(nobody) is True  # не viewer — но устройств нет
+        assert user_has_role(
+            db.session.get(User, password_viewer_id), "password_viewer"
+        ) is True
+        assert user_has_role(nobody, "viewer") is False
+
+    _login(client, nobody_id)
+    assert client.get("/").status_code == 200
+    assert client.get(f"/devices/{device_id}").status_code == 403
+    assert client.get("/scripts/").status_code == 403
+    assert client.get("/password-expiry/").status_code == 403
+    assert client.get("/admin/audit").status_code == 403
+
+    _login(client, viewer_id)
+    assert client.get("/scripts/").status_code == 403
+    assert client.post(f"/devices/{device_id}/ping").status_code == 403
+    assert client.post("/api/map/bulk/script", json={"device_ids": [device_id]}).status_code == 403
