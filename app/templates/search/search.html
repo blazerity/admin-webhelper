@@ -1,8 +1,0 @@
-{# Старый шаблон не используется: /search перенаправляет на карту сети. #}
-{% extends "base.html" %}
-{% block title %}Поиск{% endblock %}
-{% block content %}
-<div class="panel content-card">
-  <p class="mb-0">Поиск перенесён на <a href="{{ url_for('devices.map') }}">карту сети</a>.</p>
-</div>
-{% endblock %}

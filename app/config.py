@@ -8,9 +8,11 @@ import os
 
 from sqlalchemy.pool import StaticPool
 
+from app.utils import as_truthy
+
 
 def _flag(name: str, default: str = "0") -> bool:
-    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+    return as_truthy(os.environ.get(name, default), default=False)
 
 
 class Config:

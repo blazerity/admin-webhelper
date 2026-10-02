@@ -45,7 +45,7 @@ bAWH/
 
 ### Модели
 
-Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0007_login_services`).
+Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0008_network_poll_runs`).
 
 Справочники и журналы разделены:
 
@@ -92,7 +92,7 @@ bAWH/
 | `accounts.py` | `/accounts` — справочник УЗ, `/accounts/<id>` — карточка |
 | `actions.py` | `/actions` — справочник типов действий и лента событий |
 | `sectors.py` | `/sectors` — список, создание, карточка, правка, удаление |
-| `search.py` | `GET /search`, `GET /search/suggest` |
+| `search.py` | `GET /search` (редирект на карту), `GET /search/api` (JSON для карты) |
 | `diagnostics.py` | `POST /devices/<id>/ping`, `/tracert`, `/command` |
 | `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>` (лог, отмена) |
 | `admin.py` | `GET/POST /admin/settings` — учётка PsExec, учётка WMI, интервал, журнал и ручной запуск опроса; `POST /admin/poll-run`; `GET/POST /admin/updates` — обновление из git и откат |

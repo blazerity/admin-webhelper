@@ -11,30 +11,23 @@ from sqlalchemy.orm import selectinload
 from app.authz import (
     admin_required,
     get_visible_device_or_404,
+    get_visible_script_run_or_404,
     get_visible_sector_or_404,
     user_can_see_script_run,
 )
 from app.extensions import db
 from app.models import Device, RunStatus, RunType, Script, ScriptRun, Sector
+from app.run_display import (
+    run_launch_label,
+    run_status_label,
+    run_type_label,
+    run_when_label,
+)
 from app.services import script_service
 from app.services.credential_service import get_stored_credential
+from app.utils import parse_optional_int
 
 bp = Blueprint("scripts", __name__, url_prefix="/scripts")
-
-_STATUS_LABELS = {
-    RunStatus.PENDING: "ожидание",
-    RunStatus.RUNNING: "выполняется",
-    RunStatus.SUCCESS: "успешно",
-    RunStatus.FAILED: "ошибка",
-    RunStatus.CANCELLED: "остановлен",
-}
-
-_RUN_TYPE_LABELS = {
-    RunType.PING: "Ping",
-    RunType.TRACERT: "Трассировка",
-    RunType.COMMAND: "Команда",
-    RunType.SCRIPT: "Скрипт",
-}
 
 _SESSION_HINTS = {
     "busy": "Кнопка «Завершить сессию» станет активной, когда команда закончится.",
@@ -76,19 +69,7 @@ def _form_fields():
 
 
 def _optional_int(field: str) -> int | None:
-    raw = (request.form.get(field) or "").strip()
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        return None
-
-
-def _format_dt(value) -> str:
-    if not value:
-        return "—"
-    return value.strftime("%Y-%m-%d %H:%M:%S UTC")
+    return parse_optional_int(request.form.get(field))
 
 
 def _launched_by(run: ScriptRun) -> str:
@@ -103,18 +84,6 @@ def _pc_name(run: ScriptRun) -> str:
     if device is None:
         return "Компьютер"
     return device.hostname or device.ip
-
-
-def _history_label(item: ScriptRun) -> str:
-    if item.script is not None and item.script.name:
-        return item.script.name
-    text = " ".join((item.command_text or "").split())
-    if len(text) > 72:
-        text = text[:72] + "…"
-    kind = _RUN_TYPE_LABELS.get(item.run_type, item.run_type)
-    if text:
-        return f"{kind}: {text}"
-    return kind
 
 
 def _account_label(run: ScriptRun) -> str | None:
@@ -150,9 +119,9 @@ def _device_history(run: ScriptRun) -> list[dict]:
     return [
         {
             "run": item,
-            "label": _history_label(item),
-            "status_label": _STATUS_LABELS.get(item.status, item.status),
-            "when": _format_dt(item.started_at),
+            "label": run_launch_label(item),
+            "status_label": run_status_label(item.status),
+            "when": run_when_label(item.started_at),
         }
         for item in rows
         if user_can_see_script_run(current_user, item)
@@ -163,15 +132,6 @@ def _session_hint(run: ScriptRun, state: str) -> str:
     if state == "closed" and run.run_type not in (RunType.COMMAND, RunType.SCRIPT):
         return "Удалённой SMB-сессии нет: эта проверка идёт с сервера приложения."
     return _SESSION_HINTS.get(state, _SESSION_HINTS["closed"])
-
-
-def _run_for_viewer(run_id: int) -> ScriptRun:
-    run = db.session.get(ScriptRun, run_id)
-    if run is None:
-        abort(404)
-    if not user_can_see_script_run(current_user, run):
-        abort(403)
-    return run
 
 
 @bp.get("/")
@@ -276,7 +236,7 @@ def run_script(script_id: int):
 @bp.get("/runs/<int:run_id>")
 @login_required
 def run_detail(run_id: int):
-    run = _run_for_viewer(run_id)
+    run = get_visible_script_run_or_404(run_id)
     batch_runs = []
     if run.batch_id:
         siblings = (
@@ -294,16 +254,16 @@ def run_detail(run_id: int):
         "scripts/run.html",
         run=run,
         batch_runs=batch_runs,
-        status_label=_STATUS_LABELS.get(run.status, run.status),
-        run_type_label=_RUN_TYPE_LABELS.get(run.run_type, run.run_type),
+        status_label=run_status_label(run.status),
+        run_type_label=run_type_label(run.run_type),
         session_open=state == "open",
         session_state=state,
         session_hint=_session_hint(run, state),
         session_hint_closed=_session_hint(run, "closed"),
         finished=finished,
         pc_name=_pc_name(run),
-        started_label=_format_dt(run.started_at),
-        finished_label=_format_dt(run.finished_at),
+        started_label=run_when_label(run.started_at),
+        finished_label=run_when_label(run.finished_at),
         account_label=_account_label(run),
         history=_device_history(run),
         launched_by=_launched_by(run),
@@ -313,7 +273,7 @@ def run_detail(run_id: int):
 @bp.post("/runs/<int:run_id>/cancel")
 @login_required
 def cancel_run(run_id: int):
-    run = _run_for_viewer(run_id)
+    run = get_visible_script_run_or_404(run_id)
     script_service.cancel_run(run.id)
     return redirect(url_for("scripts.run_detail", run_id=run.id))
 
@@ -321,7 +281,7 @@ def cancel_run(run_id: int):
 @bp.post("/runs/<int:run_id>/close-session")
 @login_required
 def close_run_session(run_id: int):
-    run = _run_for_viewer(run_id)
+    run = get_visible_script_run_or_404(run_id)
     if script_service.close_run_session(run.id):
         flash("Сессия закрыта.", "success")
     else:
@@ -332,17 +292,17 @@ def close_run_session(run_id: int):
 @bp.get("/runs/<int:run_id>/status")
 @login_required
 def run_status(run_id: int):
-    run = _run_for_viewer(run_id)
+    run = get_visible_script_run_or_404(run_id)
     finished = run.status in RunStatus.FINISHED
     state = script_service.run_session_state(run.id, finished)
     return jsonify(
         {
             "status": run.status,
-            "status_label": _STATUS_LABELS.get(run.status, run.status),
+            "status_label": run_status_label(run.status),
             "log_text": run.log_text or "",
             "exit_code": run.exit_code,
             "finished": finished,
-            "finished_at": _format_dt(run.finished_at) if run.finished_at else "",
+            "finished_at": run_when_label(run.finished_at) if run.finished_at else "",
             "session_open": state == "open",
             "session_state": state,
             "session_hint": _session_hint(run, state),

@@ -105,3 +105,12 @@ def get_visible_device_or_404(device_id: int) -> Device:
     if not user_can_access_device(current_user, device):
         abort(403)
     return device
+
+
+def get_visible_script_run_or_404(run_id: int) -> ScriptRun:
+    run = db.session.get(ScriptRun, run_id)
+    if run is None:
+        abort(404)
+    if not user_can_see_script_run(current_user, run):
+        abort(403)
+    return run

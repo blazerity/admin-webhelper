@@ -5,27 +5,13 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
 from app.authz import accessible_sectors, get_visible_device_or_404
-from app.models import DeviceHistory, RunStatus, RunType, ScriptRun, Sector
+from app.models import DeviceHistory, RunType, ScriptRun, Sector
+from app.run_display import run_launch_label, run_status_label, run_when_label
 from app.services.account_service import device_account_sightings
 from app.services.search_service import search_devices
-from app.utils import utcnow
+from app.utils import parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
-
-_RUN_STATUS_LABELS = {
-    RunStatus.PENDING: "ожидание",
-    RunStatus.RUNNING: "выполняется",
-    RunStatus.SUCCESS: "успешно",
-    RunStatus.FAILED: "ошибка",
-    RunStatus.CANCELLED: "остановлен",
-}
-
-_RUN_TYPE_LABELS = {
-    RunType.PING: "Ping",
-    RunType.TRACERT: "Трассировка",
-    RunType.COMMAND: "Команда",
-    RunType.SCRIPT: "Скрипт",
-}
 
 _DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls"})
 _DEFAULT_LIST_LIMIT = 5
@@ -58,23 +44,13 @@ def _load_visible_sectors():
     return sectors
 
 
-def _sector_id_from_args() -> int | None:
-    raw = (request.args.get("sector_id") or "").strip()
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        return None
-
-
 @bp.get("/")
 @login_required
 def map():
     """Секторы текущего пользователя и устройства в них, по IP."""
     sectors = _load_visible_sectors()
     query = (request.args.get("q") or "").strip()
-    sector_id = _sector_id_from_args()
+    sector_id = parse_optional_int(request.args.get("sector_id"))
     search_results = (
         search_devices(current_user, query, sector_id=sector_id) if query else []
     )
@@ -122,24 +98,6 @@ def map_status():
     )
 
 
-def _format_run_when(value) -> str:
-    if not value:
-        return "—"
-    return value.strftime("%Y-%m-%d %H:%M:%S UTC")
-
-
-def _launch_label(item: ScriptRun) -> str:
-    if item.script is not None and item.script.name:
-        return item.script.name
-    text = " ".join((item.command_text or "").split())
-    if len(text) > 72:
-        text = text[:72] + "…"
-    kind = _RUN_TYPE_LABELS.get(item.run_type, item.run_type)
-    if text:
-        return f"{kind}: {text}"
-    return kind
-
-
 def _list_limit() -> tuple[int, bool]:
     """(limit, show_all) — по умолчанию 5, при all=1 — расширенный список."""
     show_all = (request.args.get("all") or "").strip() in {"1", "true", "yes"}
@@ -175,9 +133,9 @@ def _launch_history(
     items = [
         {
             "run": item,
-            "label": _launch_label(item),
-            "status_label": _RUN_STATUS_LABELS.get(item.status, item.status),
-            "when": _format_run_when(item.started_at),
+            "label": run_launch_label(item),
+            "status_label": run_status_label(item.status),
+            "when": run_when_label(item.started_at),
         }
         for item in rows[:limit]
     ]

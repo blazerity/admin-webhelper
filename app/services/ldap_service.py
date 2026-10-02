@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from app.extensions import db
 from app.models import User, UserLdapGroup
-from app.utils import utcnow
+from app.utils import as_truthy, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +342,7 @@ def _bind_user(username: str, domain: str) -> str:
     return f"{cleaned}\\{username}"
 
 
-def _ldap_endpoint(host: str, port: int, use_ssl: bool) -> tuple[str, int | None, bool]:
+def ldap_endpoint(host: str, port: int, use_ssl: bool) -> tuple[str, int | None, bool]:
     """Адрес, порт и SSL для ldap3.Server.
 
     URL ldap://хост — порт 389 без шифрования, ldaps://хост — порт 636
@@ -371,6 +371,24 @@ def _ldap_endpoint(host: str, port: int, use_ssl: bool) -> tuple[str, int | None
     return raw, port, use_ssl
 
 
+def as_bool(value: object, default: bool = False) -> bool:
+    """Строка «false» не должна стать True через обычный bool().
+
+    Пароль уходит на порт каталога. Перепутанный LDAP_USE_SSL открыл бы
+    его без шифрования, хотя в настройке написано «выключено».
+    """
+    return as_truthy(value, default=default)
+
+
+def unbind(conn: Connection) -> None:
+    try:
+        conn.unbind()
+    except Exception:
+        # Закрытие не должно отменять уже собранную личность
+        # и не должно прятать исходную ошибку каталога.
+        return
+
+
 def _endpoint_label() -> str:
     """Куда реально уходит bind. Пароля здесь нет, строку можно писать в журнал."""
     cfg = current_app.config
@@ -379,25 +397,10 @@ def _endpoint_label() -> str:
         port = int(cfg.get("LDAP_PORT") or 636)
     except (TypeError, ValueError):
         port = 636
-    use_ssl = _as_bool(cfg.get("LDAP_USE_SSL", True), default=True)
-    host, port, use_ssl = _ldap_endpoint(host, port, use_ssl)
+    use_ssl = as_bool(cfg.get("LDAP_USE_SSL", True), default=True)
+    host, port, use_ssl = ldap_endpoint(host, port, use_ssl)
     shown_port = "из URL" if port is None else str(port)
     return f"{host} port={shown_port} ssl={use_ssl}"
-
-
-def _as_bool(value: object, default: bool) -> bool:
-    """Строка «false» не должна стать True через обычный bool().
-
-    Пароль уходит на порт каталога. Перепутанный LDAP_USE_SSL открыл бы
-    его без шифрования, хотя в настройке написано «выключено».
-    """
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
 
 
 def _public_error(exc: Exception, secrets: tuple[str, ...]) -> str:
@@ -408,10 +411,7 @@ def _public_error(exc: Exception, secrets: tuple[str, ...]) -> str:
     return detail
 
 
-def _unbind(conn: Connection) -> None:
-    try:
-        conn.unbind()
-    except Exception:
-        # Закрытие не должно отменять уже собранную личность
-        # и не должно прятать исходную ошибку каталога.
-        return
+# Совместимость с прежними приватными именами внутри модуля.
+_as_bool = as_bool
+_ldap_endpoint = ldap_endpoint
+_unbind = unbind

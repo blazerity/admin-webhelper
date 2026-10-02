@@ -7,7 +7,6 @@
 означает «любая строка», и без этой проверки поиск показал бы всю сеть.
 """
 
-from flask import url_for
 from sqlalchemy import or_
 from sqlalchemy.orm import selectinload
 
@@ -56,39 +55,3 @@ def search_devices(
         .limit(limit)
         .all()
     )
-
-
-def _suggest_label(device: Device) -> str:
-    """Текст подсказки: «10.0.0.5  hostname  SERIAL  AA:BB:...».
-
-    Пустые поля пропускаем, чтобы не оставлять лишние пробелы.
-    Между частями два пробела — так значения видно по отдельности.
-    """
-    parts = [device.ip]
-    if device.hostname:
-        parts.append(device.hostname)
-    if device.serial_number:
-        parts.append(device.serial_number)
-    if device.mac:
-        parts.append(device.mac)
-    return "  ".join(parts)
-
-
-def suggest_devices(user, query: str, limit: int = 8) -> list[dict]:
-    """Короткие подсказки для поля поиска: список {label, url}.
-
-    Пока введено меньше двух символов, в базу не ходим: один символ
-    вроде «1» совпал бы с половиной адресов. url ведёт на карточку
-    устройства. url_for работает, потому что функцию вызывает маршрут,
-    уже внутри запроса.
-    """
-    text = (query or "").strip()
-    if len(text) < 2:
-        return []
-    return [
-        {
-            "label": _suggest_label(device),
-            "url": url_for("devices.detail", device_id=device.id),
-        }
-        for device in search_devices(user, text, limit=limit)
-    ]

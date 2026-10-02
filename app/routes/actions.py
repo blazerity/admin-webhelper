@@ -3,7 +3,7 @@
 from flask import Blueprint, render_template
 from flask_login import current_user, login_required
 
-from app.services.action_service import ensure_action_kinds, list_system_actions
+from app.services.action_service import list_system_actions, list_action_kinds
 
 bp = Blueprint("actions", __name__, url_prefix="/actions")
 
@@ -12,7 +12,7 @@ bp = Blueprint("actions", __name__, url_prefix="/actions")
 @login_required
 def list_actions():
     """Недавние действия на доступных устройствах."""
-    kinds = sorted(ensure_action_kinds().values(), key=lambda item: item.title)
+    kinds = list_action_kinds()
     items = list_system_actions(current_user, limit=80)
     return render_template(
         "actions/list.html",

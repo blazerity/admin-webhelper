@@ -15,6 +15,35 @@ def as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def format_utc(value: datetime | None) -> str:
+    """Человекочитаемая метка UTC для UI; пустое значение — тире."""
+    if not value:
+        return "—"
+    return value.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def parse_optional_int(raw: str | None) -> int | None:
+    """Число из строки формы/query; пустое или нечисло — None."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def as_truthy(value: object, default: bool = False) -> bool:
+    """Строка «false» не должна стать True через обычный bool()."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def clip(text: str | None, limit: int) -> str:
     """Обрезает длинный текст лога."""
     if not text:

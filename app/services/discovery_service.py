@@ -32,6 +32,7 @@ import os
 import re
 import socket
 import subprocess
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
@@ -41,6 +42,9 @@ from flask import current_app
 from app.services.net_utils import assert_public_ipv4, normalize_mac
 
 logger = logging.getLogger(__name__)
+
+# Сокеты DNS делят process-wide default timeout — сериализуем смену значения.
+_dns_timeout_lock = threading.Lock()
 
 # Две привычные записи MAC: aa:bb:cc:dd:ee:ff / aa-bb-cc-dd-ee-ff
 # и cisco-вид aabb.ccdd.eeff. Дальше normalize_mac приводит к одному формату.
@@ -102,17 +106,19 @@ def lookup_hostname(ip: str) -> str | None:
     socket.gethostbyaddr смотрит на тайм-аут по умолчанию всего процесса,
     отдельного аргумента у него нет. Поэтому на время вызова ставим 1 секунду
     и в finally возвращаем прежнее значение: иначе остальные сокеты приложения
-    навсегда останутся с нашим тайм-аутом.
+    навсегда останутся с нашим тайм-аутом. Под lock — опрос идёт из пула
+    потоков, и гонка setdefaulttimeout ломала бы DNS у соседних воркеров.
     """
     ip = assert_public_ipv4(ip)
-    previous = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(1.0)
-    try:
-        hostname, _aliases, _addresses = socket.gethostbyaddr(ip)
-    except OSError:
-        return None
-    finally:
-        socket.setdefaulttimeout(previous)
+    with _dns_timeout_lock:
+        previous = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(1.0)
+        try:
+            hostname, _aliases, _addresses = socket.gethostbyaddr(ip)
+        except OSError:
+            return None
+        finally:
+            socket.setdefaulttimeout(previous)
     if not hostname:
         return None
     # Некоторые резолверы отдают FQDN с точкой на конце: "pc.example."
@@ -165,7 +171,7 @@ def lookup_wmi_inventory(
         try:
             return future.result(timeout=_WMI_TIMEOUT_S)
         except FuturesTimeout:
-            logger.info("WMI inventory: таймаут для %s", ip)
+            logger.debug("WMI inventory: таймаут для %s", ip)
             return WmiInventory()
         except Exception:
             logger.exception("WMI inventory: сбой для %s", ip)
@@ -292,7 +298,7 @@ def _wmi_inventory(ip: str, creds: DiscoveryCredentials) -> WmiInventory:
             logged_on_user=logged_raw if logged_raw is not None else "",
         )
     except Exception as exc:
-        logger.info("WMI inventory: %s — %s", ip, exc)
+        logger.debug("WMI inventory: %s — %s", ip, exc)
         return WmiInventory()
     finally:
         if services is not None:

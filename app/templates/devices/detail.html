@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/status.html" import status_badge, device_portrait %}
 {% block title %}{% if device %}{{ device.hostname or device.ip }}{% else %}Устройство{% endif %}{% endblock %}
-{% block body_class %}page-device-detail{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
 {% if not device %}

@@ -203,7 +203,6 @@
 
   window.MapFilters = {
     setSearchMatchIds,
-    applyFilters,
   };
 
   applyFilters();
