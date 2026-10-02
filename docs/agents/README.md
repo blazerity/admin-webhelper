@@ -39,15 +39,17 @@ T2  A1: W1-10 review, VERSION, merge-готовность
 
 ## Контракты между агентами (W1)
 
+Детальные JSON/IA и **жёсткое владение файлами**: [`w1-contracts.md`](w1-contracts.md).
+
 | Контракт | Владелец | Потребитель | Суть |
 | --- | --- | --- | --- |
 | IA навигации | A1 | A2 | какие пункты в topbar, какие в settings-layout |
 | JSON сводки сети | A3 | A2 | counts online/offline, last poll, failed runs |
-| `/search/suggest` | A3 (стабильность) | A2 | autocomplete на карте |
-| Пресеты команд | A3 (данные) | A2 (UI) | константа/seed, не хардкод только в HTML |
+| `/search/suggest` | A3 (alias к `/search/api`) | A2 | autocomplete на карте |
+| Пресеты команд | A3 (данные + context) | A2 (UI) | константа/seed, не хардкод только в HTML |
 | Запуск скрипта с device | A3 | A2, A4 | обёртка над `start_script_on_devices` + authz |
-| Health scheduler | A3 | A5 | блок на `/admin/settings` |
-| DoD волны | A1 | все | README/ARCHITECTURE/VERSION, нет breaking changes |
+| Health scheduler | A3 (данные) | A2 (разметка), A5 | блок на `/admin/settings` |
+| DoD волны | A1 + координатор | все | README/ARCHITECTURE/VERSION, нет breaking changes |
 
 ## Что не делать в W1
 
