@@ -1,5 +1,7 @@
+from datetime import timedelta
+
 from app.extensions import db
-from app.models import Device, Sector, SectorAccess
+from app.models import Device, DeviceHistory, RunStatus, RunType, ScriptRun, Sector, SectorAccess
 from app.utils import utcnow
 
 
@@ -140,6 +142,8 @@ def test_device_detail_shows_object_card(client, app, admin_id):
     assert "Карточка устройства" in html
     assert "device-object" in html
     assert "device-portrait" in html
+    assert "device-settings-layout" in html
+    assert "device-settings-sidebar" in html
     assert "Ноутбук" in html
     assert "NBOOK01" in html
     assert "NB-SERIAL-01" in html
@@ -147,8 +151,118 @@ def test_device_detail_shows_object_card(client, app, admin_id):
     assert "AA:BB:CC:DD:00:01" in html
     assert ">MAC<" in html or ">MAC</" in html or "MAC" in html
     assert "10.0.0.1" in html
-    assert "Проверки доступности" in html
-    assert "Запуски на этом ПК" in html
-    assert "Действия" in html
+    assert "Обзор" in html
+    assert "Командная строка и скрипты" in html
+    assert "Результаты опросов" in html
+    assert f"/devices/{device_ids[0]}?tab=overview" in html
+    assert f"/devices/{device_ids[0]}?tab=commands" in html
+    assert f"/devices/{device_ids[0]}?tab=polls" in html
+    # Overview: object card only — no history tables or command form.
+    assert "Недавние запуски" not in html
+    assert "Выполнить команду" not in html
+    assert "Показать все" not in html
+
+
+def test_device_detail_commands_tab(client, app, admin_id):
+    _sector_id, device_ids = _seed_office(app)
+    device_id = device_ids[0]
+    now = utcnow()
+    with app.app_context():
+        for index in range(7):
+            db.session.add(
+                ScriptRun(
+                    device_id=device_id,
+                    user_id=admin_id,
+                    run_type=RunType.COMMAND if index % 2 == 0 else RunType.SCRIPT,
+                    command_text=f"echo cmd-{index}",
+                    status=RunStatus.SUCCESS,
+                    started_at=now - timedelta(minutes=index),
+                )
+            )
+        # Ping/tracert must not appear on the commands tab.
+        db.session.add(
+            ScriptRun(
+                device_id=device_id,
+                user_id=admin_id,
+                run_type=RunType.PING,
+                command_text="ping 10.0.0.1",
+                status=RunStatus.SUCCESS,
+                started_at=now + timedelta(minutes=1),
+            )
+        )
+        db.session.commit()
+
+    _login(client, admin_id)
+    response = client.get(f"/devices/{device_id}?tab=commands")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Командная строка" in html
     assert "Выполнить команду" in html
-    assert f'action="/devices/{device_ids[0]}/command"' in html or f"/devices/{device_ids[0]}/command" in html
+    assert f'action="/devices/{device_id}/command"' in html or f"/devices/{device_id}/command" in html
+    assert "Недавние запуски" in html
+    assert "Показать все" in html
+    assert "echo cmd-0" in html
+    assert "echo cmd-4" in html
+    assert "echo cmd-5" not in html
+    assert "ping 10.0.0.1" not in html
+    assert "device-object" not in html
+    assert "btn-outline-primary" not in html  # Ping/Tracert buttons live on polls
+
+    all_response = client.get(f"/devices/{device_id}?tab=commands&all=1")
+    assert all_response.status_code == 200
+    all_html = all_response.get_data(as_text=True)
+    assert "echo cmd-5" in all_html
+    assert "echo cmd-6" in all_html
+    assert "Показать все" not in all_html
+    assert "ping 10.0.0.1" not in all_html
+
+
+def test_device_detail_polls_tab(client, app, admin_id):
+    _sector_id, device_ids = _seed_office(app)
+    device_id = device_ids[0]
+    now = utcnow()
+    with app.app_context():
+        for index in range(7):
+            db.session.add(
+                DeviceHistory(
+                    device_id=device_id,
+                    status="online" if index % 2 == 0 else "offline",
+                    response_time_ms=10 + index,
+                    timestamp=now - timedelta(minutes=index),
+                )
+            )
+        db.session.commit()
+
+    _login(client, admin_id)
+    response = client.get(f"/devices/{device_id}?tab=polls")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Результаты опросов" in html
+    assert "Проверки с сервера" in html
+    assert "Ping" in html
+    assert "Трассировка" in html
+    assert f"/devices/{device_id}/ping" in html
+    assert f"/devices/{device_id}/tracert" in html
+    assert "Показать все" in html
+    assert ">10<" in html
+    assert ">14<" in html
+    assert ">15<" not in html
+    assert "Выполнить команду" not in html
+    assert "device-object" not in html
+
+    all_response = client.get(f"/devices/{device_id}?tab=polls&all=1")
+    assert all_response.status_code == 200
+    all_html = all_response.get_data(as_text=True)
+    assert ">15<" in all_html
+    assert ">16<" in all_html
+    assert "Показать все" not in all_html
+
+
+def test_device_detail_unknown_tab_defaults_to_overview(client, app, admin_id):
+    _sector_id, device_ids = _seed_office(app)
+    _login(client, admin_id)
+    response = client.get(f"/devices/{device_ids[0]}?tab=unknown")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "device-object" in html
+    assert "Выполнить команду" not in html

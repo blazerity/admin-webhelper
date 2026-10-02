@@ -1,0 +1,17 @@
+{% if device is defined and device %}
+<div class="device-actions">
+  <div class="device-actions-group">
+    <p class="device-actions-label">С сервера приложения</p>
+    <div class="device-actions-row">
+      <form method="post" action="{{ url_for('diagnostics.ping_device', device_id=device.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-primary w-100" type="submit">Ping</button>
+      </form>
+      <form method="post" action="{{ url_for('diagnostics.tracert_device', device_id=device.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-primary w-100" type="submit">Трассировка</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
