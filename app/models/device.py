@@ -48,6 +48,16 @@ class Device(TimestampMixin, db.Model):
         order_by="DeviceHistory.timestamp.desc()",
     )
 
+    @property
+    def kind(self) -> str:
+        """Тип по префиксу hostname: notebook (N…), desktop/СБ (W…), иначе other."""
+        name = (self.hostname or "").lower()
+        if name.startswith("n"):
+            return "notebook"
+        if name.startswith("w"):
+            return "desktop"
+        return "other"
+
     def __repr__(self) -> str:
         return f"<Device {self.ip} {self.last_status}>"
 
