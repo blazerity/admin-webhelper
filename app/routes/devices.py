@@ -1,11 +1,12 @@
 """Карта сети и карточка устройства."""
 
-from flask import Blueprint, abort, jsonify, render_template
+from flask import Blueprint, abort, jsonify, render_template, request
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
 from app.authz import accessible_sectors, get_visible_device_or_404
 from app.models import DeviceHistory, Sector
+from app.services.search_service import search_devices
 from app.utils import utcnow
 
 bp = Blueprint("devices", __name__)
@@ -29,11 +30,34 @@ def _load_visible_sectors():
     return sectors
 
 
+def _sector_id_from_args() -> int | None:
+    raw = (request.args.get("sector_id") or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 @bp.get("/")
 @login_required
 def map():
     """Секторы текущего пользователя и устройства в них, по IP."""
-    return render_template("devices/map.html", sectors=_load_visible_sectors())
+    sectors = _load_visible_sectors()
+    query = (request.args.get("q") or "").strip()
+    sector_id = _sector_id_from_args()
+    search_results = (
+        search_devices(current_user, query, sector_id=sector_id) if query else []
+    )
+    return render_template(
+        "devices/map.html",
+        sectors=sectors,
+        search_sectors=accessible_sectors(current_user),
+        search_query=query,
+        search_sector_id=sector_id,
+        search_results=search_results,
+    )
 
 
 @bp.get("/map/status")
@@ -77,7 +101,6 @@ def detail(device_id: int):
     device = get_visible_device_or_404(device_id)
     if device.sector is None:
         abort(404)
-    # Не device.history[:20] — иначе сначала читается вся история.
     history = (
         DeviceHistory.query.filter_by(device_id=device.id)
         .order_by(DeviceHistory.timestamp.desc())

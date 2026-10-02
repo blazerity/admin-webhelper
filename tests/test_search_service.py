@@ -111,7 +111,7 @@ def test_suggest_url_points_at_device(app, client, alice_id):
     assert short.get_json() == []
 
 
-def test_search_page_renders_accessible_result(app, client, alice_id):
+def test_search_page_redirects_to_map(app, client, alice_id):
     with app.app_context():
         own = _sector("Склад", "alice")
         _device(ip="10.0.0.5", sector=own, hostname="printer")
@@ -120,10 +120,34 @@ def test_search_page_renders_accessible_result(app, client, alice_id):
 
     _login(client, alice_id)
     response = client.get("/search", query_string={"q": "printer", "sector_id": own_id})
-    assert response.status_code == 200
-    text = response.get_data(as_text=True)
+    assert response.status_code == 302
+    assert response.headers["Location"].startswith("/")
+    assert "q=printer" in response.headers["Location"]
+    assert f"sector_id={own_id}" in response.headers["Location"]
+
+    map_page = client.get(response.headers["Location"])
+    assert map_page.status_code == 200
+    text = map_page.get_data(as_text=True)
     assert "10.0.0.5" in text
     assert "Склад" in text
+    assert "map-search" in text
+
+
+def test_search_api_returns_accessible_devices(app, client, alice_id):
+    with app.app_context():
+        own = _sector("Склад", "alice")
+        other = _sector("Офис", "bob")
+        _device(ip="10.0.0.5", sector=own, hostname="printer")
+        _device(ip="10.0.0.6", sector=other, hostname="printer")
+        db.session.commit()
+
+    _login(client, alice_id)
+    response = client.get("/search/api", query_string={"q": "printer"})
+    assert response.status_code == 200
+    items = response.get_json()
+    assert len(items) == 1
+    assert items[0]["ip"] == "10.0.0.5"
+    assert items[0]["sector"] == "Склад"
 
 
 def test_map_shows_accessible_devices_ordered_by_ip(app, client, alice_id):

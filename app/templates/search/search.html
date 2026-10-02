@@ -1,42 +1,8 @@
+{# Старый шаблон не используется: /search перенаправляет на карту сети. #}
 {% extends "base.html" %}
-{% from "macros/status.html" import status_badge %}
 {% block title %}Поиск{% endblock %}
 {% block content %}
-<h1 class="h3">Поиск устройств</h1>
-<form class="row g-2 mb-4 position-relative" method="get" action="{{ url_for('search.search_page') }}">
-  <div class="col-md-6 position-relative">
-    <input class="form-control" id="q" name="q" value="{{ query }}" placeholder="IP, MAC или имя" autocomplete="off">
-    <div class="list-group suggest-list d-none" id="suggest"></div>
-  </div>
-  <div class="col-md-3">
-    <select class="form-select" name="sector_id">
-      <option value="">Все доступные секторы</option>
-      {% for sector in sectors %}
-      <option value="{{ sector.id }}" {% if sector_id == sector.id %}selected{% endif %}>{{ sector.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="col-md-2">
-    <button class="btn btn-primary" type="submit">Найти</button>
-  </div>
-</form>
-<table class="table">
-  <thead><tr><th>IP</th><th>Имя</th><th>MAC</th><th>Сектор</th><th>Статус</th></tr></thead>
-  <tbody>
-  {% for device in results %}
-    <tr>
-      <td><a href="{{ url_for('devices.detail', device_id=device.id) }}">{{ device.ip }}</a></td>
-      <td>{{ device.hostname or '—' }}</td>
-      <td>{{ device.mac or '—' }}</td>
-      <td>{{ device.sector.name }}</td>
-      <td>{{ status_badge(device.last_status) }}</td>
-    </tr>
-  {% else %}
-    {% if query %}<tr><td colspan="5" class="text-muted">Ничего не найдено.</td></tr>{% endif %}
-  {% endfor %}
-  </tbody>
-</table>
-{% endblock %}
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/search.js') }}"></script>
+<div class="panel content-card">
+  <p class="mb-0">Поиск перенесён на <a href="{{ url_for('devices.map') }}">карту сети</a>.</p>
+</div>
 {% endblock %}

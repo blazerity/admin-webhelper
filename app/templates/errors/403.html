@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Нет доступа{% endblock %}
 {% block content %}
-<h1 class="h3">Нет доступа</h1>
-<p>Этого раздела нет в ваших правах. Если он нужен для работы, попросите администратора выдать сектор или группу.</p>
+<div class="panel content-card">
+  <h1 class="page-title">Нет доступа</h1>
+  <p class="page-subtitle mb-3">Этого раздела нет в ваших правах. Если он нужен для работы, попросите администратора выдать сектор или группу.</p>
+  <a class="btn btn-primary" href="{{ url_for('devices.map') }}">На карту сети</a>
+</div>
 {% endblock %}

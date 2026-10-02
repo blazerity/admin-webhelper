@@ -51,16 +51,21 @@ def test_map_shows_collapsed_sectors_with_active_count(client, app, admin_id):
     html = response.get_data(as_text=True)
     assert "Офис" in html
     assert "2" in html and "активн" in html
-    assert 'aria-expanded="false"' in html
+    assert 'aria-expanded="true"' in html
+    assert "collapse show" in html
     assert "Ноутбук" in html
     assert 'title="СБ"' in html
     assert "Тип неизвестен" in html
     assert "Карта сети" in html
-    assert "Администрирование" in html
+    assert "Настройки" in html
+    assert "Поиск устройств" not in html
+    assert "Администрирование" not in html
     assert "data-filter-group=" in html
     assert "Ноутбуки" in html
     assert ">СБ<" in html
     assert "map.js" in html
+    assert "map-search" in html
+    assert "search.js" in html
 
 
 def test_map_status_json(client, app, admin_id):
