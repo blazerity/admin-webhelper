@@ -12,6 +12,7 @@
       <a class="settings-nav-link{% if ep.startswith('actions.') %} active{% endif %}" href="{{ url_for('actions.list_actions') }}">Действия</a>
       {% if current_user.is_admin %}
       <a class="settings-nav-link{% if ep.startswith('scripts.') %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
+      <a class="settings-nav-link{% if ep.startswith('password_expiry.') %} active{% endif %}" href="{{ url_for('password_expiry.dashboard') }}">Пароли AD</a>
       <a class="settings-nav-link{% if ep == 'admin.settings' %} active{% endif %}" href="{{ url_for('admin.settings') }}">Параметры</a>
       <a class="settings-nav-link{% if ep == 'admin.updates' %} active{% endif %}" href="{{ url_for('admin.updates') }}">Обновления</a>
       {% endif %}

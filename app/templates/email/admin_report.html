@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Отчёт по истекающим паролям</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:Segoe UI,Arial,sans-serif;color:#222;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="760" cellpadding="0" cellspacing="0" style="width:760px;max-width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="background-color:#1f4e79;color:#ffffff;padding:22px 28px;">
+              <div style="font-size:22px;font-weight:700;">&#128202; Отчёт по истекающим паролям</div>
+              <div style="font-size:13px;opacity:0.9;padding-top:6px;">Дата формирования: {{ report_date }}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 28px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="33%" valign="top" style="padding:0 6px 12px 0;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fff8e1;border-radius:8px;">
+                      <tr>
+                        <td style="padding:16px;text-align:center;">
+                          <div style="font-size:12px;color:#7a5d00;">Истекает скоро</div>
+                          <div style="font-size:32px;font-weight:700;color:#e67e22;">{{ upcoming|length }}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td width="33%" valign="top" style="padding:0 6px 12px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fdecea;border-radius:8px;">
+                      <tr>
+                        <td style="padding:16px;text-align:center;">
+                          <div style="font-size:12px;color:#922b21;">Просрочено, не сменили</div>
+                          <div style="font-size:32px;font-weight:700;color:#c0392b;">{{ overdue|length }}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td width="33%" valign="top" style="padding:0 0 12px 6px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#e8f5e9;border-radius:8px;">
+                      <tr>
+                        <td style="padding:16px;text-align:center;">
+                          <div style="font-size:12px;color:#1e7a3a;">Просрочено, но сменили</div>
+                          <div style="font-size:32px;font-weight:700;color:#1e8449;">{{ resolved|length }}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:8px 28px 24px;">
+              <h3 style="margin:16px 0 8px;color:#1f4e79;">Истекает скоро</h3>
+              {% if upcoming %}
+              <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+                <tr style="background-color:#1f4e79;color:#fff;text-align:left;">
+                  <th>Имя</th><th>Username</th><th>Email</th><th>Дней осталось</th>
+                </tr>
+                {% for row in upcoming %}
+                <tr style="background-color:{% if loop.index is odd %}#f7fbff{% else %}#ffffff{% endif %};">
+                  <td>{{ row.full_name }}</td>
+                  <td>{{ row.username }}</td>
+                  <td>{{ row.email }}</td>
+                  <td>{{ row.days_left }}</td>
+                </tr>
+                {% endfor %}
+              </table>
+              {% else %}
+              <p style="color:#888;font-size:13px;">Нет учётных записей в этом окне.</p>
+              {% endif %}
+
+              <h3 style="margin:24px 0 8px;color:#c0392b;">Просрочено, не сменили</h3>
+              {% if overdue %}
+              <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+                <tr style="background-color:#c0392b;color:#fff;text-align:left;">
+                  <th>Имя</th><th>Username</th><th>Email</th><th>Статус</th>
+                </tr>
+                {% for row in overdue %}
+                <tr style="background-color:{% if loop.index is odd %}#fdecea{% else %}#ffffff{% endif %};">
+                  <td>{{ row.full_name }}</td>
+                  <td>{{ row.username }}</td>
+                  <td>{{ row.email }}</td>
+                  <td>{{ row.status_text }}</td>
+                </tr>
+                {% endfor %}
+              </table>
+              {% else %}
+              <p style="color:#888;font-size:13px;">Нет просроченных паролей.</p>
+              {% endif %}
+
+              <h3 style="margin:24px 0 8px;color:#1e8449;">Просрочено, но сменили</h3>
+              {% if resolved %}
+              <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+                <tr style="background-color:#1e8449;color:#fff;text-align:left;">
+                  <th>Имя</th><th>Username</th><th>Email</th><th>Статус</th>
+                </tr>
+                {% for row in resolved %}
+                <tr style="background-color:{% if loop.index is odd %}#e8f5e9{% else %}#ffffff{% endif %};">
+                  <td>{{ row.full_name }}</td>
+                  <td>{{ row.username }}</td>
+                  <td>{{ row.email }}</td>
+                  <td>{{ row.status_text }}</td>
+                </tr>
+                {% endfor %}
+              </table>
+              {% else %}
+              <p style="color:#888;font-size:13px;">За отчётный период закрытых кейсов нет.</p>
+              {% endif %}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

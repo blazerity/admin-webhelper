@@ -42,6 +42,14 @@ class Config:
     LDAP_ADMIN_GROUP = os.environ.get("LDAP_ADMIN_GROUP", "bawh-admins")
     LDAP_DOMAIN = os.environ.get("LDAP_DOMAIN", "")
 
+    # SMTP для модуля уведомлений о сроке паролей AD (не дублирует LDAP_*).
+    SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "25"))
+    SMTP_USE_STARTTLS = _flag("SMTP_USE_STARTTLS", "0")
+    SMTP_FROM = os.environ.get("SMTP_FROM", "").strip()
+    SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+
     POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "300"))
     MIN_CIDR_PREFIX = int(os.environ.get("MIN_CIDR_PREFIX", "22"))
     MAX_HOSTS_PER_POLL = int(os.environ.get("MAX_HOSTS_PER_POLL", "2048"))
