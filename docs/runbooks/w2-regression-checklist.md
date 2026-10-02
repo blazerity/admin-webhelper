@@ -164,7 +164,7 @@ python3 -m pytest -q
 
 | Дата (UTC) | Ветка | Результат | Примечание |
 | --- | --- | --- | --- |
-| _(заполнить после прогона)_ | `cursor/w2-07-regression-85f5` | | База integration + A5 checklist/smoke; UI A2 может быть ещё не влита |
+| 2026-10-02 | `cursor/w2-07-regression-85f5` | **241 passed** in ~7s | База integration (A3+A4) + A5 checklist/smoke; UI A2 (`w2-01-map-bulk-ui`) ещё не влита в integration |
 
 Полный зелёный прогон на **интеграционной** после merge A2 — зона координатора (DoD волны).
 
