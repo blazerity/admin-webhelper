@@ -1,6 +1,7 @@
 {% extends "base.html" %}
-{% from "macros/status.html" import status_badge %}
-{% block title %}{{ device.ip if device else 'Устройство' }}{% endblock %}
+{% from "macros/status.html" import status_badge, device_portrait %}
+{% block title %}{% if device %}{{ device.hostname or device.ip }}{% else %}Устройство{% endif %}{% endblock %}
+{% block main_class %}app-main-wide{% endblock %}
 {% block content %}
 {% if not device %}
 <div class="panel content-card"><p class="mb-0">Устройство не передано в шаблон.</p></div>
@@ -8,44 +9,105 @@
 <div class="page-header">
   <div>
     <p class="mb-1"><a href="{{ url_for('devices.map') }}">← К карте</a></p>
-    <h1 class="page-title">{{ device.hostname or device.ip }} {{ status_badge(device.last_status) }}</h1>
-    <p class="page-subtitle font-monospace">{{ device.ip }}</p>
+    <h1 class="page-title">Карточка устройства</h1>
+    <p class="page-subtitle">Объект в инвентаре сети</p>
   </div>
 </div>
 
-<div class="panel content-card mb-3">
-  <dl class="meta-list">
-    <dt>Имя</dt><dd>{{ device.hostname or '—' }}</dd>
-    <dt>MAC</dt><dd class="font-monospace">{{ device.mac or '—' }}</dd>
-    <dt>Сектор</dt><dd>{{ device.sector.name }}</dd>
-    <dt>Последний ответ</dt><dd>{{ device.last_seen|dt }}{% if device.last_response_time_ms is not none %} ({{ device.last_response_time_ms }} мс){% endif %}</dd>
-  </dl>
-</div>
-
-<div class="panel content-card mb-3">
-  {% include "devices/_diagnostics.html" %}
-</div>
-
-<div class="panel content-card p-0 overflow-hidden">
-  <div class="px-3 pt-3">
-    <h2 class="h5 mb-2">Последние проверки</h2>
+<article class="device-object panel {{ device.last_status }}">
+  <div class="device-object-media">
+    {{ device_portrait(device) }}
   </div>
-  <div class="table-responsive">
-    <table class="table table-sm">
-      <thead><tr><th>Время</th><th>Статус</th><th>Отклик, мс</th></tr></thead>
-      <tbody>
-      {% for row in history %}
-        <tr>
-          <td>{{ row.timestamp|dt }}</td>
-          <td>{{ status_badge(row.status) }}</td>
-          <td>{{ row.response_time_ms if row.response_time_ms is not none else '—' }}</td>
-        </tr>
-      {% else %}
-        <tr><td colspan="3" class="text-muted">Истории ещё нет.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  <div class="device-object-body">
+    <div class="device-object-heading">
+      <div>
+        <p class="device-object-kind">{{ device.kind_label }}</p>
+        <h2 class="device-object-name">{{ device.hostname or 'без имени' }}</h2>
+        <p class="device-object-ip font-monospace">{{ device.ip }}</p>
+      </div>
+      <div class="device-object-status">
+        {{ status_badge(device.last_status) }}
+      </div>
+    </div>
+    <dl class="device-object-meta">
+      <div>
+        <dt>MAC</dt>
+        <dd class="font-monospace">{{ device.mac or '—' }}</dd>
+      </div>
+      <div>
+        <dt>Сектор</dt>
+        <dd>{{ device.sector.name }}</dd>
+      </div>
+      <div>
+        <dt>Последний ответ</dt>
+        <dd>{{ device.last_seen|dt }}</dd>
+      </div>
+      <div>
+        <dt>Отклик</dt>
+        <dd>{% if device.last_response_time_ms is not none %}{{ device.last_response_time_ms }} мс{% else %}—{% endif %}</dd>
+      </div>
+    </dl>
   </div>
+</article>
+
+<div class="device-detail-layout">
+  <section class="device-history-column" aria-label="История устройства">
+    <div class="panel content-card p-0 overflow-hidden mb-3">
+      <div class="px-3 pt-3 pb-2">
+        <h2 class="panel-title">Проверки доступности</h2>
+        <p class="panel-hint">Последние опросы ping с сервера приложения</p>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>Время</th><th>Статус</th><th>Отклик, мс</th></tr></thead>
+          <tbody>
+          {% for row in history %}
+            <tr>
+              <td class="text-nowrap">{{ row.timestamp|dt }}</td>
+              <td>{{ status_badge(row.status) }}</td>
+              <td>{{ row.response_time_ms if row.response_time_ms is not none else '—' }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="3" class="text-muted">Истории ещё нет.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel content-card p-0 overflow-hidden">
+      <div class="px-3 pt-3 pb-2">
+        <h2 class="panel-title">Запуски на этом ПК</h2>
+        <p class="panel-hint">Ping, трассировка, команды и скрипты</p>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>Время</th><th>Запуск</th><th>Статус</th></tr></thead>
+          <tbody>
+          {% for item in launches %}
+            <tr>
+              <td class="text-nowrap">{{ item.when }}</td>
+              <td>
+                <a href="{{ url_for('scripts.run_detail', run_id=item.run.id) }}">{{ item.label }}</a>
+              </td>
+              <td>{{ item.status_label }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="3" class="text-muted">На этом компьютере ещё ничего не запускали.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <aside class="device-actions-column" aria-label="Действия">
+    <div class="panel content-card device-actions-panel">
+      <h2 class="panel-title mb-1">Действия</h2>
+      <p class="panel-hint mb-3">Проверки с сервера и удалённая команда</p>
+      {% include "devices/_diagnostics.html" %}
+    </div>
+  </aside>
 </div>
 {% endif %}
 {% endblock %}

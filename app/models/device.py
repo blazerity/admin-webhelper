@@ -58,6 +58,14 @@ class Device(TimestampMixin, db.Model):
             return "desktop"
         return "other"
 
+    @property
+    def kind_label(self) -> str:
+        return {
+            "notebook": "Ноутбук",
+            "desktop": "Системный блок",
+            "other": "Устройство",
+        }.get(self.kind, "Устройство")
+
     def __repr__(self) -> str:
         return f"<Device {self.ip} {self.last_status}>"
 

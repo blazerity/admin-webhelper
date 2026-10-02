@@ -1,21 +1,31 @@
 {% if device is defined and device %}
-<p class="text-muted">Ping и трассировка идут с сервера приложения. Команда выполняется на этом устройстве и доступна только администратору.</p>
-<div class="d-flex flex-wrap gap-2">
-  <form method="post" action="{{ url_for('diagnostics.ping_device', device_id=device.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button class="btn btn-outline-primary" type="submit">Ping</button>
-  </form>
-  <form method="post" action="{{ url_for('diagnostics.tracert_device', device_id=device.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button class="btn btn-outline-primary" type="submit">Трассировка</button>
-  </form>
+<div class="device-actions">
+  <div class="device-actions-group">
+    <p class="device-actions-label">С сервера приложения</p>
+    <div class="device-actions-row">
+      <form method="post" action="{{ url_for('diagnostics.ping_device', device_id=device.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-primary w-100" type="submit">Ping</button>
+      </form>
+      <form method="post" action="{{ url_for('diagnostics.tracert_device', device_id=device.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-primary w-100" type="submit">Трассировка</button>
+      </form>
+    </div>
+  </div>
+
+  {% if current_user.is_authenticated and current_user.is_admin %}
+  <div class="device-actions-group">
+    <p class="device-actions-label">На устройстве</p>
+    <form method="post" action="{{ url_for('diagnostics.command_device', device_id=device.id) }}" class="device-command-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="form-label" for="command">Команда</label>
+      <textarea class="form-control font-monospace mb-2" id="command" name="command" rows="5" placeholder="whoami&#10;ipconfig /all"></textarea>
+      <button class="btn btn-warning w-100" type="submit">Выполнить команду</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="small text-muted mb-0">Удалённая команда доступна только администратору.</p>
+  {% endif %}
 </div>
-{% if current_user.is_authenticated and current_user.is_admin %}
-<form method="post" action="{{ url_for('diagnostics.command_device', device_id=device.id) }}" class="mt-3">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label class="form-label" for="command">Команда</label>
-  <textarea class="form-control font-monospace mb-2" id="command" name="command" rows="3"></textarea>
-  <button class="btn btn-warning" type="submit">Выполнить команду</button>
-</form>
-{% endif %}
 {% endif %}

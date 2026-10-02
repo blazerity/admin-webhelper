@@ -5,11 +5,26 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
 from app.authz import accessible_sectors, get_visible_device_or_404
-from app.models import DeviceHistory, Sector
+from app.models import DeviceHistory, RunStatus, RunType, ScriptRun, Sector
 from app.services.search_service import search_devices
 from app.utils import utcnow
 
 bp = Blueprint("devices", __name__)
+
+_RUN_STATUS_LABELS = {
+    RunStatus.PENDING: "ожидание",
+    RunStatus.RUNNING: "выполняется",
+    RunStatus.SUCCESS: "успешно",
+    RunStatus.FAILED: "ошибка",
+    RunStatus.CANCELLED: "остановлен",
+}
+
+_RUN_TYPE_LABELS = {
+    RunType.PING: "Ping",
+    RunType.TRACERT: "Трассировка",
+    RunType.COMMAND: "Команда",
+    RunType.SCRIPT: "Скрипт",
+}
 
 
 def _load_visible_sectors():
@@ -94,10 +109,48 @@ def map_status():
     )
 
 
+def _format_run_when(value) -> str:
+    if not value:
+        return "—"
+    return value.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _launch_label(item: ScriptRun) -> str:
+    if item.script is not None and item.script.name:
+        return item.script.name
+    text = " ".join((item.command_text or "").split())
+    if len(text) > 72:
+        text = text[:72] + "…"
+    kind = _RUN_TYPE_LABELS.get(item.run_type, item.run_type)
+    if text:
+        return f"{kind}: {text}"
+    return kind
+
+
+def _launch_history(device_id: int) -> list[dict]:
+    """Последние запуски на устройстве: ping, tracert, команды и скрипты."""
+    rows = (
+        ScriptRun.query.options(selectinload(ScriptRun.script))
+        .filter(ScriptRun.device_id == device_id)
+        .order_by(ScriptRun.started_at.desc(), ScriptRun.id.desc())
+        .limit(30)
+        .all()
+    )
+    return [
+        {
+            "run": item,
+            "label": _launch_label(item),
+            "status_label": _RUN_STATUS_LABELS.get(item.status, item.status),
+            "when": _format_run_when(item.started_at),
+        }
+        for item in rows
+    ]
+
+
 @bp.get("/devices/<int:device_id>")
 @login_required
 def detail(device_id: int):
-    """Карточка устройства и 20 последних проверок, новые сверху."""
+    """Карточка устройства: история слева, действия справа."""
     device = get_visible_device_or_404(device_id)
     if device.sector is None:
         abort(404)
@@ -107,4 +160,9 @@ def detail(device_id: int):
         .limit(20)
         .all()
     )
-    return render_template("devices/detail.html", device=device, history=history)
+    return render_template(
+        "devices/detail.html",
+        device=device,
+        history=history,
+        launches=_launch_history(device.id),
+    )
