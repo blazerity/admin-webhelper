@@ -22,7 +22,7 @@ bAWH/
     static/               CSS и JS
   migrations/             схема PostgreSQL (Alembic через Flask-Migrate)
   tests/                  pytest
-  deploy/                 systemd и Nginx
+  deploy/                 systemd, Nginx и установка одной командой
   requirements.txt        зависимости Python
   .env.example            образец настроек, без настоящих секретов
 ```
@@ -202,9 +202,45 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ## Деплой на Debian 12
 
-Основной способ запуска — два сервиса systemd и Nginx на одном сервере Debian 12. Образ Docker в корне репозитория необязателен, см. комментарий в начале `Dockerfile`.
+Основной способ запуска — два сервиса systemd и Nginx на одном сервере Debian 12. Образ Docker в корне репозитория необязателен, см. комментарий в начале `Dockerfile`. Каталог установки — `/opt/bawh`.
 
-Команды ниже рассчитаны на то, что вы уже скопировали проект на сервер и стоите в его корне. Каталог установки — `/opt/bawh`.
+### Установка одной командой
+
+На сервере Debian 12:
+
+```bash
+sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo bash
+```
+
+Скрипт `deploy/install-debian12.sh` ставит пакеты, заводит пользователя Linux `bawh`, кладёт код в `/opt/bawh`, создаёт роль и базу PostgreSQL `bawh`, собирает виртуальное окружение, применяет миграции и включает сервисы `bawh-web`, `bawh-scheduler` и сайт Nginx. `SECRET_KEY`, `FERNET_KEY` и пароль базы он записывает в `/opt/bawh/.env` (права `600`). Имя сайта берётся из `hostname -f`. Своё имя передают так:
+
+```bash
+sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo BAWH_SERVER_NAME=bawh.example.com bash
+```
+
+Если каталог проекта уже есть на сервере, ту же установку запускают из его корня. Файлы копируются в `/opt/bawh` с этой машины:
+
+```bash
+sudo bash deploy/install-debian12.sh
+```
+
+Повторный запуск обновляет код, зависимости Python, миграции, юниты systemd и `/etc/nginx/sites-available/bawh`. Уже созданный `.env` скрипт оставляет на месте. Сайт Nginx `default` отключается, чтобы порт 80 открывал bAWH.
+
+На том же сервере может работать AD Password Notifier. Его веб-морда — отдельный процесс uvicorn из `service_main.py`: адрес и порт берутся из `[web]` в `config.ini`, по умолчанию `127.0.0.1:8787`. Nginx он не использует. bAWH занимает порт 80 (Nginx на всех интерфейсах) и `127.0.0.1:8000` (Gunicorn только на этой машине). Порт 8787 скрипт не открывает и не перенастраивает.
+
+Из локальной сети сайт открывают по IP сервера, порт 80: `http://IP-СЕРВЕРА/`. Имя из `server_name` тоже подходит. Если на сервере включён ufw, скрипт добавляет разрешение на TCP 80.
+
+Дальше заполните LDAP в `/opt/bawh/.env`: `LDAP_HOST`, `LDAP_BASE_DN`, `LDAP_DOMAIN` и при необходимости учётку bind. Затем:
+
+```bash
+sudo systemctl restart bawh-web bawh-scheduler
+```
+
+Проверка с самого сервера: `curl -s http://127.0.0.1:8000/health` отвечает `{"status":"ok"}`. Страницу входа откройте по IP сервера или по имени из `server_name`, порт 80. Учётку PsExec задают в том же `.env` или позже на странице `/admin/settings`. Пока сайт открыт по HTTP, оставьте `SESSION_COOKIE_SECURE=0`. Про HTTPS — в конце шага Nginx ниже.
+
+### Установка вручную
+
+Команды ниже — те же действия, что выполняет скрипт. Их имеет смысл пройти, если проект уже скопирован на сервер и вы стоите в его корне.
 
 ### 1. Пакеты
 
@@ -258,11 +294,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now bawh-web bawh-scheduler
 ```
 
-Веб слушает только `127.0.0.1:8000`. Снаружи к этому порту не подключаются.
+Gunicorn слушает только `127.0.0.1:8000`. С других компьютеров к порту 8000 не подключаются: для локальной сети его публикует Nginx на порту 80.
 
 ### 7. Nginx
 
-В `deploy/nginx-bawh.conf` замените `server_name bawh.example.com` на имя сервера в вашей сети, затем:
+`deploy/nginx-bawh.conf` слушает порт 80 на всех интерфейсах (`default_server`), поэтому страница открывается и по имени, и по IP. При желании замените `bawh.example.com` в `server_name` на имя сервера в сети, затем:
 
 ```bash
 sudo cp /opt/bawh/deploy/nginx-bawh.conf /etc/nginx/sites-available/bawh
@@ -278,7 +314,7 @@ sudo systemctl reload nginx
 curl -s http://127.0.0.1:8000/health
 ```
 
-Ожидается `{"status":"ok"}`. Страницу входа откройте уже по имени из `server_name`, порт 80.
+Ожидается `{"status":"ok"}`. С другого компьютера в сети откройте `http://IP-СЕРВЕРА/` (порт 80). Тот же ответ даёт `curl -s http://IP-СЕРВЕРА/health`.
 
 Когда на этом Nginx появится HTTPS, в `.env` поставьте `SESSION_COOKIE_SECURE=1` и выполните `sudo systemctl restart bawh-web`. Комментарий об этом есть в `deploy/nginx-bawh.conf`.
 
