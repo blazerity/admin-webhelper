@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/pagination.html" import page_nav %}
 {% block title %}Учётные записи{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -50,16 +51,12 @@
       </tbody>
     </table>
   </div>
-  {% set total_pages = ((total|default(0) + per_page|default(50) - 1) // (per_page|default(50))) if (per_page|default(50)) else 1 %}
-  {% if total_pages > 1 %}
-  <div class="px-3 py-2 d-flex gap-2">
-    {% if page|default(1) > 1 %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('accounts.list_accounts', page=page-1, per_page=per_page, q=search_query) }}">Назад</a>
-    {% endif %}
-    {% if page|default(1) < total_pages %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('accounts.list_accounts', page=page+1, per_page=per_page, q=search_query) }}">Вперёд</a>
-    {% endif %}
-  </div>
-  {% endif %}
+  {{ page_nav(
+       'accounts.list_accounts',
+       page|default(1),
+       per_page|default(50),
+       total|default(0),
+       {'q': search_query|default('')}
+     ) }}
 </div>
 {% endblock %}
