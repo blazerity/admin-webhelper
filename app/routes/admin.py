@@ -1,14 +1,18 @@
-"""Настройки администратора: учётка PsExec, интервал опроса, обновление из git.
+"""Настройки администратора: учётка PsExec, WMI discovery, опрос, обновление.
 
 Эндпоинты:
 - settings   GET/POST /admin/settings
 - updates    GET/POST /admin/updates
 
-Две формы на странице настроек различаются скрытым полем form:
-psexec или poll. Открытый пароль в шаблон и во flash не попадает.
-Форма пишет учётку только текущего администратора. Пустые пользователь
+Формы на странице настроек различаются скрытым полем form:
+psexec, discovery или poll. Открытый пароль в шаблон и во flash не попадает.
+
+PsExec: учётка только текущего администратора. Пустые пользователь
 и пароль означают запуск от его входа на сайт. Пустой пароль при уже
 заданном имени оставляет прежний шифротекст.
+
+Discovery: глобальная учётка WMI для опроса (серийник / MAC / текущая УЗ).
+Пароль — Fernet в app_settings. Пустые поля отключают WMI (или оставляют .env).
 
 Обновление — отдельные кнопки на /admin/updates. Замена кода
 начинается только после резервной копии, см. update_service.
@@ -24,7 +28,13 @@ from app.services.credential_service import (
     save_remote_admin_credentials,
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
-from app.services.settings_service import get_poll_interval_seconds, set_poll_interval_seconds
+from app.services.settings_service import (
+    DiscoveryCredentialsError,
+    get_discovery_credential_view,
+    get_poll_interval_seconds,
+    save_discovery_credentials,
+    set_poll_interval_seconds,
+)
 from app.services.update_service import UpdateError, begin_rollback, begin_update, build_page, check_for_updates
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -67,6 +77,25 @@ def settings():
                     "success",
                 )
             return redirect(url_for("admin.settings"))
+        if kind == "discovery":
+            try:
+                saved = save_discovery_credentials(
+                    request.form.get("discovery_username", ""),
+                    request.form.get("discovery_domain", ""),
+                    request.form.get("discovery_password", ""),
+                )
+            except (DiscoveryCredentialsError, CryptoNotConfigured, CryptoError) as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.settings"))
+            if saved.username:
+                flash("Учётка WMI для опроса сохранена.", "success")
+            else:
+                flash(
+                    "Учётка WMI очищена. Серийник и MAC по WMI не запрашиваются "
+                    "(если не заданы DISCOVERY_* в .env).",
+                    "success",
+                )
+            return redirect(url_for("admin.settings"))
         if kind == "poll":
             raw = (request.form.get("poll_interval") or "").strip()
             try:
@@ -85,11 +114,15 @@ def settings():
         return redirect(url_for("admin.settings"))
 
     username, domain, password_set = _credential_view(current_user.id)
+    discovery = get_discovery_credential_view()
     return render_template(
         "admin/settings.html",
         username=username,
         domain=domain,
         password_set=password_set,
+        discovery_username=discovery.username,
+        discovery_domain=discovery.domain,
+        discovery_password_set=discovery.password_set,
         poll_interval=get_poll_interval_seconds(),
     )
 

@@ -12,8 +12,9 @@
 * Серийник, MAC и текущая УЗ по WMI (lookup_wmi_inventory) — один DCOM
   после ping: Win32_BIOS.SerialNumber, MAC адаптера с нашим IP
   (Win32_NetworkAdapterConfiguration) и Win32_ComputerSystem.UserName.
-  Нужна учётка DISCOVERY_* в окружении. Без неё возвращаем пустой
-  инвентарь, идентичность строится по hostname, MAC — только из ARP.
+  Учётка: сначала из Параметров (шифротекст в app_settings), иначе
+  DISCOVERY_* в .env. Без неё возвращаем пустой инвентарь,
+  идентичность строится по hostname, MAC — только из ARP.
 
 Scapy здесь не используем. Ему нужен захват пакетов и дополнительные
 права (raw socket / Npcap). Для первой версии достаточно прочитать
@@ -172,7 +173,25 @@ def lookup_serial(ip: str) -> str | None:
 
 
 def discovery_credentials() -> DiscoveryCredentials | None:
-    """Учётка для WMI из окружения приложения. Пустые поля — WMI выключен."""
+    """Учётка для WMI: БД (Параметры) важнее .env. Пустые поля — WMI выключен."""
+    from app.services.crypto_service import CryptoError, CryptoNotConfigured
+    from app.services.settings_service import get_stored_discovery_credentials
+
+    try:
+        stored = get_stored_discovery_credentials()
+    except (CryptoNotConfigured, CryptoError) as exc:
+        logger.warning("discovery credentials: не удалось прочитать из БД — %s", exc)
+        stored = None
+    except RuntimeError:
+        # Нет Flask app context — только .env / environ.
+        stored = None
+    if stored is not None:
+        return DiscoveryCredentials(
+            username=stored.username,
+            password=stored.password,
+            domain=stored.domain,
+        )
+
     try:
         username = str(current_app.config.get("DISCOVERY_USERNAME") or "").strip()
         password = str(current_app.config.get("DISCOVERY_PASSWORD") or "")

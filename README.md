@@ -68,7 +68,7 @@ bAWH/
 - `ldap_service.py` — проверка пароля в LDAP и список групп.
 - `sector_service.py` — создание и правка секторов.
 - `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
-- `discovery_service.py` — обратный DNS, MAC из ARP/WMI, серийник и текущая УЗ по WMI (`DISCOVERY_*` в `.env`).
+- `discovery_service.py` — обратный DNS, MAC из ARP/WMI, серийник и текущая УЗ по WMI (учётка в Параметрах или `DISCOVERY_*` в `.env`).
 - `account_service.py` — справочник `endpoint_accounts`, разбор/нормализация `DOMAIN\user`, upsert с защитой от гонки, запись появлений УЗ.
 - `action_service.py` — справочник `action_kinds` и лента недавних действий (authz как у `scripts.run_detail`).
 - `scheduler_service.py` — цикл опроса для отдельного процесса.
@@ -92,7 +92,7 @@ bAWH/
 | `search.py` | `GET /search`, `GET /search/suggest` |
 | `diagnostics.py` | `POST /devices/<id>/ping`, `/tracert`, `/command` |
 | `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>` (лог, отмена) |
-| `admin.py` | `GET/POST /admin/settings` — учётка PsExec текущего пользователя и интервал опроса; `GET/POST /admin/updates` — обновление из git и откат |
+| `admin.py` | `GET/POST /admin/settings` — учётка PsExec, учётка WMI для опроса и интервал; `GET/POST /admin/updates` — обновление из git и откат |
 | `password_expiry.py` | `/password-expiry` — отчёт (пункт верхнего меню); `/password-expiry/settings` — bind/SMTP/пороги в «Настройки» (админы) |
 
 `POST /login` проверяет пароль в LDAP и сохраняет зашифрованный пароль входа для возможного PsExec. Ping и трассировка стартуют с сервера приложения; команда и скрипт — через `psexec_service`. Страница `/scripts/runs/<id>` дочитывает лог опросом раз в 1,5 секунды.

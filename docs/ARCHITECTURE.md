@@ -72,8 +72,9 @@ sequenceDiagram
   Sch->>Ping: poll_all_sectors()
   Ping->>Ping: ICMP по CIDR секторов
   alt online
-    Ping->>Disc: hostname / ARP MAC / WMI inventory
+      Ping->>Disc: hostname / ARP MAC / WMI inventory
     Disc-->>Ping: serial, mac, logged_on_user
+    Note over Disc: учётка WMI из Параметров (Fernet) или DISCOVERY_*
     Ping->>DB: devices + device_history
     opt logged_on_user is not None
       Ping->>Acc: apply_logged_on_user (savepoint)
