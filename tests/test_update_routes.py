@@ -48,6 +48,7 @@ def test_admin_sees_update_and_rollback_controls(client, app, admin_id, tmp_path
     text = settings.get_data(as_text=True)
     assert "Открыть обновления" in text
     assert "Sudo-пользователь" in text
+    assert 'name="update_sudo_password"' in text
     assert 'name="form" value="update"' in text
 
 
@@ -55,22 +56,37 @@ def test_admin_can_save_update_sudo_user(client, admin_id):
     _login(client, admin_id)
     response = client.post(
         "/admin/settings",
-        data={"form": "update", "update_sudo_user": "root"},
+        data={
+            "form": "update",
+            "update_sudo_user": "root",
+            "update_sudo_password": "RootSecret!",
+        },
         follow_redirects=True,
     )
     body = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert "Sudo-пользователь для перезапуска служб: root" in body
-    assert 'id="update_sudo_user" name="update_sudo_user" value="root"' in body or (
-        'name="update_sudo_user" value="root"' in body
+    assert "Sudo-учётка сохранена (root, пароль задан)" in body
+    assert 'name="update_sudo_user" value="root"' in body
+    assert "RootSecret!" not in body
+    assert "задан, оставьте пустым чтобы не менять" in body
+
+    kept = client.post(
+        "/admin/settings",
+        data={
+            "form": "update",
+            "update_sudo_user": "root",
+            "update_sudo_password": "",
+        },
+        follow_redirects=True,
     )
+    assert "пароль задан" in kept.get_data(as_text=True)
 
     cleared = client.post(
         "/admin/settings",
-        data={"form": "update", "update_sudo_user": ""},
+        data={"form": "update", "update_sudo_user": "", "update_sudo_password": ""},
         follow_redirects=True,
     )
-    assert "Sudo-пользователь очищен" in cleared.get_data(as_text=True)
+    assert "Sudo-учётка очищена" in cleared.get_data(as_text=True)
 
 
 def test_update_button_starts_the_job(client, app, admin_id, tmp_path, monkeypatch):

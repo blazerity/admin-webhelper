@@ -44,10 +44,10 @@ from app.services.settings_service import (
     UpdateSudoUserError,
     get_discovery_credential_view,
     get_poll_interval_seconds,
-    get_update_sudo_user,
+    get_update_sudo_view,
     save_discovery_credentials,
+    save_update_sudo_credentials,
     set_poll_interval_seconds,
-    set_update_sudo_user,
 )
 from app.services.update_service import UpdateError, begin_rollback, begin_update, build_page, check_for_updates
 
@@ -128,26 +128,34 @@ def settings():
             return redirect(url_for("admin.settings"))
         if kind == "update":
             try:
-                saved = set_update_sudo_user(request.form.get("update_sudo_user", ""))
-            except UpdateSudoUserError as exc:
+                saved = save_update_sudo_credentials(
+                    request.form.get("update_sudo_user", ""),
+                    request.form.get("update_sudo_password", ""),
+                )
+            except (UpdateSudoUserError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
                 return redirect(url_for("admin.settings"))
-            if saved:
-                flash(
-                    f"Sudo-пользователь для перезапуска служб: {saved}.",
-                    "success",
-                )
+            if saved.username:
+                if saved.password_set:
+                    flash(
+                        f"Sudo-учётка сохранена ({saved.username}, пароль задан).",
+                        "success",
+                    )
+                else:
+                    flash(
+                        f"Sudo-пользователь: {saved.username}. "
+                        "Пароль не задан — нужен sudoers или укажите пароль.",
+                        "success",
+                    )
             else:
-                flash(
-                    "Sudo-пользователь очищен. Перезапуск пойдёт через sudo без -u (root).",
-                    "success",
-                )
+                flash("Sudo-учётка очищена.", "success")
             return redirect(url_for("admin.settings"))
         flash("Неизвестная форма.", "warning")
         return redirect(url_for("admin.settings"))
 
     username, domain, password_set = _credential_view(current_user.id)
     discovery = get_discovery_credential_view()
+    update_sudo = get_update_sudo_view()
     return render_template(
         "admin/settings.html",
         username=username,
@@ -158,7 +166,8 @@ def settings():
         discovery_password_set=discovery.password_set,
         poll_interval=get_poll_interval_seconds(),
         poll_runs=load_recent_poll_runs(),
-        update_sudo_user=get_update_sudo_user(),
+        update_sudo_user=update_sudo.username,
+        update_sudo_password_set=update_sudo.password_set,
     )
 
 

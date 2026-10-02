@@ -114,6 +114,24 @@ def test_restart_command_includes_sudo_user():
         "bawh-scheduler",
         "bawh-web",
     ]
+    assert restart_command("/usr/bin/systemctl", "root", with_password=True) == [
+        "su",
+        "-P",
+        "-w",
+        "BAWH_SU_PASS",
+        "root",
+        "-c",
+        "/usr/bin/systemctl restart bawh-scheduler bawh-web",
+    ]
+    assert restart_command("/usr/bin/systemctl", "deploy", with_password=True) == [
+        "su",
+        "-P",
+        "-w",
+        "BAWH_SU_PASS",
+        "deploy",
+        "-c",
+        "printf '%s\\n' \"$BAWH_SU_PASS\" | sudo -S -p '' /usr/bin/systemctl restart bawh-scheduler bawh-web",
+    ]
 
 
 def test_backup_is_created_before_files_change(tmp_path, monkeypatch, no_side_effects):
