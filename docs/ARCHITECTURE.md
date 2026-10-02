@@ -40,7 +40,7 @@ flowchart TB
 
   subgraph data["models/ + PostgreSQL"]
     M_USER["users · user_ldap_groups · remote_credentials"]
-    M_NET["sectors · sector_ranges · sector_access · devices · device_history"]
+    M_NET["sectors · sector_ranges · sector_access · devices · device_history · network_poll_runs"]
     M_ACC["endpoint_accounts · device_account_history · action_kinds"]
     M_SCR["scripts · script_runs · app_settings · login_services"]
     M_PWD["password_notifications · password_expiry_runs"]
@@ -70,8 +70,9 @@ sequenceDiagram
   participant Acc as account_service
   participant DB as PostgreSQL
 
-  Sch->>Ping: poll_all_sectors()
+  Sch->>Ping: run_network_poll()
   Ping->>Ping: ICMP по CIDR секторов
+  Note over Ping: итог → network_poll_runs
   alt online
       Ping->>Disc: hostname / ARP MAC / WMI inventory
     Disc-->>Ping: serial, mac, logged_on_user
@@ -96,6 +97,7 @@ sequenceDiagram
 | Типы действий | `action_kinds` | миграция / `seed_action_kinds` | `/actions` |
 | Запуски | `script_runs` | `script_service` | `/scripts/runs`, лента `/actions` |
 | Опросы | `device_history` | `ping_service` | вкладка polls |
+| Прогоны опроса | `network_poll_runs` | `ping_service.run_network_poll` | `/admin/settings` |
 
 Правила видимости — только в `app/authz.py`:
 
@@ -118,7 +120,7 @@ bAWH/
   app/
     __init__.py · config.py · extensions.py · authz.py · utils.py
     models/ · services/ · routes/ · templates/ · static/
-  migrations/versions/   # Alembic, сейчас до 0007_login_services
+  migrations/versions/   # Alembic, сейчас до 0008_network_poll_runs
   tests/
   deploy/                # Debian 12: systemd, Nginx, install script
   docs/ARCHITECTURE.md   # этот файл

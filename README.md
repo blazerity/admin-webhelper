@@ -52,6 +52,7 @@ bAWH/
 - `users`, `user_ldap_groups` — операторы сайта после входа через LDAP и их группы.
 - `sectors`, `sector_ranges`, `sector_access` — справочник секторов, CIDR и кому сектор виден.
 - `devices`, `device_history` — справочник машин и журнал опросов. Уникальность: `serial_number` (WMI), иначе hostname; IP — последний адрес; `current_account_id` — кто сейчас за ПК.
+- `network_poll_runs` — журнал прогонов полного опроса (время, режим, сводка).
 - `endpoint_accounts`, `device_account_history` — справочник УЗ на конечных точках и факты «УЗ замечена на устройстве» (не путать с `users`). Ключ домена — NetBIOS (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
 - `action_kinds` — справочник типов действий (`ACTION_KIND_SEED` в модели); лента `/actions` собирается из `script_runs` и `device_account_history` с теми же правилами видимости, что и карточка запуска.
 - `scripts`, `script_runs` — библиотека скриптов и журнал запусков (скрипт, ping, tracert, команда). У скрипта есть `run_as`: учётка PsExec или `NT AUTHORITY\SYSTEM`.
@@ -69,7 +70,7 @@ bAWH/
 - `ldap_service.py` — проверка пароля в LDAP и список групп.
 - `sector_service.py` — создание и правка секторов.
 - `login_service_status.py` — CRUD сервисов экрана входа и ICMP-проверка для публичного статуса.
-- `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
+- `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `run_network_poll` (журнал + защита от параллели) → `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
 - `discovery_service.py` — обратный DNS, MAC из ARP/WMI, серийник и текущая УЗ по WMI (учётка в Параметрах или `DISCOVERY_*` в `.env`).
 - `account_service.py` — справочник `endpoint_accounts`, разбор/нормализация `DOMAIN\user`, upsert с защитой от гонки, запись появлений УЗ.
 - `action_service.py` — справочник `action_kinds` и лента недавних действий (authz как у `scripts.run_detail`).
@@ -94,7 +95,7 @@ bAWH/
 | `search.py` | `GET /search`, `GET /search/suggest` |
 | `diagnostics.py` | `POST /devices/<id>/ping`, `/tracert`, `/command` |
 | `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>` (лог, отмена) |
-| `admin.py` | `GET/POST /admin/settings` — учётка PsExec, учётка WMI для опроса и интервал; `GET/POST /admin/updates` — обновление из git и откат |
+| `admin.py` | `GET/POST /admin/settings` — учётка PsExec, учётка WMI, интервал, журнал и ручной запуск опроса; `POST /admin/poll-run`; `GET/POST /admin/updates` — обновление из git и откат |
 | `password_expiry.py` | `/password-expiry` — отчёт (пункт верхнего меню); `/password-expiry/settings` — bind/SMTP/пороги в «Настройки» (админы) |
 | `login_services.py` | `/login-services` — сервисы для панели доступности на `/login` (админы); `GET /api/login-services/status` — публичный JSON (online + ms) |
 
@@ -184,7 +185,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 1. Его строка `remote_credentials`: заполненные `username` и `password_encrypted` (форма `/admin/settings`).
 2. Иначе имя входа на сайт, `LDAP_DOMAIN` и зашифрованный пароль последнего успешного LDAP-входа.
 
-Открытый пароль только в памяти на время вызова. Учётка берётся из строки пользователя в БД (или из пароля входа). Интервал опроса на той же странице настроек; `bawh-scheduler` подхватывает его без перезапуска.
+Открытый пароль только в памяти на время вызова. Учётка берётся из строки пользователя в БД (или из пароля входа). Интервал опроса на той же странице настроек; `bawh-scheduler` подхватывает его без перезапуска. Там же — таблица последних прогонов и кнопка принудительного опроса.
 
 ## Деплой на Debian 12
 
@@ -350,7 +351,7 @@ sudo visudo -cf /etc/sudoers.d/bawh-update
 /opt/bawh/.venv/bin/python -m app.scheduler_worker
 ```
 
-Один процесс читает интервал, вызывает `ping_service.poll_all_sectors` и пишет историю. Веб показывает уже записанные данные и принимает действия пользователя.
+Один процесс читает интервал, вызывает `ping_service.run_network_poll` и пишет историю устройств плюс строку в `network_poll_runs`. Веб показывает уже записанные данные и принимает действия пользователя.
 
 Локально (venv и `.env`):
 
@@ -364,7 +365,7 @@ python -m app.scheduler_worker
 
 Зафиксированы в коде и в `app/services/__init__.py`:
 
-- **Celery вместо APScheduler** — задача вызывает ту же `poll_all_sectors`; вместо `bawh-scheduler.service` — воркер Celery и брокер.
+- **Celery вместо APScheduler** — задача вызывает ту же `run_network_poll`; вместо `bawh-scheduler.service` — воркер Celery и брокер.
 - **Партиции `device_history`** — сейчас одна таблица и индекс `(device_id, timestamp)`; комментарий в `0001_initial` про `PARTITION BY RANGE (timestamp)`.
 - **WebSocket лога скрипта** — сейчас `GET` раз в 1,5 с (`app/static/js/run_log.js`) из‑за синхронного Gunicorn.
 - **Поиск** — при росте `devices` можно ускорить `pg_trgm` без смены контракта `search_service`.

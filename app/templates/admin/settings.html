@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Параметры</h1>
-    <p class="page-subtitle">Учётки PsExec и WMI, интервал опроса сети</p>
+    <p class="page-subtitle">Учётки PsExec и WMI, интервал и журнал опроса сети</p>
   </div>
 </div>
 <div class="panel content-card mb-3">
@@ -57,12 +57,63 @@
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form" value="poll">
-    <h2 class="h5 mb-3">Интервал опроса, секунды</h2>
+    <h2 class="h5 mb-3">Опрос сети</h2>
+    <p class="text-muted">Интервал читает процесс bawh-scheduler без перезапуска. Кнопка ниже запускает тот же проход, что и расписание.</p>
+    <label class="form-label" for="poll_interval">Интервал, секунды</label>
     <div class="col-md-3 mb-3">
-      <input class="form-control" name="poll_interval" type="number" min="30" max="86400" value="{{ poll_interval|default(300) }}">
+      <input class="form-control" id="poll_interval" name="poll_interval" type="number" min="30" max="86400" value="{{ poll_interval|default(300) }}">
     </div>
     <button class="btn btn-primary" type="submit">Сохранить интервал</button>
   </form>
+  <hr class="my-3">
+  <form method="post" action="{{ url_for('admin.poll_run') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-primary" type="submit">Запустить опрос сейчас</button>
+  </form>
+  {% if poll_runs %}
+  <h3 class="h6 mt-4 mb-2">Последние прогоны</h3>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>Начало</th>
+          <th>Конец</th>
+          <th>Режим</th>
+          <th>Проверено</th>
+          <th>Онлайн</th>
+          <th>Офлайн</th>
+          <th>Ошибки</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in poll_runs %}
+        <tr>
+          <td>{{ run.started_at|dt }}</td>
+          <td>
+            {% if run.finished_at %}
+              {{ run.finished_at|dt }}
+            {% else %}
+              <span class="text-warning">идёт…</span>
+            {% endif %}
+          </td>
+          <td>{{ run.mode }}</td>
+          <td>{{ run.scanned }}</td>
+          <td>{{ run.online }}</td>
+          <td>{{ run.offline }}</td>
+          <td>
+            {{ run.errors }}
+            {% if run.error %}
+              <div class="text-danger small">{{ run.error }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted small mt-3 mb-0">Прогонов ещё нет — дождитесь расписания или нажмите «Запустить опрос сейчас».</p>
+  {% endif %}
 </div>
 <div class="panel content-card">
   <h2 class="h5">Обновление из git</h2>
