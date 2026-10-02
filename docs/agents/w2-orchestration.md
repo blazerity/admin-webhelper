@@ -1,13 +1,20 @@
 # W2 orchestration
 
 Base: `origin/cursor/w1-implementation-2c6a` → integration `cursor/w2-implementation-85f5`.
+PR: https://github.com/blazerity/admin-webhelper/pull/28 · VERSION **0.4.0** · pytest **241 passed**.
 
-| Agent | Role | Branch pattern | Scope |
+| Agent | Role | Branch | Status |
 | --- | --- | --- | --- |
-| A1 | Tech lead / contracts | integration | `docs/agents/w2-contracts.md` |
-| A3 | Backend ops | `cursor/w2-03-bulk-batch-85f5` | bulk APIs, batch status/page route, map scripts context |
-| A4 | Authz | `cursor/w2-06-bulk-authz-85f5` | authz helpers + tests |
-| A2 | Frontend | `cursor/w2-01-map-bulk-ui-85f5` | multi-select, bulk bar, URL filters, favorites, batch.html |
-| A5 | QA | `cursor/w2-07-regression-85f5` | checklist + edge tests |
+| A1 | Tech lead / contracts | integration | Done — `w2-contracts.md` |
+| A4 | Authz | `cursor/w2-06-bulk-authz-85f5` | Merged |
+| A3 | Backend ops | `cursor/w2-03-bulk-batch-85f5` | Merged |
+| A2 | Frontend | `cursor/w2-01-map-bulk-ui-85f5` | Merged |
+| A5 | QA | `cursor/w2-07-regression-85f5` | Merged |
 
-Merge order: A4 → A3 → A2 → A5 → VERSION 0.4.0.
+## DoD
+
+- [x] W2-01…W2-07 в интеграционной ветке
+- [x] pytest зелёный
+- [x] Нет breaking URL
+- [x] VERSION 0.4.0
+- [x] `docs/runbooks/w2-regression-checklist.md`

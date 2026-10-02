@@ -4,7 +4,8 @@
 Опирается на текущий стек (Flask SSR + сервисы + PostgreSQL + LDAP + PsExec + планировщик) и принцип **не ломать совместимость**.
 
 Связанные материалы: [README.md](../README.md), [ARCHITECTURE.md](ARCHITECTURE.md), [agents/](agents/README.md).  
-Волна **W1** закрыта в `0.3.0` (интеграция: PR агентов → `cursor/w1-implementation-2c6a`).
+Волна **W1** закрыта в `0.3.0` (интеграция: `cursor/w1-implementation-2c6a`).
+Волна **W2** закрыта в `0.4.0` (интеграция: `cursor/w2-implementation-85f5`).
 
 ---
 
@@ -278,13 +279,13 @@ bAWH уже умеет: карта сети, опрос/WMI, УЗ на ПК, д�
 
 | ID | Задача | Владелец | Помощь |
 | --- | --- | --- | --- |
-| W2-01 | Multi-select на карте + bulk bar UX | P2 | P3 |
-| W2-02 | Bulk ping / bulk script + batch status API | P3 | P4 |
-| W2-03 | Страница/панель прогресса batch | P2 | P3 |
-| W2-04 | Фильтры карты в query string | P2 | — |
-| W2-05 | Избранные устройства | P2 | P3 (если таблица) |
-| W2-06 | Authz на bulk для будущих operator | P4 | P3 |
-| W2-07 | Регресс W2, нагрузка на карту | P5 | — |
+| W2-01 | Multi-select на карте + bulk bar UX — **Done** | P2 | P3 |
+| W2-02 | Bulk ping / bulk script + batch status API — **Done** | P3 | P4 |
+| W2-03 | Страница/панель прогресса batch — **Done** | P2 | P3 |
+| W2-04 | Фильтры карты в query string — **Done** | P2 | — |
+| W2-05 | Избранные устройства (localStorage) — **Done** | P2 | P3 |
+| W2-06 | Authz на bulk для будущих operator — **Done** | P4 | P3 |
+| W2-07 | Регресс W2 — **Done**: [`docs/runbooks/w2-regression-checklist.md`](runbooks/w2-regression-checklist.md) | P5 | — |
 
 ### Волна W3
 
