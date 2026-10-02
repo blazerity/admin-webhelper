@@ -23,7 +23,7 @@ from app.run_display import (
     run_type_label,
     run_when_label,
 )
-from app.services import script_service
+from app.services import batch_service, script_service
 from app.services.credential_service import get_stored_credential
 from app.utils import parse_optional_int
 
@@ -231,6 +231,28 @@ def run_script(script_id: int):
         flash(str(exc), "danger")
         return redirect(url_for("scripts.edit_script", script_id=script.id))
     return redirect(url_for("scripts.run_detail", run_id=runs[0].id))
+
+
+@bp.get("/batches/<batch_id>")
+@login_required
+def batch_detail(batch_id: str):
+    """SSR прогресс пачки. Разметку дополняет A2; минимум — context + polling URL."""
+    payload = batch_service.batch_status_payload(current_user, batch_id)
+    if payload is None:
+        abort(404)
+    return render_template(
+        "scripts/batch.html",
+        batch_id=payload["batch_id"],
+        total=payload["total"],
+        pending=payload["pending"],
+        running=payload["running"],
+        success=payload["success"],
+        failed=payload["failed"],
+        cancelled=payload["cancelled"],
+        finished=payload["finished"],
+        runs=payload["runs"],
+        status_url=url_for("devices.batch_status", batch_id=batch_id),
+    )
 
 
 @bp.get("/runs/<int:run_id>")
