@@ -5,6 +5,10 @@
 файлы приложения не меняются. Потом репозиторий скачивается во временный
 каталог и рабочие файлы заменяются.
 
+Номер релиза берётся из файла VERSION (semver). Сообщения и страница
+обновлений показывают его; коммит сравнивается внутри, чтобы понять,
+есть ли новая сборка.
+
 Не копируются и не перезаписываются: .env, .venv, logs, script_library,
 instance, backups, базы *.db. Это данные сервера, а не версия программы.
 
@@ -30,12 +34,17 @@ from urllib.parse import urlparse
 from flask import current_app
 
 from app.utils import clip, utcnow
+from app.version import parse_version, read_version_file
 
 logger = logging.getLogger(__name__)
 
 _BACKUP_ID = re.compile(r"^[0-9]{8}-[0-9]{6,12}-[a-z0-9]{4,40}$")
 _BRANCH = re.compile(r"^[A-Za-z0-9._/-]{1,80}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_GITHUB_HTTPS = re.compile(
+    r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$",
+    re.IGNORECASE,
+)
 _SKIP_DIRS = {
     ".git",
     ".venv",
@@ -67,6 +76,7 @@ class UpdateResult:
     message: str
     backup_id: str | None
     commit: str
+    version: str = ""
 
 
 @dataclass(frozen=True)
@@ -76,6 +86,7 @@ class BackupInfo:
     commit: str
     subject: str
     reason_label: str
+    version: str = ""
 
 
 @dataclass(frozen=True)
@@ -87,7 +98,10 @@ class UpdatePage:
     branch: str
     local_commit: str
     local_subject: str
+    local_version: str
     remote_commit: str
+    remote_subject: str
+    remote_version: str
     remote_checked_at: str
     backups: list[BackupInfo]
     operation_state: str
@@ -155,7 +169,7 @@ def build_page() -> UpdatePage:
         remote_url = resolve_remote_url(root, configured)
     except UpdateError as exc:
         remote_error = str(exc)
-    local_commit, local_subject = local_version(root)
+    local_commit, local_subject, local_ver = local_version(root)
     remote = _read_json(backup_dir(root) / "remote-check.json")
     operation = _current_operation(root)
     return UpdatePage(
@@ -166,7 +180,10 @@ def build_page() -> UpdatePage:
         branch=branch,
         local_commit=local_commit,
         local_subject=local_subject,
+        local_version=local_ver,
         remote_commit=str(remote.get("commit") or ""),
+        remote_subject=str(remote.get("subject") or ""),
+        remote_version=parse_version(str(remote.get("version") or "")),
         remote_checked_at=str(remote.get("checked_at") or ""),
         backups=list_backups(root),
         operation_state=str(operation.get("state") or ""),
@@ -175,24 +192,35 @@ def build_page() -> UpdatePage:
 
 
 def check_for_updates() -> str:
-    """Спрашивает удалённую ветку и запоминает коммит для страницы."""
+    """Спрашивает удалённую ветку и запоминает версию/коммит для страницы."""
     root = project_root()
     if shutil.which("git") is None:
         raise UpdateError("На сервере не найдена команда git.")
     url = resolve_remote_url(root, str(current_app.config.get("GIT_REMOTE_URL") or ""))
     branch = validate_branch(str(current_app.config.get("GIT_BRANCH") or "main"))
     remote_commit = remote_head(url, branch, cwd=root)
+    remote_ver = remote_version(url, branch, remote_commit, cwd=root)
     _write_json(
         backup_dir(root) / "remote-check.json",
-        {"commit": remote_commit, "checked_at": _now_label()},
+        {
+            "commit": remote_commit,
+            "version": remote_ver,
+            "subject": "",
+            "checked_at": _now_label(),
+        },
     )
-    local_commit, _subject = local_version(root)
-    short = remote_commit[:12]
+    local_commit, _subject, local_ver = local_version(root)
     if local_commit == remote_commit:
-        return f"Обновлений нет. Установлен коммит {short}."
+        return f"Обновлений нет. Установлена версия {_display_version(local_ver, remote_commit)}."
     if not local_commit:
-        return f"В репозитории коммит {short}. Локальная версия ещё не записывалась — можно обновить."
-    return f"Доступно обновление: {local_commit[:12]} → {short}."
+        return (
+            f"В репозитории версия {_display_version(remote_ver, remote_commit)}. "
+            "Локальная установка ещё не записывалась — можно обновить."
+        )
+    return (
+        f"Доступно обновление: {_display_version(local_ver, local_commit)} → "
+        f"{_display_version(remote_ver, remote_commit)}."
+    )
 
 
 def begin_update() -> None:
@@ -285,13 +313,14 @@ def perform_update(
     progress = _progress(on_progress)
     progress("Проверяю версию в репозитории")
     remote_commit = remote_head(url, branch, cwd=root)
-    local_commit, _subject = local_version(root)
+    local_commit, _subject, local_ver = local_version(root)
     if local_commit and local_commit == remote_commit:
         return UpdateResult(
             False,
-            f"Уже установлена последняя версия {remote_commit[:12]}.",
+            f"Уже установлена последняя версия {_display_version(local_ver, remote_commit)}.",
             None,
             remote_commit,
+            local_ver,
         )
 
     progress("Создаю резервную копию текущей версии")
@@ -311,6 +340,7 @@ def perform_update(
         commit, subject = clone_repository(url, branch, clone_dir)
         if commit != remote_commit:
             raise UpdateError("Скачанный коммит не совпал с коммитом на сервере. Замена отменена.")
+        version = read_version_file(clone_dir)
         new_req = _read_bytes(clone_dir / "requirements.txt")
         step = "replace"
         progress("Заменяю файлы приложения")
@@ -322,14 +352,19 @@ def perform_update(
         progress("Применяю миграции базы")
         db_upgrade(root)
         align_git_head(root, url, branch)
-        _write_installed(root, commit, subject, branch, backup.name)
+        _write_installed(root, commit, subject, version, branch, backup.name)
         prune_backups(root, keep, protect={backup.name})
-        logger.info("updated to %s, backup %s", commit[:12], backup.name)
+        logger.info("updated to %s (%s), backup %s", version or commit[:12], commit[:12], backup.name)
         return UpdateResult(
             True,
-            f"Установлен коммит {commit[:12]} ({subject}). Предыдущая версия сохранена в копии {backup.name}.",
+            (
+                f"Установлена версия {_display_version(version, commit)}"
+                f"{f' ({subject})' if subject else ''}. "
+                f"Предыдущая версия сохранена в копии {backup.name}."
+            ),
             backup.name,
             commit,
+            version,
         )
     except Exception as exc:
         if step == "download":
@@ -369,6 +404,7 @@ def perform_rollback(
     try:
         progress(f"Восстанавливаю копию {selected.name}")
         commit = str(manifest.get("commit") or "")
+        version = parse_version(str(manifest.get("version") or "")) or read_version_file(selected / "tree")
         restore_tree(root, selected)
         _point_git_commit(root, commit)
         _clear_pycache(root)
@@ -377,19 +413,22 @@ def perform_rollback(
             progress("Ставлю зависимости выбранной версии")
             pip_install(root)
         subject = str(manifest.get("subject") or "")
-        _write_installed(root, commit, subject, branch, selected.name)
+        if not version:
+            version = read_version_file(root)
+        _write_installed(root, commit, subject, version, branch, selected.name)
         prune_backups(root, keep, protect={selected.name, safety.name})
-        short = commit[:12] if commit and commit != "none" else "без коммита"
-        logger.info("rolled back to backup %s", selected.name)
+        label = _display_version(version, commit if commit and commit != "none" else "")
+        logger.info("rolled back to backup %s (%s)", selected.name, label)
         return UpdateResult(
             True,
             (
-                f"Восстановлена копия {selected.name} ({short}). "
+                f"Восстановлена копия {selected.name} (версия {label}). "
                 f"Версия, которая была до отката, сохранена в {safety.name}. "
                 "Схема базы назад не откатывается."
             ),
             safety.name,
             commit,
+            version,
         )
     except Exception as exc:
         restore_note = _restore_after_failure(root, safety, old_req, restored_req)
@@ -401,7 +440,7 @@ def create_backup(root: Path, *, reason: str) -> Path:
     if reason not in _REASON_LABELS:
         raise UpdateError("Неизвестная причина копии.")
     root = root.resolve()
-    commit, subject = local_version(root)
+    commit, subject, version = local_version(root)
     short = commit[:12] if _COMMIT.fullmatch(commit or "") else "none"
     now = utcnow()
     backup_id = f"{now.strftime('%Y%m%d-%H%M%S')}-{short}"
@@ -423,6 +462,7 @@ def create_backup(root: Path, *, reason: str) -> Path:
                 "created_at": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
                 "commit": commit,
                 "subject": subject,
+                "version": version,
                 "reason": reason,
             },
         )
@@ -446,6 +486,9 @@ def list_backups(root: Path) -> list[BackupInfo]:
             continue
         manifest = _read_json(manifest_path)
         reason = str(manifest.get("reason") or "")
+        version = parse_version(str(manifest.get("version") or ""))
+        if not version:
+            version = read_version_file(path / "tree")
         found.append(
             BackupInfo(
                 id=path.name,
@@ -453,6 +496,7 @@ def list_backups(root: Path) -> list[BackupInfo]:
                 commit=str(manifest.get("commit") or ""),
                 subject=str(manifest.get("subject") or ""),
                 reason_label=_REASON_LABELS.get(reason, reason or "копия"),
+                version=version,
             )
         )
     found.sort(key=lambda item: item.id, reverse=True)
@@ -480,21 +524,58 @@ def resolve_remote_url(root: Path, configured: str) -> str:
     return validate_remote_url(origin)
 
 
-def local_version(root: Path) -> tuple[str, str]:
+def local_version(root: Path) -> tuple[str, str, str]:
+    """Локальный коммит, тема последнего коммита и номер версии из VERSION."""
     installed = _read_json(backup_dir(root) / "installed.json")
     commit = str(installed.get("commit") or "")
     subject = str(installed.get("subject") or "")
+    version = parse_version(str(installed.get("version") or "")) or read_version_file(root)
     if commit:
-        return commit, subject
+        return commit, subject, version
     git_dir = root / ".git"
     if git_dir.exists() and shutil.which("git"):
         try:
             commit = _git_text("rev-parse", "HEAD", cwd=root)
             subject = _git_text("log", "-1", "--format=%s", cwd=root)
-            return commit, subject
+            return commit, subject, version or read_version_file(root)
         except UpdateError:
-            return "", ""
-    return "", ""
+            return "", "", version
+    return "", "", version
+
+
+def remote_version(url: str, branch: str, commit: str, *, cwd: Path) -> str:
+    """Прочитать VERSION с удалённого коммита (GitHub raw или короткий clone)."""
+    if not _COMMIT.fullmatch(commit or ""):
+        return ""
+    github = _GITHUB_HTTPS.match((url or "").rstrip("/"))
+    if github:
+        owner = github.group("owner")
+        repo = github.group("repo")
+        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{commit}/VERSION"
+        try:
+            from urllib.error import HTTPError, URLError
+            from urllib.request import Request, urlopen
+
+            request = Request(raw_url, headers={"User-Agent": "bAWH-update-check"})
+            with urlopen(request, timeout=20) as response:  # noqa: S310 — публичный raw GitHub
+                body = response.read(256).decode("utf-8", errors="replace")
+            parsed = parse_version(body)
+            if parsed:
+                return parsed
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            logger.info("remote VERSION via GitHub raw unavailable: %s", exc)
+
+    peek = backup_dir(cwd) / ".version-peek"
+    try:
+        cloned_commit, _subject = clone_repository(url, branch, peek)
+        if cloned_commit != commit:
+            logger.info("remote VERSION peek commit mismatch: %s != %s", cloned_commit[:12], commit[:12])
+        return read_version_file(peek)
+    except UpdateError as exc:
+        logger.info("remote VERSION peek failed: %s", exc)
+        return ""
+    finally:
+        _rmtree(peek)
 
 
 def remote_head(url: str, branch: str, *, cwd: Path) -> str:
@@ -706,17 +787,35 @@ def _origin_url(root: Path) -> str:
     return result.stdout.strip()
 
 
-def _write_installed(root: Path, commit: str, subject: str, branch: str, backup_id: str) -> None:
+def _write_installed(
+    root: Path,
+    commit: str,
+    subject: str,
+    version: str,
+    branch: str,
+    backup_id: str,
+) -> None:
     _write_json(
         backup_dir(root) / "installed.json",
         {
             "commit": commit,
             "subject": subject,
+            "version": parse_version(version) or read_version_file(root),
             "branch": branch,
             "backup_id": backup_id,
             "installed_at": _now_label(),
         },
     )
+
+
+def _display_version(version: str, commit: str = "") -> str:
+    """Человекочитаемая метка: номер версии, иначе короткий коммит."""
+    cleaned = parse_version(version)
+    if cleaned:
+        return cleaned
+    if commit and _COMMIT.fullmatch(commit):
+        return f"сборка {commit[:12]}"
+    return "неизвестная"
 
 
 def _read_manifest(backup: Path) -> dict:

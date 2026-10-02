@@ -30,7 +30,10 @@
     <dd><code>{{ status.root }}</code></dd>
     <dt>Сейчас</dt>
     <dd>
-      {% if status.local_commit %}
+      {% if status.local_version %}
+        <strong>{{ status.local_version }}</strong>
+        {% if status.local_subject %}<span class="text-muted"> — {{ status.local_subject }}</span>{% endif %}
+      {% elif status.local_commit %}
         <code>{{ status.local_commit[:12] }}</code>
         {% if status.local_subject %}{{ status.local_subject }}{% endif %}
       {% else %}
@@ -44,7 +47,11 @@
     <dt>На сервере git</dt>
     <dd>
       {% if status.remote_commit %}
-        <code>{{ status.remote_commit[:12] }}</code>
+        {% if status.remote_version %}
+          <strong>{{ status.remote_version }}</strong>
+        {% else %}
+          <code>{{ status.remote_commit[:12] }}</code>
+        {% endif %}
         {% if status.update_available %}
           <span class="badge text-bg-primary">есть обновление</span>
         {% else %}
@@ -78,14 +85,16 @@
   <div class="table-responsive">
     <table class="table">
       <thead>
-        <tr><th>Когда</th><th>Коммит</th><th></th></tr>
+        <tr><th>Когда</th><th>Версия</th><th></th></tr>
       </thead>
       <tbody>
       {% for backup in status.backups %}
         <tr>
           <td>{{ backup.created_at }}</td>
           <td>
-            {% if backup.commit %}<code>{{ backup.commit[:12] }}</code>{% else %}—{% endif %}
+            {% if backup.version %}<strong>{{ backup.version }}</strong>
+            {% elif backup.commit %}<code>{{ backup.commit[:12] }}</code>
+            {% else %}—{% endif %}
             {% if backup.subject %}<div class="text-muted">{{ backup.subject }}</div>{% endif %}
           </td>
           <td class="text-end">
