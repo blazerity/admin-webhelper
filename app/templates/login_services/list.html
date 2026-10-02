@@ -1,0 +1,39 @@
+{% extends "layouts/settings.html" %}
+{% block title %}Экран входа{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Экран входа</h1>
+    <p class="page-subtitle">Сервисы, чья доступность видна до авторизации</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('login_services.new_service') }}">Добавить сервис</a>
+</div>
+<div class="panel content-card p-0 overflow-hidden">
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Название</th>
+          <th>Адрес</th>
+          <th>Порядок</th>
+          <th>На входе</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for service in services %}
+        <tr>
+          <td>{{ service.name }}</td>
+          <td class="font-monospace">{{ service.address }}</td>
+          <td>{{ service.sort_order }}</td>
+          <td>{% if service.is_enabled %}Да{% else %}Нет{% endif %}</td>
+          <td class="text-end"><a href="{{ url_for('login_services.edit_service', service_id=service.id) }}">Изменить</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-muted">Сервисов пока нет. Добавьте первый — справа на экране входа появится блок доступности.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

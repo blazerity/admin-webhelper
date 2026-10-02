@@ -10,6 +10,7 @@ from flask_login import current_user, login_required, login_user, logout_user
 from app.services.credential_service import remember_login_password
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
 from app.services.ldap_service import authenticate, upsert_local_user
+from app.services.login_service_status import list_services as list_login_services
 
 bp = Blueprint("auth", __name__)
 
@@ -20,6 +21,16 @@ def _safe_next_url() -> str:
     if isinstance(target, str) and target.startswith("/") and not target.startswith("//"):
         return target
     return url_for("devices.map")
+
+
+def _login_template(**extra):
+    services = list_login_services(enabled_only=True)
+    return render_template(
+        "auth/login.html",
+        login_services=services,
+        show_service_status=bool(services),
+        **extra,
+    )
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -34,7 +45,7 @@ def login():
         identity = authenticate(username, password)
         if identity is None:
             flash("Неверное имя или пароль.", "danger")
-            return render_template("auth/login.html")
+            return _login_template()
         # Сессия Flask-Login хранит id локальной строки.
         user = upsert_local_user(identity)
         try:
@@ -47,8 +58,7 @@ def login():
         login_user(user)
         return redirect(_safe_next_url())
 
-    return render_template("auth/login.html")
-
+    return _login_template()
 
 @bp.post("/logout")
 @login_required

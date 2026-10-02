@@ -938,14 +938,104 @@ code {
   margin: 0;
 }
 
-.login-card {
+.login-card-wrap {
   max-width: 420px;
   margin: 3rem auto 0;
+}
+
+.login-card {
   padding: 1.5rem 1.5rem 1.35rem;
+}
+
+.login-card-wrap .login-card {
+  max-width: 420px;
 }
 
 .login-card .page-title {
   margin-bottom: 0.35rem;
+}
+
+.login-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 400px) minmax(280px, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+  max-width: 920px;
+  margin: 2.5rem auto 0;
+}
+
+.login-status-panel {
+  padding: 1.35rem 1.35rem 1.15rem;
+}
+
+.login-status-title {
+  margin: 0 0 0.2rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.login-status-subtitle {
+  margin-bottom: 1rem;
+}
+
+.login-status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.login-status-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.login-status-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.login-status-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.login-status-address {
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-status-latency {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ok);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.login-status-latency.is-offline {
+  color: var(--bad);
+}
+
+@media (max-width: 800px) {
+  .login-layout {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+  }
 }
 
 .terminal-panel {
