@@ -22,8 +22,9 @@ static/js/run_log.js опрашивает run_status, пока запуск не
 Позже этот опрос можно заменить на SSE или WebSocket, не трогая журнал.
 """
 
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from sqlalchemy.orm import selectinload
 
 from app.authz import (
     admin_required,
@@ -32,8 +33,9 @@ from app.authz import (
     user_can_access_device,
 )
 from app.extensions import db
-from app.models import Device, RunStatus, Script, ScriptRun, Sector
+from app.models import Device, RunStatus, RunType, Script, ScriptRun, Sector
 from app.services import script_service
+from app.services.credential_service import get_stored_credential
 
 bp = Blueprint("scripts", __name__, url_prefix="/scripts")
 
@@ -43,6 +45,19 @@ _STATUS_LABELS = {
     RunStatus.SUCCESS: "успешно",
     RunStatus.FAILED: "ошибка",
     RunStatus.CANCELLED: "остановлен",
+}
+
+_RUN_TYPE_LABELS = {
+    RunType.PING: "Ping",
+    RunType.TRACERT: "Трассировка",
+    RunType.COMMAND: "Команда",
+    RunType.SCRIPT: "Скрипт",
+}
+
+_SESSION_HINTS = {
+    "busy": "Кнопка «Завершить сессию» станет активной, когда команда закончится.",
+    "open": "Сессия открыта. Её можно завершить. Без кнопки она закроется сама после простоя.",
+    "closed": "Сессия закрыта.",
 }
 
 
@@ -94,6 +109,86 @@ def _viewer_can_see(run: ScriptRun) -> bool:
     if run.user_id is not None and run.user_id == current_user.id:
         return True
     return user_can_access_device(current_user, run.device)
+
+
+def _format_dt(value) -> str:
+    if not value:
+        return "—"
+    return value.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _launched_by(run: ScriptRun) -> str:
+    user = run.user
+    if user is None:
+        return "—"
+    return user.display_name or user.username or "—"
+
+
+def _pc_name(run: ScriptRun) -> str:
+    device = run.device
+    if device is None:
+        return "Компьютер"
+    return device.hostname or device.ip
+
+
+def _history_label(item: ScriptRun) -> str:
+    if item.script is not None and item.script.name:
+        return item.script.name
+    text = " ".join((item.command_text or "").split())
+    if len(text) > 72:
+        text = text[:72] + "…"
+    kind = _RUN_TYPE_LABELS.get(item.run_type, item.run_type)
+    if text:
+        return f"{kind}: {text}"
+    return kind
+
+
+def _account_label(run: ScriptRun) -> str | None:
+    """Имя учётки SMB без пароля. Пароль для подписи страницы не расшифровывается."""
+    if not getattr(current_user, "is_admin", False):
+        return None
+    if run.run_type not in (RunType.COMMAND, RunType.SCRIPT) or not run.user_id:
+        return None
+    row = get_stored_credential(run.user_id)
+    if row is not None and row.username and row.password_encrypted:
+        if row.domain:
+            return f"{row.domain}\\{row.username}"
+        return row.username
+    if row is not None and row.login_password_encrypted and run.user is not None:
+        domain = (current_app.config.get("LDAP_DOMAIN") or "").strip()
+        name = (run.user.username or "").strip()
+        if not name:
+            return None
+        return f"{domain}\\{name}" if domain else name
+    return None
+
+
+def _device_history(run: ScriptRun) -> list[dict]:
+    if not run.device_id:
+        return []
+    rows = (
+        ScriptRun.query.options(selectinload(ScriptRun.script))
+        .filter(ScriptRun.device_id == run.device_id)
+        .order_by(ScriptRun.started_at.desc(), ScriptRun.id.desc())
+        .limit(30)
+        .all()
+    )
+    return [
+        {
+            "run": item,
+            "label": _history_label(item),
+            "status_label": _STATUS_LABELS.get(item.status, item.status),
+            "when": _format_dt(item.started_at),
+        }
+        for item in rows
+        if _viewer_can_see(item)
+    ]
+
+
+def _session_hint(run: ScriptRun, state: str) -> str:
+    if state == "closed" and run.run_type not in (RunType.COMMAND, RunType.SCRIPT):
+        return "Удалённой SMB-сессии нет: эта проверка идёт с сервера приложения."
+    return _SESSION_HINTS.get(state, _SESSION_HINTS["closed"])
 
 
 def _run_for_viewer(run_id: int) -> ScriptRun:
@@ -220,12 +315,24 @@ def run_detail(run_id: int):
         )
         batch_runs = [item for item in siblings if _viewer_can_see(item)]
     finished = run.status in RunStatus.FINISHED
+    state = script_service.run_session_state(run.id, finished)
     return render_template(
         "scripts/run.html",
         run=run,
         batch_runs=batch_runs,
         status_label=_STATUS_LABELS.get(run.status, run.status),
-        session_open=script_service.run_session_open(run.id, finished),
+        run_type_label=_RUN_TYPE_LABELS.get(run.run_type, run.run_type),
+        session_open=state == "open",
+        session_state=state,
+        session_hint=_session_hint(run, state),
+        session_hint_closed=_session_hint(run, "closed"),
+        finished=finished,
+        pc_name=_pc_name(run),
+        started_label=_format_dt(run.started_at),
+        finished_label=_format_dt(run.finished_at),
+        account_label=_account_label(run),
+        history=_device_history(run),
+        launched_by=_launched_by(run),
     )
 
 
@@ -255,6 +362,7 @@ def run_status(run_id: int):
     # Позже его можно заменить на SSE или WebSocket.
     run = _run_for_viewer(run_id)
     finished = run.status in RunStatus.FINISHED
+    state = script_service.run_session_state(run.id, finished)
     return jsonify(
         {
             "status": run.status,
@@ -262,6 +370,9 @@ def run_status(run_id: int):
             "log_text": run.log_text or "",
             "exit_code": run.exit_code,
             "finished": finished,
-            "session_open": script_service.run_session_open(run.id, finished),
+            "finished_at": _format_dt(run.finished_at) if run.finished_at else "",
+            "session_open": state == "open",
+            "session_state": state,
+            "session_hint": _session_hint(run, state),
         }
     )

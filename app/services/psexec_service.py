@@ -41,11 +41,17 @@ class RemoteExecError(RuntimeError):
     """Команду на удалённой машине выполнить нельзя. Текст безопасен для журнала."""
 
 
-class _RemoteSession:
-    """Одна SMB-сессия PsExec, пока идёт запуск.
+# Сколько секунд сессия ждёт следующую команду, прежде чем закрыться сама.
+SESSION_IDLE_SECONDS = 15 * 60
 
-    Кнопка «Остановить» и кнопка «Закрыть сессию» бьют в этот объект
-    из HTTP-потока, пока run_executable ещё сидит в чтении канала.
+
+class _RemoteSession:
+    """Одна SMB-сессия PsExec к компьютеру.
+
+    После команды сессия остаётся открытой: следующая команда с той же
+    учётки на тот же IP переиспользует её, а кнопка «Завершить сессию»
+    закрывает службу и SMB. «Остановить» бьёт в этот объект, пока
+    run_executable ещё читает канал.
     """
 
     def __init__(self) -> None:
@@ -54,17 +60,22 @@ class _RemoteSession:
         self.client = None
         self.ip = ""
         self.secret = ""
+        self.user_id: int | None = None
         self.open = False
+        self.busy = False
+        self.idle_timer: threading.Timer | None = None
 
-    def attach(self, client, ip: str, secret: str) -> None:
+    def attach(self, client, ip: str, secret: str, user_id: int | None) -> None:
         with self._lock:
             self.client = client
             self.ip = ip
             self.secret = secret
+            self.user_id = user_id
             self.open = True
 
     def close(self) -> bool:
         """Закрывает службу и SMB. True — сессия была открыта и её трогали."""
+        _cancel_idle(self)
         with self._lock:
             if not self.open or self.client is None:
                 return False
@@ -79,13 +90,34 @@ _sessions_lock = threading.Lock()
 _sessions: dict[int, _RemoteSession] = {}
 
 
-def begin_session(run_id: int) -> _RemoteSession:
+def acquire_session(run_id: int, user_id: int | None, ip: str) -> tuple[_RemoteSession, bool]:
+    """Берёт уже открытую сессию этого пользователя к IP или создаёт новую.
+
+    Возвращает (сессия, reused). Пока идёт команда, сессия помечена busy
+    и второму запуску не отдаётся.
+    """
     with _sessions_lock:
+        for key, session in list(_sessions.items()):
+            if (
+                session.open
+                and not session.busy
+                and session.ip == ip
+                and user_id is not None
+                and session.user_id == user_id
+            ):
+                _cancel_idle(session)
+                session.busy = True
+                session.cancel = threading.Event()
+                if key != run_id:
+                    _sessions.pop(key, None)
+                    _sessions[run_id] = session
+                return session, True
         session = _sessions.get(run_id)
         if session is None:
             session = _RemoteSession()
             _sessions[run_id] = session
-        return session
+        session.busy = True
+        return session, False
 
 
 def cancel_remote(run_id: int) -> bool:
@@ -129,13 +161,63 @@ def discard_if_closed(run_id: int) -> None:
             _sessions.pop(run_id, None)
 
 
-def show_close_button(run_id: int, finished: bool) -> bool:
-    """Кнопка нужна, когда сессия жива после остановки или после конца запуска."""
+def session_state(run_id: int, finished: bool) -> str:
+    """closed — закрывать нечего; busy — команда ещё идёт; open — кнопку можно нажать."""
     with _sessions_lock:
         session = _sessions.get(run_id)
-    if session is None or not session.open:
-        return False
-    return finished or session.cancel.is_set()
+        if session is None or not session.open:
+            return "closed"
+        if session.busy and not session.cancel.is_set():
+            return "busy"
+        if finished or session.cancel.is_set():
+            return "open"
+        return "busy"
+
+
+def show_close_button(run_id: int, finished: bool) -> bool:
+    """Кнопка активна, когда сессия жива после остановки или после конца запуска."""
+    return session_state(run_id, finished) == "open"
+
+
+def reset_tracked_sessions() -> None:
+    """Сбрасывает учёт сессий между тестами. Удалённые машины не трогает."""
+    with _sessions_lock:
+        sessions = list(_sessions.values())
+        _sessions.clear()
+    for session in sessions:
+        _cancel_idle(session)
+
+
+def _arm_idle_close(session: _RemoteSession, run_id: int) -> None:
+    def fire() -> None:
+        with _sessions_lock:
+            current = _sessions.get(run_id)
+            if current is not session or not session.open or session.busy:
+                return
+            session.busy = True
+        try:
+            session.close()
+        finally:
+            if session.open:
+                session.busy = False
+            discard_if_closed(run_id)
+
+    timer = threading.Timer(SESSION_IDLE_SECONDS, fire)
+    timer.daemon = True
+    with session._lock:
+        previous = session.idle_timer
+        session.idle_timer = timer
+    if previous is not None:
+        previous.cancel()
+    timer.start()
+
+
+def _cancel_idle(session: _RemoteSession) -> None:
+    with session._lock:
+        timer = session.idle_timer
+        session.idle_timer = None
+    if timer is not None:
+        timer.cancel()
 
 
 def run_remote_command(
@@ -241,22 +323,32 @@ def _run(
     secret = creds.password
     username = rf"{creds.domain}\{creds.username}" if creds.domain else creds.username
     client = None
-    session = begin_session(run_id) if run_id is not None else None
+    session = None
+    reused = False
+    completed = False
+    if run_id is not None:
+        session, reused = acquire_session(run_id, user_id, ip)
+        if reused:
+            client = session.client
+            secret = session.secret or secret
     try:
         # Импорт здесь, чтобы тест мог подменить pypsexec.client.Client.
         from pypsexec.client import Client
 
-        client = Client(ip, username=username, password=secret, encrypt=True)
-        if session is not None:
-            session.attach(client, ip, secret)
-        logger.info(
-            "Удалённый запуск %s на %s от имени %s",
-            executable,
-            ip,
-            "NT AUTHORITY\\SYSTEM" if as_system else "учётки PsExec",
-        )
-        client.connect()
-        client.create_service()
+        if not reused:
+            client = Client(ip, username=username, password=secret, encrypt=True)
+            logger.info(
+                "Удалённый запуск %s на %s от имени %s",
+                executable,
+                ip,
+                "NT AUTHORITY\\SYSTEM" if as_system else "учётки PsExec",
+            )
+            client.connect()
+            client.create_service()
+            if session is not None:
+                session.attach(client, ip, secret, user_id)
+        else:
+            logger.info("Повторная команда %s на %s в открытой сессии", executable, ip)
         pipe_kwargs = {}
         if on_output is not None:
             pipe = _streaming_pipe(on_output, secret)
@@ -274,6 +366,7 @@ def _run(
         if rc is None:
             rc = 1
         output = _scrub(_combine(stdout, stderr), secret)
+        completed = True
         return int(rc), output
     except RemoteExecError:
         raise
@@ -283,9 +376,24 @@ def _run(
         raise RemoteExecError(f"Не удалось выполнить команду на {ip}: {safe}") from None
     finally:
         if session is not None:
+            session.busy = False
+        keep_open = (
+            session is not None
+            and completed
+            and session.open
+            and not session.cancel.is_set()
+        )
+        if keep_open:
+            # Команда кончилась, связь ещё нужна: кнопку «Завершить сессию»
+            # можно нажать, а следующая команда пойдёт по тому же SMB.
+            _arm_idle_close(session, run_id)
+        elif session is not None and session.open:
             session.close()
+            discard_if_closed(run_id)
         else:
             _cleanup(client, ip, secret)
+            if session is not None:
+                discard_if_closed(run_id)
 
 
 def _streaming_pipe(on_output, secret: str):

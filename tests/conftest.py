@@ -33,6 +33,16 @@ def client(app):
     return app.test_client()
 
 
+@pytest.fixture(autouse=True)
+def _clear_remote_sessions():
+    """Сессии PsExec живут в памяти процесса и не должны переходить между тестами."""
+    from app.services.psexec_service import reset_tracked_sessions
+
+    reset_tracked_sessions()
+    yield
+    reset_tracked_sessions()
+
+
 @pytest.fixture
 def admin_id(app):
     with app.app_context():

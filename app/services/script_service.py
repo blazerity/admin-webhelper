@@ -31,6 +31,7 @@ from app.services.psexec_service import (
     discard_if_closed,
     run_remote_command,
     run_remote_script,
+    session_state,
     show_close_button,
     was_cancelled,
 )
@@ -264,6 +265,11 @@ def run_session_open(run_id: int, finished: bool) -> bool:
     return show_close_button(run_id, finished)
 
 
+def run_session_state(run_id: int, finished: bool) -> str:
+    """closed, busy или open. open — «Завершить сессию» можно нажать."""
+    return session_state(run_id, finished)
+
+
 def execute_run(app, run_id: int) -> None:
     """Выполняет уже созданную строку script_runs. Её же позовёт Celery."""
     with app.app_context():
@@ -274,7 +280,7 @@ def execute_run(app, run_id: int) -> None:
                 if run is None:
                     logger.warning("Запуск %s не найден.", run_id)
                     return
-                if run.status == RunStatus.CANCELLED:
+                if run.status in RunStatus.FINISHED:
                     return
                 _cancel_events[run_id] = cancel_event
                 run.status = RunStatus.RUNNING

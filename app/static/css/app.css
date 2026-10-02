@@ -15,6 +15,23 @@
 
 .device-card:hover { background: #f8f9fa; }
 
+.terminal-panel {
+  background: #1e1e1e;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.terminal-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  padding: 0.45rem 1rem;
+  color: #9cdcfe;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  border-bottom: 1px solid #333;
+}
+
 .log-view {
   background: #1e1e1e;
   color: #d4d4d4;
@@ -25,7 +42,52 @@
   overflow: auto;
   white-space: pre-wrap;
   padding: 1rem;
-  border-radius: 0.5rem;
+  border-radius: 0;
+  margin: 0;
+}
+
+.terminal-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 1rem 0.75rem;
+  border-top: 1px solid #333;
+}
+
+.terminal-form .prompt {
+  color: #4ec9b0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 0;
+  white-space: nowrap;
+}
+
+#run-cancel:disabled,
+#run-close-session:disabled,
+#run-command-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.terminal-form input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #4ec9b0;
+  color: #d4d4d4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.terminal-form input:disabled {
+  opacity: 0.45;
+}
+
+.command-preview {
+  white-space: pre-wrap;
+  max-height: 10rem;
+  overflow: auto;
 }
 
 .suggest-list {
