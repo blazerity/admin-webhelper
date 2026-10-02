@@ -47,6 +47,65 @@
 {% endif %}
 {%- endmacro %}
 
+{% macro device_portrait(device) -%}
+{% set kind = device.kind %}
+{% set status = device.last_status or 'unknown' %}
+<figure class="device-portrait {{ kind }} {{ status }}" aria-label="{{ device.kind_label }}">
+  {% if kind == 'notebook' %}
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" role="img" aria-hidden="true">
+    <defs>
+      <linearGradient id="nb-body-{{ device.id }}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#edf3f6"/>
+        <stop offset="100%" stop-color="#c9d6df"/>
+      </linearGradient>
+      <linearGradient id="nb-screen-{{ device.id }}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#1f3a45"/>
+        <stop offset="100%" stop-color="#0f766e"/>
+      </linearGradient>
+    </defs>
+    <rect x="18" y="12" width="124" height="78" rx="8" fill="url(#nb-body-{{ device.id }})" stroke="#8aa0ae" stroke-width="2"/>
+    <rect x="28" y="22" width="104" height="58" rx="4" fill="url(#nb-screen-{{ device.id }})"/>
+    <rect x="8" y="90" width="144" height="12" rx="3" fill="#b7c5cf" stroke="#8aa0ae" stroke-width="1.5"/>
+    <rect x="68" y="93" width="24" height="4" rx="2" fill="#7f93a1"/>
+    <circle class="device-portrait-led" cx="132" cy="18" r="3.2"/>
+  </svg>
+  {% elif kind == 'desktop' %}
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" role="img" aria-hidden="true">
+    <defs>
+      <linearGradient id="dt-case-{{ device.id }}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#f4f7f9"/>
+        <stop offset="100%" stop-color="#c5d2dc"/>
+      </linearGradient>
+      <linearGradient id="dt-panel-{{ device.id }}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#243640"/>
+        <stop offset="100%" stop-color="#0f766e"/>
+      </linearGradient>
+    </defs>
+    <rect x="42" y="8" width="76" height="104" rx="8" fill="url(#dt-case-{{ device.id }})" stroke="#8aa0ae" stroke-width="2"/>
+    <rect x="52" y="18" width="56" height="36" rx="4" fill="url(#dt-panel-{{ device.id }})"/>
+    <rect x="56" y="64" width="48" height="8" rx="2" fill="#9aadb9"/>
+    <rect x="56" y="78" width="48" height="8" rx="2" fill="#9aadb9"/>
+    <circle class="device-portrait-led" cx="80" cy="100" r="4"/>
+  </svg>
+  {% else %}
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" role="img" aria-hidden="true">
+    <defs>
+      <linearGradient id="ot-ring-{{ device.id }}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#d9e4ea"/>
+        <stop offset="100%" stop-color="#a9bbc7"/>
+      </linearGradient>
+    </defs>
+    <circle cx="80" cy="58" r="42" fill="url(#ot-ring-{{ device.id }})" stroke="#8aa0ae" stroke-width="2"/>
+    <circle cx="80" cy="58" r="28" fill="#f7fafb" stroke="#b7c5cf" stroke-width="1.5"/>
+    <path d="M68 48c2.5-6 10-9 16-6 5 2.5 7 8 5 13-2 5-8 7-8 14" fill="none" stroke="#6d8291" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="80" cy="78" r="3.5" fill="#6d8291"/>
+    <circle class="device-portrait-led" cx="112" cy="30" r="3.2"/>
+  </svg>
+  {% endif %}
+  <figcaption class="device-portrait-caption">{{ device.kind_label }}</figcaption>
+</figure>
+{%- endmacro %}
+
 {% macro device_card(device) -%}
 <a
   class="device-card {{ device.last_status }} text-decoration-none"

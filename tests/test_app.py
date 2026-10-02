@@ -20,6 +20,7 @@ def _seed_office(app, owner="admin"):
             Device(
                 ip="10.0.0.1",
                 hostname="NBOOK01",
+                serial_number="NB-SERIAL-01",
                 sector_id=sector.id,
                 last_status="online",
                 last_seen=seen,
@@ -27,6 +28,7 @@ def _seed_office(app, owner="admin"):
             Device(
                 ip="10.0.0.2",
                 hostname="WDESK01",
+                serial_number="WD-SERIAL-02",
                 sector_id=sector.id,
                 last_status="offline",
                 last_seen=seen,
@@ -34,6 +36,7 @@ def _seed_office(app, owner="admin"):
             Device(
                 ip="10.0.0.3",
                 hostname="SRV01",
+                serial_number="SRV-SERIAL-03",
                 sector_id=sector.id,
                 last_status="online",
                 last_seen=seen,
@@ -110,6 +113,34 @@ def test_map_status_json(client, app, admin_id):
 
 def test_device_kind_from_hostname(app):
     with app.app_context():
-        assert Device(ip="10.0.0.1", hostname="nbook", sector_id=1).kind == "notebook"
-        assert Device(ip="10.0.0.2", hostname="Wdesk", sector_id=1).kind == "desktop"
-        assert Device(ip="10.0.0.3", hostname=None, sector_id=1).kind == "other"
+        notebook = Device(ip="10.0.0.1", hostname="nbook", sector_id=1)
+        desktop = Device(ip="10.0.0.2", hostname="Wdesk", sector_id=1)
+        other = Device(ip="10.0.0.3", hostname=None, sector_id=1)
+        assert notebook.kind == "notebook"
+        assert notebook.kind_label == "Ноутбук"
+        assert desktop.kind == "desktop"
+        assert desktop.kind_label == "Системный блок"
+        assert other.kind == "other"
+        assert other.kind_label == "Устройство"
+
+
+def test_device_detail_shows_object_card(client, app, admin_id):
+    sector_id, device_ids = _seed_office(app)
+    _login(client, admin_id)
+
+    response = client.get(f"/devices/{device_ids[0]}")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Карточка устройства" in html
+    assert "device-object" in html
+    assert "device-portrait" in html
+    assert "Ноутбук" in html
+    assert "NBOOK01" in html
+    assert "NB-SERIAL-01" in html
+    assert "Серийный номер" in html
+    assert "10.0.0.1" in html
+    assert "Проверки доступности" in html
+    assert "Запуски на этом ПК" in html
+    assert "Действия" in html
+    assert "Выполнить команду" in html
+    assert f'action="/devices/{device_ids[0]}/command"' in html or f"/devices/{device_ids[0]}/command" in html
