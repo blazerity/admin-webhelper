@@ -10,7 +10,7 @@
 
 | ID | Задача | Файлы (ориентир) |
 | --- | --- | --- |
-| **W1-02** | Навигация + активные состояния по схеме A1 | `base.html`, `layouts/settings.html`, CSS nav |
+| **W1-02** | Навигация + активные состояния по схеме A1 ([ADR 001](../adr/001-operator-navigation.md)) | `base.html`, `layouts/settings.html`, CSS nav |
 | **W1-04** | Виджеты сводки на карте | `devices/map.html`, `map.js`, CSS; JSON от A3 |
 | **W1-05** | Autocomplete через `/search/suggest` | `map.js` / `search.js`, поле поиска карты |
 | **W1-06** | UI пресетов команд на вкладке commands | `devices/detail.html`, `_command_actions.html` |
