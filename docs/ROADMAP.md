@@ -6,6 +6,7 @@
 Связанные материалы: [README.md](../README.md), [ARCHITECTURE.md](ARCHITECTURE.md), [agents/](agents/README.md).  
 Волна **W1** закрыта в `0.3.0` (интеграция: `cursor/w1-implementation-2c6a`).
 Волна **W2** закрыта в `0.4.0` (интеграция: `cursor/w2-implementation-85f5`).
+Волна **W3** закрыта в `0.5.0` (интеграция: `cursor/w3-implementation-85f5`).
 
 ---
 
@@ -291,13 +292,13 @@ bAWH уже умеет: карта сети, опрос/WMI, УЗ на ПК, д�
 
 | ID | Задача | Владелец | Помощь |
 | --- | --- | --- | --- |
-| W3-01 | Модель ролей + `.env`/LDAP mapping | P4 | P1 |
-| W3-02 | Operator: запуск опубликованных скриптов | P4 + P3 | P2 |
-| W3-03 | `admin_audit_log` + запись событий | P4 | P3 |
-| W3-04 | Watchlist + offline-алерты | P3 | P4, P2 |
-| W3-05 | In-app notification center | P2 | P3 |
-| W3-06 | Фильтры/пагинация actions & accounts | P4 + P2 | — |
-| W3-07 | Матрица прав в тестах + security review | P5 + P1 | P4 |
+| W3-01 | Модель ролей + `.env`/LDAP mapping — **Done** | P4 | P1 |
+| W3-02 | Operator: запуск опубликованных скриптов — **Done** | P4 + P3 | P2 |
+| W3-03 | `admin_audit_log` + запись событий — **Done** | P4 | P3 |
+| W3-04 | Watchlist + offline-алерты — **Done** | P3 | P4, P2 |
+| W3-05 | In-app notification center — **Done** | P2 | P3 |
+| W3-06 | Фильтры/пагинация actions & accounts — **Done** | P4 + P2 | — |
+| W3-07 | Матрица прав + чеклист — **Done**: [`docs/runbooks/w3-regression-checklist.md`](runbooks/w3-regression-checklist.md) | P5 + P1 | P4 |
 
 ### Волна W4
 
