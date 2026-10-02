@@ -82,6 +82,8 @@ def create_app(config_name: str | None = None) -> Flask:
 def _register_blueprints(app: Flask) -> None:
     # Импорты здесь, чтобы расширения инициализировались раньше маршрутов
     # и не было цикла route → service → create_app.
+    from app.routes.accounts import bp as accounts_bp
+    from app.routes.actions import bp as actions_bp
     from app.routes.admin import bp as admin_bp
     from app.routes.auth import bp as auth_bp
     from app.routes.devices import bp as devices_bp
@@ -96,6 +98,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(search_bp)
     app.register_blueprint(diagnostics_bp)
     app.register_blueprint(scripts_bp)
+    app.register_blueprint(accounts_bp)
+    app.register_blueprint(actions_bp)
     app.register_blueprint(admin_bp)
 
 

@@ -96,11 +96,16 @@ def test_lookup_wmi_inventory_returns_serial_and_mac(app, monkeypatch):
     app.config["DISCOVERY_DOMAIN"] = "CORP"
     monkeypatch.setattr(
         "app.services.discovery_service._wmi_inventory",
-        lambda ip, creds: WmiInventory(serial_number="DELLTAG9", mac="AA:BB:CC:DD:EE:FF"),
+        lambda ip, creds: WmiInventory(
+            serial_number="DELLTAG9",
+            mac="AA:BB:CC:DD:EE:FF",
+            logged_on_user=r"CORP\alice",
+        ),
     )
     inventory = lookup_wmi_inventory("10.0.0.5")
     assert inventory.serial_number == "DELLTAG9"
     assert inventory.mac == "AA:BB:CC:DD:EE:FF"
+    assert inventory.logged_on_user == r"CORP\alice"
     assert lookup_serial("10.0.0.5") == "DELLTAG9"
 
 

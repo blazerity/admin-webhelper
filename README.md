@@ -40,11 +40,15 @@ bAWH/
 
 ### Модели
 
-Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0004_device_serial`).
+Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0005_accounts_actions`).
 
-- `users`, `user_ldap_groups` — человек после входа через LDAP и его группы.
-- `sectors`, `sector_ranges`, `sector_access` — имя сектора, CIDR-диапазоны и кому он виден.
-- `devices`, `device_history` — машина и журнал опросов. Уникальность: `serial_number` (WMI), иначе hostname; IP — последний адрес.
+Справочники и журналы разделены:
+
+- `users`, `user_ldap_groups` — операторы сайта после входа через LDAP и их группы.
+- `sectors`, `sector_ranges`, `sector_access` — справочник секторов, CIDR и кому сектор виден.
+- `devices`, `device_history` — справочник машин и журнал опросов. Уникальность: `serial_number` (WMI), иначе hostname; IP — последний адрес; `current_account_id` — кто сейчас за ПК.
+- `endpoint_accounts`, `device_account_history` — справочник УЗ на конечных точках и факты «УЗ замечена на устройстве» (не путать с `users`).
+- `action_kinds` — справочник типов действий; лента событий собирается из `script_runs` и `device_account_history`.
 - `scripts`, `script_runs` — библиотека скриптов и журнал запусков (скрипт, ping, tracert, команда). У скрипта есть `run_as`: учётка PsExec или `NT AUTHORITY\SYSTEM`.
 - `app_settings` — параметры вроде интервала опроса.
 - `remote_credentials` — учётка PsExec **на каждого пользователя сайта**; пароли только шифротекстом Fernet. Пустые поля формы означают запуск от входа на сайт (пароль входа тоже хранится зашифрованным).
@@ -58,7 +62,9 @@ bAWH/
 - `ldap_service.py` — проверка пароля в LDAP и список групп.
 - `sector_service.py` — создание и правка секторов.
 - `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
-- `discovery_service.py` — обратный DNS, MAC из ARP/WMI и серийник по WMI (`DISCOVERY_*` в `.env`).
+- `discovery_service.py` — обратный DNS, MAC из ARP/WMI, серийник и текущая УЗ по WMI (`DISCOVERY_*` в `.env`).
+- `account_service.py` — справочник `endpoint_accounts`, разбор `DOMAIN\user`, запись появлений УЗ.
+- `action_service.py` — справочник `action_kinds` и лента недавних действий.
 - `scheduler_service.py` — цикл опроса для отдельного процесса.
 - `search_service.py` — поиск устройств по IP, MAC, hostname, serial.
 - `psexec_service.py` — удалённая команда на Windows.
@@ -72,7 +78,9 @@ bAWH/
 | Файл | Адреса |
 | --- | --- |
 | `auth.py` | `GET/POST /login`, `POST /logout` |
-| `devices.py` | `GET /` карта сети, `GET /devices/<id>` |
+| `devices.py` | `GET /` карта сети, `GET /devices/<id>` (вкладки overview / accounts / commands / polls) |
+| `accounts.py` | `/accounts` — справочник УЗ, `/accounts/<id>` — карточка |
+| `actions.py` | `/actions` — справочник типов действий и лента событий |
 | `sectors.py` | `/sectors` — список, создание, карточка, правка, удаление |
 | `search.py` | `GET /search`, `GET /search/suggest` |
 | `diagnostics.py` | `POST /devices/<id>/ping`, `/tracert`, `/command` |
@@ -365,6 +373,6 @@ python -m pytest
 - `tests/test_authz.py` — доступ к секторам.
 - `tests/test_net_utils.py` — CIDR и MAC.
 - `tests/test_settings_and_crypto.py` — интервал и шифрование.
-- `tests/test_ldap_service.py`, `tests/test_ping_service.py`, `tests/test_psexec_service.py`, `tests/test_script_service.py`, `tests/test_search_service.py`, `tests/test_sector_service.py`, `tests/test_discovery_service.py`, `tests/test_update_service.py`, `tests/test_update_routes.py`.
+- `tests/test_ldap_service.py`, `tests/test_ping_service.py`, `tests/test_psexec_service.py`, `tests/test_script_service.py`, `tests/test_search_service.py`, `tests/test_sector_service.py`, `tests/test_discovery_service.py`, `tests/test_account_service.py`, `tests/test_update_service.py`, `tests/test_update_routes.py`.
 
 Новый сервис — с тестом в `tests/`, без настоящего LDAP и чужих IP. Для HTTP — фикстура `client`.

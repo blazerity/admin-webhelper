@@ -9,11 +9,11 @@
   этот сервер и устройство сидят в одном L2-сегменте: коммутатор
   доставил кадр, и ядро записало соседа в таблицу ARP (Windows)
   или neighbor (Linux). Через маршрутизатор MAC чужой сети не приходит.
-* Серийник и MAC по WMI (lookup_wmi_inventory) — один DCOM-заход после ping:
-  Win32_BIOS.SerialNumber и MAC адаптера с нашим IP
-  (Win32_NetworkAdapterConfiguration). Нужна учётка DISCOVERY_* в окружении.
-  Без неё возвращаем пустой инвентарь, идентичность строится по hostname,
-  а MAC остаётся только из ARP.
+* Серийник, MAC и текущая УЗ по WMI (lookup_wmi_inventory) — один DCOM
+  после ping: Win32_BIOS.SerialNumber, MAC адаптера с нашим IP
+  (Win32_NetworkAdapterConfiguration) и Win32_ComputerSystem.UserName.
+  Нужна учётка DISCOVERY_* в окружении. Без неё возвращаем пустой
+  инвентарь, идентичность строится по hostname, MAC — только из ARP.
 
 Scapy здесь не используем. Ему нужен захват пакетов и дополнительные
 права (raw socket / Npcap). Для первой версии достаточно прочитать
@@ -54,8 +54,8 @@ _MAC_RE = re.compile(
 _NEIGHBOR_TIMEOUT_S = 5
 
 # WMI по DCOM на живой машине обычно < 2 с; потолок — чтобы один хост
-# не держал весь опрос сектора. Два WQL в одной сессии укладываются сюда же.
-_WMI_TIMEOUT_S = 8
+# не держал весь опрос сектора. Три WQL в одной сессии укладываются сюда же.
+_WMI_TIMEOUT_S = 10
 
 # Заглушки BIOS/OEM, которые нельзя считать service tag.
 _INVALID_SERIALS = {
@@ -91,6 +91,8 @@ class WmiInventory:
 
     serial_number: str | None = None
     mac: str | None = None
+    # Win32_ComputerSystem.UserName: DOMAIN\user или пусто.
+    logged_on_user: str | None = None
 
 
 def lookup_hostname(ip: str) -> str | None:
@@ -217,7 +219,7 @@ def hostnames_match(left: str | None, right: str | None) -> bool:
 
 
 def _wmi_inventory(ip: str, creds: DiscoveryCredentials) -> WmiInventory:
-    """Один DCOM к машине: BIOS serial + MAC адаптера с этим IP.
+    """Один DCOM к машине: BIOS serial, MAC адаптера и текущая УЗ.
 
     Импорт Impacket — внутри, чтобы тесты без сети и без пакета
     не падали на загрузке модуля.
@@ -250,9 +252,13 @@ def _wmi_inventory(ip: str, creds: DiscoveryCredentials) -> WmiInventory:
         login.RemRelease()
         serial_raw = _wmi_query_serial(services)
         mac = _wmi_query_mac(services, ip)
+        # После успешного WMI всегда строка: "" = никто не залогинен.
+        # None оставляем только когда WMI не вызывали / сессия упала.
+        logged_raw = _wmi_query_logged_on_user(services)
         return WmiInventory(
             serial_number=normalize_serial(serial_raw),
             mac=mac,
+            logged_on_user=logged_raw if logged_raw is not None else "",
         )
     except Exception as exc:
         logger.info("WMI inventory: %s — %s", ip, exc)
@@ -278,6 +284,29 @@ def _wmi_query_serial(services) -> str | None:
             raw = props.get("SerialNumber", {}).get("value")
             if raw is not None and str(raw).strip():
                 return str(raw)
+    finally:
+        try:
+            enum_obj.RemRelease()
+        except Exception:
+            pass
+    return None
+
+
+def _wmi_query_logged_on_user(services) -> str | None:
+    """SELECT UserName FROM Win32_ComputerSystem — интерактивная УЗ.
+
+    Пустая строка типична для серверов без консольного входа или
+    когда сессия заблокирована без владельца — возвращаем None.
+    """
+    enum_obj = services.ExecQuery("SELECT UserName FROM Win32_ComputerSystem")
+    try:
+        for props in _wmi_enum_properties(enum_obj):
+            raw = props.get("UserName", {}).get("value")
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if text:
+                return text[:255]
     finally:
         try:
             enum_obj.RemRelease()

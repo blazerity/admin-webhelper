@@ -14,7 +14,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret")
 
 from app import create_app
 from app.extensions import db
-from app.models import User, UserLdapGroup
+from app.models import User, UserLdapGroup, seed_action_kinds
 
 
 @pytest.fixture
@@ -23,6 +23,8 @@ def app():
     application.config["FERNET_KEY"] = os.environ["FERNET_KEY"]
     with application.app_context():
         db.create_all()
+        seed_action_kinds()
+        db.session.commit()
         yield application
         db.session.remove()
         db.drop_all()

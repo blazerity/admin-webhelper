@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.authz import accessible_sectors, get_visible_device_or_404
 from app.models import DeviceHistory, RunStatus, RunType, ScriptRun, Sector
+from app.services.account_service import device_account_sightings
 from app.services.search_service import search_devices
 from app.utils import utcnow
 
@@ -26,7 +27,7 @@ _RUN_TYPE_LABELS = {
     RunType.SCRIPT: "Скрипт",
 }
 
-_DETAIL_TABS = frozenset({"overview", "commands", "polls"})
+_DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls"})
 _DEFAULT_LIST_LIMIT = 5
 _ALL_LIST_LIMIT = 50
 
@@ -186,7 +187,7 @@ def _launch_history(
 @bp.get("/devices/<int:device_id>")
 @login_required
 def detail(device_id: int):
-    """Карточка устройства: вкладки overview / commands / polls."""
+    """Карточка устройства: вкладки overview / accounts / commands / polls."""
     device = get_visible_device_or_404(device_id)
     if device.sector is None:
         abort(404)
@@ -196,6 +197,7 @@ def detail(device_id: int):
 
     history = []
     launches = []
+    account_rows = []
     has_more = False
     if tab == "polls":
         rows = (
@@ -213,6 +215,10 @@ def detail(device_id: int):
             limit,
         )
         has_more = (not show_all) and more
+    elif tab == "accounts":
+        rows = device_account_sightings(device.id, limit=limit + 1)
+        has_more = (not show_all) and len(rows) > limit
+        account_rows = rows[:limit]
 
     return render_template(
         "devices/detail.html",
@@ -223,4 +229,5 @@ def detail(device_id: int):
         list_limit=limit,
         history=history,
         launches=launches,
+        account_rows=account_rows,
     )

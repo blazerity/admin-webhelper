@@ -3,6 +3,7 @@
 devices — текущее состояние; device_history — каждая проверка.
 Уникальность машины: serial_number (WMI service tag), иначе hostname.
 IP — только последний известный адрес, без unique.
+current_account_id — УЗ, которую последний опрос видел на машине.
 При росте истории — партиции PostgreSQL по месяцам (миграция 0001
 ещё одной таблицы).
 """
@@ -35,6 +36,13 @@ class Device(TimestampMixin, db.Model):
         nullable=False,
         index=True,
     )
+    current_account_id = db.Column(
+        db.Integer,
+        db.ForeignKey("endpoint_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    current_account_seen_at = db.Column(db.DateTime(timezone=True), nullable=True)
     last_seen = db.Column(db.DateTime(timezone=True), nullable=True)
     last_status = db.Column(
         db.String(16),
@@ -45,11 +53,22 @@ class Device(TimestampMixin, db.Model):
     last_response_time_ms = db.Column(db.Integer, nullable=True)
 
     sector = db.relationship("Sector", back_populates="devices")
+    current_account = db.relationship(
+        "EndpointAccount",
+        back_populates="current_devices",
+        foreign_keys=[current_account_id],
+    )
     history = db.relationship(
         "DeviceHistory",
         back_populates="device",
         cascade="all, delete-orphan",
         order_by="DeviceHistory.timestamp.desc()",
+    )
+    account_history = db.relationship(
+        "DeviceAccountHistory",
+        back_populates="device",
+        cascade="all, delete-orphan",
+        order_by="DeviceAccountHistory.seen_at.desc()",
     )
 
     @property

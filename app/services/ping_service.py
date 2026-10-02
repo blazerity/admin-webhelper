@@ -11,9 +11,10 @@
    пустой адрес на карте не нужен.
 3. Снова главный поток:
    * офлайн по уже известному IP → статус и device_history;
-   * онлайн → serial+MAC (WMI) / hostname / IP как ключ идентичности,
+   * онлайн → serial+MAC+УЗ (WMI) / hostname / IP как ключ идентичности,
      обновление или создание одной машины, история сохраняется
      при смене адреса и сектора. MAC сначала из ARP, иначе из WMI.
+     Текущая УЗ пишется в endpoint_accounts / device_account_history.
 
 Позже ту же функцию poll_all_sectors вызовет задача Celery. Менять
 разбор пинга и запись истории для этого не нужно.
@@ -72,6 +73,7 @@ class _Probe:
     hostname: str | None
     mac: str | None
     serial_number: str | None
+    logged_on_user: str | None = None
 
 
 def ping_host(
@@ -380,6 +382,7 @@ def _probe(ip: str) -> _Probe:
     hostname = None
     mac = None
     serial_number = None
+    logged_on_user = None
     if result.status == DeviceStatus.ONLINE:
         # Ищем атрибут на модуле в момент вызова, а не копией функции:
         # так подмена в тестах (и будущий кэш DNS) видна без правки этого файла.
@@ -388,6 +391,7 @@ def _probe(ip: str) -> _Probe:
         mac = discovery_service.lookup_mac(ip)
         inventory = discovery_service.lookup_wmi_inventory(ip)
         serial_number = inventory.serial_number
+        logged_on_user = inventory.logged_on_user
         if not mac and inventory.mac:
             mac = inventory.mac
     return _Probe(
@@ -396,11 +400,14 @@ def _probe(ip: str) -> _Probe:
         hostname=hostname,
         mac=mac,
         serial_number=serial_number,
+        logged_on_user=logged_on_user,
     )
 
 
 def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
     """Найти машину по serial → hostname → IP и записать онлайн + историю."""
+    from app.services.account_service import apply_logged_on_user
+
     device = _resolve_device(
         ip=probe.ip,
         hostname=probe.hostname,
@@ -430,6 +437,10 @@ def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
                 response_time_ms=probe.result.response_time_ms,
             )
         )
+        # None — WMI не вызывали / не ответил: текущую УЗ не трогаем.
+        # "" — WMI сказал «никто»; строка — DOMAIN\user.
+        if probe.logged_on_user is not None:
+            apply_logged_on_user(device, probe.logged_on_user or None)
         db.session.commit()
     except Exception:
         logger.exception("Не удалось сохранить онлайн-опрос %s", probe.ip)

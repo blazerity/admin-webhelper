@@ -8,6 +8,8 @@
     <nav class="settings-nav">
       {% set ep = request.endpoint or '' %}
       <a class="settings-nav-link{% if ep.startswith('sectors.') %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Сектора</a>
+      <a class="settings-nav-link{% if ep.startswith('accounts.') %} active{% endif %}" href="{{ url_for('accounts.list_accounts') }}">Учётные записи</a>
+      <a class="settings-nav-link{% if ep.startswith('actions.') %} active{% endif %}" href="{{ url_for('actions.list_actions') }}">Действия</a>
       {% if current_user.is_admin %}
       <a class="settings-nav-link{% if ep.startswith('scripts.') %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
       <a class="settings-nav-link{% if ep == 'admin.settings' %} active{% endif %}" href="{{ url_for('admin.settings') }}">Параметры</a>

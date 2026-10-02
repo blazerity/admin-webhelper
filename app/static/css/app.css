@@ -1029,3 +1029,67 @@ code {
   z-index: 10;
   width: 100%;
 }
+
+/* Endpoint account card */
+.account-object {
+  padding: 1.25rem 1.4rem;
+  margin-bottom: 1rem;
+  border-left: 5px solid var(--accent);
+}
+
+.account-object-body {
+  min-width: 0;
+}
+
+.account-object-kind {
+  margin: 0 0 0.2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.account-object-name {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  word-break: break-word;
+}
+
+.account-object-display {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+}
+
+.action-kind-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.85rem 1rem;
+}
+
+.action-kind-item {
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(244, 248, 250, 0.9));
+}
+
+.action-kind-code {
+  margin: 0 0 0.2rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.action-kind-title {
+  margin: 0 0 0.25rem;
+  font-weight: 700;
+}
+
+.action-kind-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
