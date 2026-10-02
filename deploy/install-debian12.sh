@@ -436,7 +436,7 @@ print_summary() {
   log ""
   log "Заполните LDAP в $INSTALL_DIR/.env (LDAP_HOST, LDAP_BASE_DN, LDAP_DOMAIN) и перезапустите сервисы:"
   log "  systemctl restart bawh-web bawh-scheduler"
-  log "Учётку PsExec задают там же или на странице /admin/settings. Пока Nginx отдаёт HTTP, оставьте SESSION_COOKIE_SECURE=0."
+  log "Учётку PsExec задают на странице /admin/settings (на пользователя). Пока Nginx отдаёт HTTP, оставьте SESSION_COOKIE_SECURE=0."
 }
 
 main() {
