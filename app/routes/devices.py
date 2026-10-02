@@ -11,6 +11,7 @@ from app.authz import (
     get_visible_device_or_404,
     user_can_bulk_ping,
     user_can_bulk_script,
+    user_can_run_script,
     user_can_run_scripts,
 )
 from app.extensions import db
@@ -247,6 +248,8 @@ def bulk_script():
     script = db.session.get(Script, script_id)
     if script is None:
         return jsonify({"error": "Скрипт не найден."}), 404
+    if not user_can_run_script(current_user, script):
+        abort(403)
     if script.target_os == "linux" or script.interpreter == "bash":
         return jsonify(
             {
@@ -374,13 +377,14 @@ def detail(device_id: int):
         has_more = (not show_all) and len(rows) > limit
         account_rows = rows[:limit]
 
-    # Пресеты всегда в context; библиотека скриптов — через authz shim (W1: admin).
+    # Пресеты всегда в context; библиотека — admin/operator (operator: published).
     command_presets = list_command_presets()
-    scripts = (
-        Script.query.order_by(Script.name).all()
-        if user_can_run_scripts(current_user)
-        else []
-    )
+    scripts = []
+    if user_can_run_scripts(current_user):
+        query = Script.query.order_by(Script.name)
+        if not getattr(current_user, "is_admin", False):
+            query = query.filter(Script.is_published.is_(True))
+        scripts = query.all()
 
     return render_template(
         "devices/detail.html",
@@ -398,7 +402,7 @@ def detail(device_id: int):
 
 
 @bp.post("/devices/<int:device_id>/scripts/run")
-@admin_required
+@login_required
 def run_script_on_device(device_id: int):
     """Быстрый запуск скрипта с карточки устройства → detail первого run."""
     device = get_visible_device_or_404(device_id)
@@ -411,6 +415,8 @@ def run_script_on_device(device_id: int):
     if script is None:
         flash("Скрипт не найден.", "danger")
         return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+    if not user_can_run_script(current_user, script):
+        abort(403)
     if script.target_os == "linux" or script.interpreter == "bash":
         flash(
             "Удалённый Linux в v1 не реализован: PsExec работает только с Windows.",

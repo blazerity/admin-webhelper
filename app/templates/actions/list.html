@@ -23,10 +23,35 @@
   </div>
 </div>
 
+<form class="panel content-card mb-3" method="get" action="{{ url_for('actions.list_actions') }}">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label" for="action-q">Поиск</label>
+      <input class="form-control" id="action-q" name="q" value="{{ search_query|default('') }}" autocomplete="off">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="action-kind">Тип</label>
+      <select class="form-select" id="action-kind" name="kind">
+        <option value="">Все</option>
+        {% for kind in action_kinds %}
+        <option value="{{ kind.code }}" {% if kind_filter|default('') == kind.code %}selected{% endif %}>{{ kind.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label" for="action-per-page">На странице</label>
+      <input class="form-control" id="action-per-page" name="per_page" type="number" min="1" max="200" value="{{ per_page|default(50) }}">
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-primary" type="submit">Показать</button>
+    </div>
+  </div>
+</form>
+
 <div class="panel content-card p-0 overflow-hidden">
   <div class="px-3 pt-3 pb-2">
     <h2 class="panel-title">Недавние события</h2>
-    <p class="panel-hint mb-0">Запуски на устройствах и обнаружения УЗ</p>
+    <p class="panel-hint mb-0">Всего: {{ total|default(actions|length) }} · страница {{ page|default(1) }}</p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
@@ -68,5 +93,16 @@
       </tbody>
     </table>
   </div>
+  {% set total_pages = ((total|default(0) + per_page|default(50) - 1) // (per_page|default(50))) if (per_page|default(50)) else 1 %}
+  {% if total_pages > 1 %}
+  <div class="px-3 py-2 d-flex gap-2">
+    {% if page|default(1) > 1 %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('actions.list_actions', page=page-1, per_page=per_page, q=search_query, kind=kind_filter) }}">Назад</a>
+    {% endif %}
+    {% if page|default(1) < total_pages %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('actions.list_actions', page=page+1, per_page=per_page, q=search_query, kind=kind_filter) }}">Вперёд</a>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

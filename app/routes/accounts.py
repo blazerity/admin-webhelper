@@ -9,19 +9,35 @@ from app.services.account_service import (
     get_visible_account_or_404,
     list_visible_accounts,
 )
+from app.utils import parse_optional_int
 
 bp = Blueprint("accounts", __name__, url_prefix="/accounts")
+
+
+def _page_args() -> tuple[int, int]:
+    page = parse_optional_int(request.args.get("page")) or 1
+    per_page = parse_optional_int(request.args.get("per_page")) or 50
+    return max(1, page), max(1, min(per_page, 200))
 
 
 @bp.get("/")
 @login_required
 def list_accounts():
     """Список УЗ, замеченных на доступных устройствах."""
+    page, per_page = _page_args()
     query = (request.args.get("q") or "").strip()
-    accounts = list_visible_accounts(current_user, query=query)
+    result = list_visible_accounts(
+        current_user,
+        q=query,
+        page=page,
+        per_page=per_page,
+    )
     return render_template(
         "accounts/list.html",
-        accounts=accounts,
+        accounts=result["items"],
+        total=result["total"],
+        page=result["page"],
+        per_page=result["per_page"],
         search_query=query,
     )
 

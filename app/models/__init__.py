@@ -2,6 +2,7 @@
 
 from app.models.account import DeviceAccountHistory, EndpointAccount, SessionType
 from app.models.action import ACTION_KIND_SEED, ActionKind, ActionKindCode, seed_action_kinds
+from app.models.audit import AdminAuditLog
 from app.models.device import Device, DeviceHistory, DeviceStatus
 from app.models.login_service import LoginService
 from app.models.password_expiry import PasswordExpiryRun, PasswordNotification
@@ -15,6 +16,7 @@ __all__ = [
     "ACTION_KIND_SEED",
     "ActionKind",
     "ActionKindCode",
+    "AdminAuditLog",
     "AppSetting",
     "Device",
     "DeviceAccountHistory",

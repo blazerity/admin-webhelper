@@ -14,11 +14,16 @@
   <div class="d-flex flex-wrap gap-2">
     <input class="form-control" style="max-width: 22rem" id="account-q" name="q"
            value="{{ search_query }}" placeholder="логин, домен или ФИО" autocomplete="off">
+    <input class="form-control" style="max-width: 6rem" name="per_page" type="number" min="1" max="200"
+           value="{{ per_page|default(50) }}" title="На странице">
     <button class="btn btn-primary" type="submit">Найти</button>
   </div>
 </form>
 
 <div class="panel content-card p-0 overflow-hidden">
+  <div class="px-3 pt-3 pb-2">
+    <p class="panel-hint mb-0">Всего: {{ total|default(accounts|length) }} · страница {{ page|default(1) }}</p>
+  </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
       <thead>
@@ -45,5 +50,16 @@
       </tbody>
     </table>
   </div>
+  {% set total_pages = ((total|default(0) + per_page|default(50) - 1) // (per_page|default(50))) if (per_page|default(50)) else 1 %}
+  {% if total_pages > 1 %}
+  <div class="px-3 py-2 d-flex gap-2">
+    {% if page|default(1) > 1 %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('accounts.list_accounts', page=page-1, per_page=per_page, q=search_query) }}">Назад</a>
+    {% endif %}
+    {% if page|default(1) < total_pages %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('accounts.list_accounts', page=page+1, per_page=per_page, q=search_query) }}">Вперёд</a>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
