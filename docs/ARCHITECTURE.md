@@ -124,4 +124,6 @@ bAWH/
   tests/
   deploy/                # Debian 12: systemd, Nginx, install script
   docs/ARCHITECTURE.md   # этот файл
+  docs/ROADMAP.md        # план волн и роли P1–P5
+  docs/agents/           # брифы агентов A1–A5 для исполнения roadmap
 ```

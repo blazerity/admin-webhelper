@@ -25,7 +25,7 @@ bAWH/
     templates/            HTML-страницы
     static/               CSS и JS
   migrations/             схема PostgreSQL (Alembic через Flask-Migrate)
-  docs/                   архитектура (графы Mermaid), план развития (ROADMAP)
+  docs/                   архитектура, roadmap, брифы агентов (A1–A5), план развития (ROADMAP)
   tests/                  pytest
   deploy/                 systemd, Nginx и установка одной командой
   requirements.txt        зависимости Python
