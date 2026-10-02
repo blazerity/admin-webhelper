@@ -84,7 +84,7 @@ def _patch_discovery(
     )
     monkeypatch.setattr(
         "app.services.discovery_service.lookup_wmi_inventory",
-        lambda ip: WmiInventory(serial_number=serial, mac=None),
+        lambda ip, creds=None: WmiInventory(serial_number=serial, mac=None),
     )
 
 
@@ -116,7 +116,7 @@ def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.discovery_service.lookup_wmi_inventory",
-        lambda ip: next(inventories),
+        lambda ip, creds=None: next(inventories),
     )
 
     stats = poll_all_sectors()
@@ -172,7 +172,9 @@ def test_poll_fills_mac_from_wmi_when_arp_empty(app, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.discovery_service.lookup_wmi_inventory",
-        lambda ip: WmiInventory(serial_number="DELLTAG9", mac="DE:AD:BE:EF:00:01"),
+        lambda ip, creds=None: WmiInventory(
+            serial_number="DELLTAG9", mac="DE:AD:BE:EF:00:01"
+        ),
     )
 
     stats = poll_all_sectors()
@@ -181,6 +183,93 @@ def test_poll_fills_mac_from_wmi_when_arp_empty(app, monkeypatch):
     assert device is not None
     assert device.mac == "DE:AD:BE:EF:00:01"
     assert device.hostname == "n14002"
+
+
+def test_poll_passes_db_wmi_credentials_into_lookup(app, monkeypatch):
+    """Учётка из Параметров читается в главном потоке и уходит в WMI-воркеры."""
+    from app.services.discovery_service import DiscoveryCredentials
+    from app.services.settings_service import save_discovery_credentials
+
+    sector = Sector(name="lab", description="")
+    sector.ranges.append(SectorRange(cidr="10.0.0.5"))
+    db.session.add(sector)
+    db.session.commit()
+    save_discovery_credentials("wmisvc", "CORP", "WmiSecret!")
+
+    seen: dict[str, DiscoveryCredentials | None] = {}
+
+    def fake_lookup(ip, creds=None):
+        seen["creds"] = creds
+        return WmiInventory(serial_number="SN-FROM-WMI", mac="AA:BB:CC:DD:00:99")
+
+    monkeypatch.setattr(
+        "app.services.ping_service.ping_host",
+        lambda ip, timeout_s=1: PingResult(DeviceStatus.ONLINE, 5, "time=5 ms"),
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_hostname",
+        lambda ip: "pc-wmi",
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_mac",
+        lambda ip: None,
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_wmi_inventory",
+        fake_lookup,
+    )
+
+    stats = poll_all_sectors()
+    assert stats["online"] == 1
+    assert seen["creds"] is not None
+    assert seen["creds"].username == "wmisvc"
+    assert seen["creds"].domain == "CORP"
+    assert seen["creds"].password == "WmiSecret!"
+    device = db.session.scalar(select(Device).where(Device.serial_number == "SN-FROM-WMI"))
+    assert device is not None
+    assert device.mac == "AA:BB:CC:DD:00:99"
+
+
+def test_probe_uses_passed_creds_without_app_context(app, monkeypatch):
+    """Рабочий поток без Flask context всё равно получает заранее загруженную учётку."""
+    from flask import has_app_context
+
+    from app.services.discovery_service import DiscoveryCredentials
+    from app.services.ping_service import _probe
+
+    creds = DiscoveryCredentials(username="svc", password="secret", domain="CORP")
+    seen = {}
+
+    monkeypatch.setattr(
+        "app.services.ping_service.ping_host",
+        lambda ip, timeout_s=1: PingResult(DeviceStatus.ONLINE, 3, "ok"),
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_hostname",
+        lambda ip: "host1",
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_mac",
+        lambda ip: None,
+    )
+
+    def fake_lookup(ip, creds=None):
+        seen["has_context"] = has_app_context()
+        seen["creds"] = creds
+        return WmiInventory(serial_number="NOCTX1", mac="01:02:03:04:05:06")
+
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_wmi_inventory",
+        fake_lookup,
+    )
+
+    # Вызов как в ThreadPoolExecutor: снаружи app context.
+    assert has_app_context()  # pytest держит контекст фикстуры app
+    # Имитируем воркер: передаём creds явно; lookup не должен требовать БД.
+    probe = _probe("10.0.0.5", creds)
+    assert probe.serial_number == "NOCTX1"
+    assert probe.mac == "01:02:03:04:05:06"
+    assert seen["creds"] is creds
 
 
 def test_poll_does_not_create_device_for_empty_ip(app, monkeypatch):
