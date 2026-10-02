@@ -64,8 +64,9 @@ def authenticate(username: str, password: str) -> LdapIdentity | None:
         # Страница входа должна остаться формой с сообщением, а не ответом 500.
         service_password = str(current_app.config.get("LDAP_BIND_PASSWORD") or "")
         logger.warning(
-            "Вход пользователя %s через LDAP не удался: %s",
+            "Вход пользователя %s через LDAP не удался (%s): %s",
             typed,
+            _endpoint_label(),
             _public_error(exc, (password, service_password)),
         )
         return None
@@ -136,6 +137,7 @@ def _bind_and_search(username: str, password: str) -> LdapIdentity | None:
 
     port = int(cfg.get("LDAP_PORT") or 636)
     use_ssl = _as_bool(cfg.get("LDAP_USE_SSL", True), default=True)
+    host, port, use_ssl = _ldap_endpoint(host, port, use_ssl)
     base_dn = str(cfg.get("LDAP_BASE_DN") or "")
     service_dn = str(cfg.get("LDAP_BIND_DN") or "").strip()
     service_password = str(cfg.get("LDAP_BIND_PASSWORD") or "")
@@ -322,6 +324,49 @@ def _attribute_map(entry: object) -> dict[str, list[str]]:
 def _first(attrs: dict[str, list[str]], name: str) -> str | None:
     values = attrs.get(name.lower()) or []
     return values[0] if values else None
+
+
+def _ldap_endpoint(host: str, port: int, use_ssl: bool) -> tuple[str, int | None, bool]:
+    """Адрес, порт и SSL для ldap3.Server.
+
+    AD Password Notifier хранит сервер одной строкой: ldap://хост — это
+    порт 389 без шифрования, ldaps://хост — порт 636 с TLS. Если такую
+    строку передать вместе с явным LDAP_PORT=636, ldap3 снимет префикс
+    ldap:// (и выключит SSL), а порт 636 оставит. Контроллер домена на
+    636 ждёт TLS и рвёт открытый текст: Connection reset by peer.
+
+    Порт в аргументах Server для URL не передаём: его выбирает схема.
+    Хвост «/» срезаем сами: ldap3 вызывает rstrip, но результат не сохраняет,
+    и имя «хост/» не резолвится (invalid server address).
+    """
+    raw = host.strip().rstrip("/")
+    lowered = raw.lower()
+    if lowered.startswith("ldaps://"):
+        return raw, None, True
+    if lowered.startswith("ldap://"):
+        return raw, None, False
+    if port == 636 and not use_ssl:
+        logger.warning(
+            "LDAP_PORT=636 при LDAP_USE_SSL=false: порт 636 принимает только TLS. "
+            "Подключение пойдёт с SSL. Для LDAP без шифрования, как ldap:// в "
+            "AD Password Notifier, укажите LDAP_PORT=389."
+        )
+        return raw, port, True
+    return raw, port, use_ssl
+
+
+def _endpoint_label() -> str:
+    """Куда реально уходит bind. Пароля здесь нет, строку можно писать в журнал."""
+    cfg = current_app.config
+    host = str(cfg.get("LDAP_HOST") or "").strip()
+    try:
+        port = int(cfg.get("LDAP_PORT") or 636)
+    except (TypeError, ValueError):
+        port = 636
+    use_ssl = _as_bool(cfg.get("LDAP_USE_SSL", True), default=True)
+    host, port, use_ssl = _ldap_endpoint(host, port, use_ssl)
+    shown_port = "из URL" if port is None else str(port)
+    return f"{host} port={shown_port} ssl={use_ssl}"
 
 
 def _as_bool(value: object, default: bool) -> bool:

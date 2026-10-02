@@ -182,6 +182,50 @@ def test_bad_bind_returns_none(app, monkeypatch, caplog):
     assert "SecretPass" not in caplog.text
 
 
+def test_ldap_url_does_not_keep_explicit_port(app, monkeypatch):
+    """ldap:// как в AD Password Notifier не должен оставаться на порту 636."""
+    _configure_ldap(app)
+    app.config["LDAP_HOST"] = "ldap://dc01.example.com/"
+    app.config["LDAP_PORT"] = 636
+    app.config["LDAP_USE_SSL"] = True
+    directory = _Directory(_admin_entry())
+    _install_directory(monkeypatch, directory)
+
+    assert authenticate("Alice", "correct") is not None
+    assert directory.servers[0]["host"] == "ldap://dc01.example.com"
+    assert directory.servers[0]["port"] is None
+    assert directory.servers[0]["use_ssl"] is False
+
+
+def test_ldaps_url_forces_ssl(app, monkeypatch):
+    _configure_ldap(app)
+    app.config["LDAP_HOST"] = "ldaps://dc01.example.com"
+    app.config["LDAP_PORT"] = 389
+    app.config["LDAP_USE_SSL"] = False
+    directory = _Directory(_admin_entry())
+    _install_directory(monkeypatch, directory)
+
+    assert authenticate("Alice", "correct") is not None
+    assert directory.servers[0]["host"] == "ldaps://dc01.example.com"
+    assert directory.servers[0]["port"] is None
+    assert directory.servers[0]["use_ssl"] is True
+
+
+def test_port_636_without_ssl_uses_tls(app, monkeypatch, caplog):
+    _configure_ldap(app)
+    app.config["LDAP_HOST"] = "dc01.example.com"
+    app.config["LDAP_PORT"] = 636
+    app.config["LDAP_USE_SSL"] = False
+    directory = _Directory(_admin_entry())
+    _install_directory(monkeypatch, directory)
+
+    with caplog.at_level(logging.WARNING):
+        assert authenticate("Alice", "correct") is not None
+    assert directory.servers[0]["port"] == 636
+    assert directory.servers[0]["use_ssl"] is True
+    assert "LDAP_PORT=389" in caplog.text
+
+
 def test_empty_host_returns_none(app, monkeypatch, caplog):
     _configure_ldap(app)
     app.config["LDAP_HOST"] = "  "
