@@ -7,8 +7,9 @@ APScheduler в scheduler_worker пересоздаёт интервал, про�
 Учётка WMI (discovery) — глобальная, одна на всё приложение.
 Пароль только как Fernet-шифротекст; ключ — FERNET_KEY в окружении.
 
-Sudo-пользователь для перезапуска служб после обновления — Linux-логин,
-от имени которого вызывается systemctl (sudo -u …). Пусто — как root.
+Sudo-учётка для перезапуска служб после обновления — Linux-логин
+и опционально пароль (Fernet). С паролем перезапуск идёт через su,
+без отдельного sudoers. Без пароля — sudo -n (нужен bawh-update.sudoers).
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ DISCOVERY_USERNAME_KEY = "discovery_username"
 DISCOVERY_DOMAIN_KEY = "discovery_domain"
 DISCOVERY_PASSWORD_KEY = "discovery_password_encrypted"
 UPDATE_SUDO_USER_KEY = "update_sudo_user"
+UPDATE_SUDO_PASSWORD_KEY = "update_sudo_password_encrypted"
 
 # Как useradd: начинается с буквы/_, дальше буквы, цифры, _, -.
 _LINUX_USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
@@ -39,7 +41,7 @@ class DiscoveryCredentialsError(RuntimeError):
 
 
 class UpdateSudoUserError(RuntimeError):
-    """Некорректное имя Linux-пользователя для sudo -u."""
+    """Некорректные данные Linux-учётки для перезапуска служб."""
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,27 @@ class StoredDiscoveryCredentials:
         return (
             f"StoredDiscoveryCredentials(username={self.username!r}, "
             f"domain={self.domain!r}, password='***')"
+        )
+
+
+@dataclass(frozen=True)
+class UpdateSudoView:
+    """Поля формы sudo-учётки: пароль на страницу не отдаём."""
+
+    username: str
+    password_set: bool
+
+
+@dataclass(frozen=True)
+class UpdateSudoCredentials:
+    """Расшифрованная sudo-учётка для перезапуска служб."""
+
+    username: str
+    password: str
+
+    def __repr__(self) -> str:
+        return (
+            f"UpdateSudoCredentials(username={self.username!r}, password='***')"
         )
 
 
@@ -160,10 +183,9 @@ def save_discovery_credentials(
 
 
 def get_update_sudo_user() -> str:
-    """Linux-пользователь для sudo -u при перезапуске служб после обновления.
+    """Linux-пользователь для перезапуска служб после обновления.
 
-    Сначала app_settings, иначе UPDATE_SUDO_USER из окружения. Пустая
-    строка — sudo без -u (цель по умолчанию root).
+    Сначала app_settings, иначе UPDATE_SUDO_USER из окружения.
     """
     stored = (_get_setting(UPDATE_SUDO_USER_KEY) or "").strip()
     if stored:
@@ -171,17 +193,66 @@ def get_update_sudo_user() -> str:
     return str(current_app.config.get("UPDATE_SUDO_USER") or "").strip()
 
 
-def set_update_sudo_user(value: str) -> str:
-    """Сохраняет sudo-пользователя. Пустое значение очищает ключ в БД."""
-    value = (value or "").strip()
-    if value and not _LINUX_USER.fullmatch(value):
+def get_update_sudo_view() -> UpdateSudoView:
+    """Имя из БД и флаг «пароль уже задан» — без env-fallback и без расшифровки."""
+    stored = (_get_setting(UPDATE_SUDO_USER_KEY) or "").strip()
+    return UpdateSudoView(
+        username=stored,
+        password_set=bool((_get_setting(UPDATE_SUDO_PASSWORD_KEY) or "").strip()),
+    )
+
+
+def get_update_sudo_credentials() -> UpdateSudoCredentials:
+    """Учётка для перезапуска: пользователь и пароль (пароль может быть пустым)."""
+    username = get_update_sudo_user()
+    token = (_get_setting(UPDATE_SUDO_PASSWORD_KEY) or "").strip()
+    password = decrypt(token) if token else ""
+    return UpdateSudoCredentials(username=username, password=password)
+
+
+def save_update_sudo_credentials(username: str, password: str | None) -> UpdateSudoView:
+    """Сохраняет sudo-учётку. Пустой логин очищает и логин, и пароль.
+
+    Пустой пароль при уже заданном логине оставляет прежний шифротекст.
+    Пароль без логина допускается (при перезапуске подставится root).
+    """
+    username = (username or "").strip()
+    password = password or ""
+
+    if username and not _LINUX_USER.fullmatch(username):
         raise UpdateSudoUserError(
             "Sudo-пользователь: только латиница в нижнем регистре, цифры, "
             "_ и - (как имя Linux-учётки), до 32 символов."
         )
-    _set_setting(UPDATE_SUDO_USER_KEY, value)
+
+    if not username:
+        if password:
+            raise UpdateSudoUserError(
+                "Укажите sudo-пользователя или очистите и логин, и пароль."
+            )
+        _set_setting(UPDATE_SUDO_USER_KEY, "")
+        _set_setting(UPDATE_SUDO_PASSWORD_KEY, "")
+        db.session.commit()
+        return get_update_sudo_view()
+
+    existing = (_get_setting(UPDATE_SUDO_PASSWORD_KEY) or "").strip()
+    if password:
+        token = encrypt(password)
+    elif existing:
+        token = existing
+    else:
+        token = ""
+
+    _set_setting(UPDATE_SUDO_USER_KEY, username)
+    _set_setting(UPDATE_SUDO_PASSWORD_KEY, token)
     db.session.commit()
-    return value
+    return get_update_sudo_view()
+
+
+def set_update_sudo_user(value: str) -> str:
+    """Сохраняет только имя; пароль не трогает. Для совместимости."""
+    view = save_update_sudo_credentials(value, "")
+    return view.username
 
 
 def _get_setting(key: str) -> str | None:

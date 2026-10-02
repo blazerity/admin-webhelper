@@ -14,8 +14,11 @@ from app.services.settings_service import (
     get_discovery_credential_view,
     get_poll_interval_seconds,
     get_stored_discovery_credentials,
+    get_update_sudo_credentials,
     get_update_sudo_user,
+    get_update_sudo_view,
     save_discovery_credentials,
+    save_update_sudo_credentials,
     set_poll_interval_seconds,
     set_update_sudo_user,
 )
@@ -168,3 +171,33 @@ def test_update_sudo_user_rejects_bad_names(app):
                 assert False, f"ожидали ошибку для {bad!r}"
             except UpdateSudoUserError:
                 pass
+
+
+def test_update_sudo_password_is_stored_encrypted(app):
+    with app.app_context():
+        view = save_update_sudo_credentials("root", "RootSecret!")
+        assert view.username == "root"
+        assert view.password_set is True
+        assert "RootSecret!" not in repr(get_update_sudo_view())
+
+        creds = get_update_sudo_credentials()
+        assert creds.username == "root"
+        assert creds.password == "RootSecret!"
+        assert "RootSecret!" not in repr(creds)
+
+        save_update_sudo_credentials("root", "")
+        assert get_update_sudo_credentials().password == "RootSecret!"
+
+        save_update_sudo_credentials("", "")
+        cleared = get_update_sudo_view()
+        assert cleared.username == ""
+        assert cleared.password_set is False
+
+
+def test_update_sudo_password_without_user_rejected(app):
+    with app.app_context():
+        try:
+            save_update_sudo_credentials("", "secret")
+            assert False, "ожидали UpdateSudoUserError"
+        except UpdateSudoUserError:
+            pass

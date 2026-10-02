@@ -117,22 +117,29 @@
 </div>
 <div class="panel content-card">
   <h2 class="h5">Обновление из git</h2>
-  <p class="text-muted">Новая версия скачивается из публичного репозитория. Перед заменой кода всегда создаётся копия для отката. После замены службы перезапускаются через <code>sudo -n</code>{% if update_sudo_user %} <code>-u {{ update_sudo_user }}</code>{% endif %}.</p>
-  <form method="post" class="mb-3">
+  <p class="text-muted">Новая версия скачивается из публичного репозитория. Перед заменой кода всегда создаётся копия для отката. После замены службы перезапускаются от sudo-учётки ниже.</p>
+  <form method="post" class="mb-3" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form" value="update">
-    <label class="form-label" for="update_sudo_user">Sudo-пользователь</label>
-    <div class="row align-items-end">
+    <div class="row">
       <div class="col-md-4 mb-3">
+        <label class="form-label" for="update_sudo_user">Sudo-пользователь</label>
         <input class="form-control" id="update_sudo_user" name="update_sudo_user" value="{{ update_sudo_user|default('') }}" placeholder="root" autocomplete="off" spellcheck="false">
       </div>
-      <div class="col-md-auto mb-3">
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="update_sudo_password">Пароль</label>
+        <input class="form-control" id="update_sudo_password" name="update_sudo_password" type="password" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if update_sudo_password_set else 'пароль Linux-учётки' }}">
+      </div>
+      <div class="col-md-auto mb-3 d-flex align-items-end">
         <button class="btn btn-primary" type="submit">Сохранить</button>
       </div>
     </div>
-    <p class="text-muted small mb-0">Linux-учётка, от имени которой вызывается <code>systemctl restart bawh-scheduler bawh-web</code>. Пусто — цель sudo по умолчанию (root). Нужно правило без пароля, например:<br>
-      <code>bawh ALL=({{ update_sudo_user or 'root' }}) NOPASSWD: /usr/bin/systemctl restart bawh-scheduler bawh-web</code><br>
-      Файл: <code>deploy/bawh-update.sudoers</code> → <code>/etc/sudoers.d/bawh-update</code>.</p>
+    <p class="text-muted small mb-0">
+      Linux-учётка с правом перезапускать службы (обычно <code>root</code>).
+      Пароль шифруется Fernet (ключ — <code>FERNET_KEY</code>) и при обновлении передаётся в <code>su</code> — отдельный sudoers не нужен.
+      Без пароля остаётся вариант <code>sudo -n</code> и файл <code>deploy/bawh-update.sudoers</code>.
+      Пустой логин очищает учётку.
+    </p>
   </form>
   <a class="btn btn-outline-primary" href="{{ url_for('admin.updates') }}">Открыть обновления</a>
 </div>
