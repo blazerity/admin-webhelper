@@ -8,6 +8,7 @@
 <div class="panel content-card"><p class="mb-0">Устройство не передано в шаблон.</p></div>
 {% else %}
 {% set tab = tab or 'overview' %}
+{% set account_rows = account_rows or [] %}
 <div class="device-settings-layout">
   <div class="device-settings-content">
     <div class="page-header">
@@ -16,6 +17,7 @@
         <h1 class="page-title">Карточка устройства</h1>
         <p class="page-subtitle">
           {% if tab == 'overview' %}Обзор объекта в инвентаре сети
+          {% elif tab == 'accounts' %}Учётные записи на этом устройстве
           {% elif tab == 'commands' %}Командная строка и скрипты
           {% else %}Результаты опросов доступности
           {% endif %}
@@ -53,6 +55,16 @@
             <dd>{{ device.sector.name }}</dd>
           </div>
           <div>
+            <dt>Текущая УЗ</dt>
+            <dd>
+              {% if device.current_account %}
+              <a class="font-monospace" href="{{ url_for('accounts.detail', account_id=device.current_account.id) }}">{{ device.current_account.account_key }}</a>
+              {% else %}
+              —
+              {% endif %}
+            </dd>
+          </div>
+          <div>
             <dt>Последний ответ</dt>
             <dd>{{ device.last_seen|dt }}</dd>
           </div>
@@ -64,9 +76,62 @@
             <dt>Статус</dt>
             <dd>{{ status_badge(device.last_status) }}</dd>
           </div>
+          <div>
+            <dt>УЗ замечена</dt>
+            <dd>{{ device.current_account_seen_at|dt }}</dd>
+          </div>
         </dl>
       </div>
     </article>
+
+    {% elif tab == 'accounts' %}
+    <div class="panel content-card mb-3">
+      <h2 class="panel-title mb-1">Сейчас авторизован</h2>
+      <p class="panel-hint mb-3">УЗ по последнему успешному WMI-опросу</p>
+      {% if device.current_account %}
+      <p class="mb-1">
+        <a class="font-monospace fs-5" href="{{ url_for('accounts.detail', account_id=device.current_account.id) }}">{{ device.current_account.account_key }}</a>
+      </p>
+      {% if device.current_account.display_name %}
+      <p class="text-muted mb-1">{{ device.current_account.display_name }}</p>
+      {% endif %}
+      <p class="mb-0 text-muted">Замечена: {{ device.current_account_seen_at|dt }}</p>
+      {% else %}
+      <p class="mb-0 text-muted">Сейчас на устройстве никто не замечен (или WMI ещё не отвечал).</p>
+      {% endif %}
+    </div>
+
+    <div class="panel content-card p-0 overflow-hidden">
+      <div class="px-3 pt-3 pb-2 d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div>
+          <h2 class="panel-title">История УЗ</h2>
+          <p class="panel-hint mb-0">Кого замечали на этом ПК{% if not show_all %} — последние {{ list_limit }}{% endif %}</p>
+        </div>
+        {% if has_more %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('devices.detail', device_id=device.id, tab='accounts', all=1) }}">Показать все</a>
+        {% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Время</th><th>Учётка</th><th>Сырое значение</th></tr></thead>
+          <tbody>
+          {% for row in account_rows %}
+            <tr>
+              <td class="text-nowrap">{{ row.seen_at|dt }}</td>
+              <td>
+                {% if row.account %}
+                <a class="font-monospace" href="{{ url_for('accounts.detail', account_id=row.account.id) }}">{{ row.account.account_key }}</a>
+                {% else %}—{% endif %}
+              </td>
+              <td class="font-monospace">{{ row.raw_value or '—' }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="3" class="text-muted">Появлений УЗ ещё не записывали.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
 
     {% elif tab == 'commands' %}
     <div class="panel content-card device-actions-panel mb-3">
@@ -147,6 +212,8 @@
     <nav class="settings-nav">
       <a class="settings-nav-link{% if tab == 'overview' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='overview') }}">Обзор</a>
+      <a class="settings-nav-link{% if tab == 'accounts' %} active{% endif %}"
+         href="{{ url_for('devices.detail', device_id=device.id, tab='accounts') }}">Учётные записи</a>
       <a class="settings-nav-link{% if tab == 'commands' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Командная строка и скрипты</a>
       <a class="settings-nav-link{% if tab == 'polls' %} active{% endif %}"

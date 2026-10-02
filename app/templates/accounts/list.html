@@ -1,0 +1,48 @@
+{% extends "layouts/settings.html" %}
+{% block title %}Учётные записи{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Учётные записи</h1>
+    <p class="page-subtitle">Справочник УЗ, замеченных на устройствах сети</p>
+  </div>
+</div>
+
+<form class="panel content-card mb-3" method="get" action="{{ url_for('accounts.list_accounts') }}">
+  <label class="form-label" for="account-q">Поиск</label>
+  <div class="d-flex flex-wrap gap-2">
+    <input class="form-control" style="max-width: 22rem" id="account-q" name="q"
+           value="{{ search_query }}" placeholder="логин, домен или ФИО" autocomplete="off">
+    <button class="btn btn-primary" type="submit">Найти</button>
+  </div>
+</form>
+
+<div class="panel content-card p-0 overflow-hidden">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>Учётка</th>
+          <th>Отображаемое имя</th>
+          <th>Первый раз</th>
+          <th>Последний раз</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for account in accounts %}
+        <tr>
+          <td>
+            <a class="font-monospace" href="{{ url_for('accounts.detail', account_id=account.id) }}">{{ account.account_key }}</a>
+          </td>
+          <td>{{ account.display_name or '—' }}</td>
+          <td class="text-nowrap">{{ account.first_seen_at|dt }}</td>
+          <td class="text-nowrap">{{ account.last_seen_at|dt }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="text-muted">Пока никто не замечен на доступных устройствах.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

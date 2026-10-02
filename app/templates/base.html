@@ -22,7 +22,7 @@
         <div class="collapse app-nav-collapse" id="app-nav">
           <nav class="app-nav" aria-label="Основное меню">
             {% set ep = request.endpoint or '' %}
-            {% set settings_active = ep.startswith('sectors.') or ep.startswith('scripts.') or ep.startswith('admin.') %}
+            {% set settings_active = ep.startswith('sectors.') or ep.startswith('scripts.') or ep.startswith('admin.') or ep.startswith('accounts.') or ep.startswith('actions.') %}
             <a class="app-nav-link{% if ep == 'devices.map' or ep == 'devices.detail' %} active{% endif %}" href="{{ url_for('devices.map') }}">Карта сети</a>
             <a class="app-nav-link{% if settings_active %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Настройки</a>
           </nav>

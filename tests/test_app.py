@@ -156,9 +156,12 @@ def test_device_detail_shows_object_card(client, app, admin_id):
     assert ">MAC<" in html or ">MAC</" in html or "MAC" in html
     assert "10.0.0.1" in html
     assert "Обзор" in html
+    assert "Учётные записи" in html
     assert "Командная строка и скрипты" in html
     assert "Результаты опросов" in html
+    assert "Текущая УЗ" in html
     assert f"/devices/{device_ids[0]}?tab=overview" in html
+    assert f"/devices/{device_ids[0]}?tab=accounts" in html
     assert f"/devices/{device_ids[0]}?tab=commands" in html
     assert f"/devices/{device_ids[0]}?tab=polls" in html
     # Overview: object card only — no history tables or command form.

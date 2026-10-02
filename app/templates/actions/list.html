@@ -1,0 +1,71 @@
+{% extends "layouts/settings.html" %}
+{% block title %}Действия{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Действия в системе</h1>
+    <p class="page-subtitle">Справочник типов и недавние события на доступных устройствах</p>
+  </div>
+</div>
+
+<div class="panel content-card mb-3">
+  <h2 class="panel-title mb-1">Типы действий</h2>
+  <p class="panel-hint mb-3">Справочник кодов, которыми помечены события</p>
+  <div class="action-kind-grid">
+    {% for kind in action_kinds %}
+    <div class="action-kind-item">
+      <p class="action-kind-code font-monospace">{{ kind.code }}</p>
+      <p class="action-kind-title">{{ kind.title }}</p>
+      <p class="action-kind-desc">{{ kind.description }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel content-card p-0 overflow-hidden">
+  <div class="px-3 pt-3 pb-2">
+    <h2 class="panel-title">Недавние события</h2>
+    <p class="panel-hint mb-0">Запуски на устройствах и обнаружения УЗ</p>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>Время</th>
+          <th>Тип</th>
+          <th>Событие</th>
+          <th>Устройство</th>
+          <th>Кто</th>
+          <th>Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in actions %}
+        <tr>
+          <td class="text-nowrap">{{ item.when|dt }}</td>
+          <td>{{ item.kind_title }}</td>
+          <td>
+            {% if item.url %}
+            <a href="{{ item.url }}">{{ item.title }}</a>
+            {% else %}
+            {{ item.title }}
+            {% endif %}
+          </td>
+          <td>
+            {% if item.device_id %}
+            <a href="{{ url_for('devices.detail', device_id=item.device_id) }}">{{ item.device_label or ('#' ~ item.device_id) }}</a>
+            {% else %}
+            —
+            {% endif %}
+          </td>
+          <td>{{ item.actor or '—' }}</td>
+          <td>{{ item.status }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-muted">Событий пока нет.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
