@@ -108,6 +108,8 @@ A2: autocomplete dropdown на карте, дергает suggest (fallback `/se
 
 ## IA навигации (A1 фиксирует в ADR; A2 реализует)
 
+**Спека (W1-01 Done):** [`docs/adr/001-operator-navigation.md`](../adr/001-operator-navigation.md).
+
 **Topbar (оператор):**
 
 1. Карта сети → `devices.map`
@@ -115,16 +117,11 @@ A2: autocomplete dropdown на карте, дергает suggest (fallback `/se
 3. Учётные записи → `accounts.list_accounts`
 4. Скрипты → `scripts.list_scripts` (**только admin**; non-admin пункт скрыт)
 5. Пароли AD (отчёт) → `password_expiry.dashboard` (**только admin**)
+6. Настройки → `sectors.list_sectors` (вход в settings-layout)
 
-Пункт «Настройки» остаётся входом в settings-layout → по умолчанию Сектора или Параметры.
+**Settings sidebar:** Сектора, Параметры, Обновления, Экран входа, Пароли AD (settings). **Убрать** Действия / УЗ / Скрипты (они в topbar). Non-admin: topbar Карта + Действия + УЗ + Настройки(сектора); в sidebar только Сектора.
 
-**Settings sidebar (админские + справочники, которые ушли из topbar не полностью):**
-
-Убрать из sidebar дубли того, что вынесено в topbar **или** оставить как вторичные ссылки — решение A1 в ADR. Рекомендация координатора: **в sidebar оставить** Сектора, Параметры, Обновления, Экран входа, Пароли AD (settings); **убрать из sidebar** Действия / УЗ / Скрипты (они в topbar), чтобы не дублировать. Non-admin: topbar Карта + Действия + УЗ + Настройки(сектора?).
-
-Non-admin сегодня видит Сектора/УЗ/Действия через Настройки — после W1 они в topbar; «Настройки» для non-admin может вести на список секторов.
-
-Старые URL не удалять.
+Старые URL не удалять. Active-state — в ADR §6.
 
 ---
 

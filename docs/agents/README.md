@@ -43,7 +43,7 @@ T2  A1: W1-10 review, VERSION, merge-готовность
 
 | Контракт | Владелец | Потребитель | Суть |
 | --- | --- | --- | --- |
-| IA навигации | A1 | A2 | какие пункты в topbar, какие в settings-layout |
+| IA навигации | A1 | A2 | [`docs/adr/001-operator-navigation.md`](../adr/001-operator-navigation.md) — topbar vs settings, active-state |
 | JSON сводки сети | A3 | A2 | counts online/offline, last poll, failed runs |
 | `/search/suggest` | A3 (alias к `/search/api`) | A2 | autocomplete на карте |
 | Пресеты команд | A3 (данные + context) | A2 (UI) | константа/seed, не хардкод только в HTML |
