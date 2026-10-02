@@ -34,6 +34,7 @@ from app.services.credential_service import (
     save_remote_admin_credentials,
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
+from app.services.network_summary_service import get_scheduler_health
 from app.services.ping_service import (
     PollInProgressError,
     load_recent_poll_runs,
@@ -166,6 +167,7 @@ def settings():
         discovery_password_set=discovery.password_set,
         poll_interval=get_poll_interval_seconds(),
         poll_runs=load_recent_poll_runs(),
+        scheduler_health=get_scheduler_health(),
         update_sudo_user=update_sudo.username,
         update_sudo_password_set=update_sudo.password_set,
     )
