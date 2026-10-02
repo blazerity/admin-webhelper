@@ -821,6 +821,17 @@ code {
   word-break: break-word;
 }
 
+.device-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.device-settings-sidebar .settings-nav-link.active {
+  box-shadow: inset -3px 0 0 var(--accent);
+}
+
 .device-detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -831,6 +842,10 @@ code {
 .device-actions-panel {
   position: sticky;
   top: calc(var(--topbar-h) + 1rem);
+}
+
+.device-settings-content .device-actions-panel {
+  position: static;
 }
 
 .device-actions {
@@ -881,8 +896,23 @@ code {
     grid-template-columns: 1fr;
   }
 
-  .device-detail-layout {
+  .device-detail-layout,
+  .device-settings-layout {
     grid-template-columns: 1fr;
+  }
+
+  .device-settings-sidebar {
+    position: static;
+    order: -1;
+  }
+
+  .device-settings-sidebar .settings-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .device-settings-sidebar .settings-nav-link.active {
+    box-shadow: inset 0 -3px 0 var(--accent);
   }
 
   .device-actions-panel {

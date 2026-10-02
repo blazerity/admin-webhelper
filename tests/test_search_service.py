@@ -244,11 +244,26 @@ def test_detail_own_device_shows_newest_history(app, client, alice_id):
         device_id = device.id
 
     _login(client, alice_id)
-    response = client.get(f"/devices/{device_id}")
+
+    overview = client.get(f"/devices/{device_id}")
+    assert overview.status_code == 200
+    overview_html = overview.get_data(as_text=True)
+    assert "10.4.4.4" in overview_html
+    assert "Склад" in overview_html
+    assert "4242" not in overview_html
+
+    response = client.get(f"/devices/{device_id}?tab=polls")
     assert response.status_code == 200
     text = response.get_data(as_text=True)
-    assert "10.4.4.4" in text
-    assert "Склад" in text
     assert "4242" in text
     assert "7777" not in text
-    assert text.count("недоступен") == 20
+    assert "Показать все" in text
+    assert text.count("недоступен") == 5
+
+    all_response = client.get(f"/devices/{device_id}?tab=polls&all=1")
+    assert all_response.status_code == 200
+    all_text = all_response.get_data(as_text=True)
+    assert "4242" in all_text
+    assert "7777" in all_text
+    assert "Показать все" not in all_text
+    assert all_text.count("недоступен") == 21

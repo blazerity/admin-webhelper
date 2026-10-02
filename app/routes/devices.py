@@ -26,6 +26,10 @@ _RUN_TYPE_LABELS = {
     RunType.SCRIPT: "Скрипт",
 }
 
+_DETAIL_TABS = frozenset({"overview", "commands", "polls"})
+_DEFAULT_LIST_LIMIT = 5
+_ALL_LIST_LIMIT = 50
+
 
 def _load_visible_sectors():
     """Секторы текущего пользователя с устройствами, отсортированными по IP.
@@ -135,42 +139,88 @@ def _launch_label(item: ScriptRun) -> str:
     return kind
 
 
-def _launch_history(device_id: int) -> list[dict]:
-    """Последние запуски на устройстве: ping, tracert, команды и скрипты."""
+def _list_limit() -> tuple[int, bool]:
+    """(limit, show_all) — по умолчанию 5, при all=1 — расширенный список."""
+    show_all = (request.args.get("all") or "").strip() in {"1", "true", "yes"}
+    return (_ALL_LIST_LIMIT if show_all else _DEFAULT_LIST_LIMIT, show_all)
+
+
+def _detail_tab() -> str:
+    tab = (request.args.get("tab") or "overview").strip().lower()
+    if tab not in _DETAIL_TABS:
+        return "overview"
+    return tab
+
+
+def _launch_history(
+    device_id: int, run_types: tuple[str, ...], limit: int
+) -> tuple[list[dict], bool]:
+    """Последние запуски на устройстве заданных типов.
+
+    Возвращает (items, has_more). При урезанном списке читаем limit+1,
+    чтобы понять, есть ли ещё записи для кнопки «Показать все».
+    """
     rows = (
         ScriptRun.query.options(selectinload(ScriptRun.script))
-        .filter(ScriptRun.device_id == device_id)
+        .filter(
+            ScriptRun.device_id == device_id,
+            ScriptRun.run_type.in_(run_types),
+        )
         .order_by(ScriptRun.started_at.desc(), ScriptRun.id.desc())
-        .limit(30)
+        .limit(limit + 1)
         .all()
     )
-    return [
+    has_more = len(rows) > limit
+    items = [
         {
             "run": item,
             "label": _launch_label(item),
             "status_label": _RUN_STATUS_LABELS.get(item.status, item.status),
             "when": _format_run_when(item.started_at),
         }
-        for item in rows
+        for item in rows[:limit]
     ]
+    return items, has_more
 
 
 @bp.get("/devices/<int:device_id>")
 @login_required
 def detail(device_id: int):
-    """Карточка устройства: история слева, действия справа."""
+    """Карточка устройства: вкладки overview / commands / polls."""
     device = get_visible_device_or_404(device_id)
     if device.sector is None:
         abort(404)
-    history = (
-        DeviceHistory.query.filter_by(device_id=device.id)
-        .order_by(DeviceHistory.timestamp.desc())
-        .limit(20)
-        .all()
-    )
+
+    tab = _detail_tab()
+    limit, show_all = _list_limit()
+
+    history = []
+    launches = []
+    has_more = False
+    if tab == "polls":
+        rows = (
+            DeviceHistory.query.filter_by(device_id=device.id)
+            .order_by(DeviceHistory.timestamp.desc())
+            .limit(limit + 1)
+            .all()
+        )
+        has_more = (not show_all) and len(rows) > limit
+        history = rows[:limit]
+    elif tab == "commands":
+        launches, more = _launch_history(
+            device.id,
+            (RunType.COMMAND, RunType.SCRIPT),
+            limit,
+        )
+        has_more = (not show_all) and more
+
     return render_template(
         "devices/detail.html",
         device=device,
+        tab=tab,
+        show_all=show_all,
+        has_more=has_more,
+        list_limit=limit,
         history=history,
-        launches=_launch_history(device.id),
+        launches=launches,
     )
