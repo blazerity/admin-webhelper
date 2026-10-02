@@ -127,6 +127,35 @@ def test_search_api_returns_accessible_devices(app, client, alice_id):
     assert f"/devices/{mine_id}" in items[0]["url"]
 
 
+def test_search_suggest_alias_matches_api(app, client, alice_id):
+    """GET /search/suggest — тот же JSON, что /search/api."""
+    with app.app_context():
+        own = _sector("Склад", "alice")
+        other = _sector("Офис", "bob")
+        mine = _device(ip="10.0.0.5", sector=own, hostname="printer")
+        _device(ip="10.0.0.6", sector=other, hostname="printer")
+        db.session.commit()
+        mine_id = mine.id
+
+    _login(client, alice_id)
+    api = client.get("/search/api", query_string={"q": "printer"}).get_json()
+    suggest = client.get("/search/suggest", query_string={"q": "printer"})
+    assert suggest.status_code == 200
+    items = suggest.get_json()
+    assert items == api
+    assert len(items) == 1
+    assert items[0]["id"] == mine_id
+    assert items[0]["status"]
+    assert f"/devices/{mine_id}" in items[0]["url"]
+
+
+def test_search_suggest_requires_login(client):
+    assert client.get("/search/suggest", query_string={"q": "x"}).status_code in {
+        302,
+        401,
+    }
+
+
 def test_map_search_query_embeds_matching_device_ids(app, client, alice_id):
     """При ?q= страница отдаёт id совпадений для фильтрации секторов в JS."""
     with app.app_context():

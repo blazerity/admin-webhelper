@@ -22,9 +22,12 @@
         <div class="collapse app-nav-collapse" id="app-nav">
           <nav class="app-nav" aria-label="Основное меню">
             {% set ep = request.endpoint or '' %}
-            {% set settings_active = ep.startswith('sectors.') or ep.startswith('scripts.') or ep.startswith('admin.') or ep.startswith('accounts.') or ep.startswith('actions.') or ep == 'password_expiry.settings_page' or ep.startswith('login_services.') %}
+            {% set settings_active = ep.startswith('sectors.') or ep.startswith('admin.') or ep.startswith('login_services.') or ep == 'password_expiry.settings_page' %}
             <a class="app-nav-link{% if ep == 'devices.map' or ep == 'devices.detail' %} active{% endif %}" href="{{ url_for('devices.map') }}">Карта сети</a>
+            <a class="app-nav-link{% if ep.startswith('actions.') %} active{% endif %}" href="{{ url_for('actions.list_actions') }}">Действия</a>
+            <a class="app-nav-link{% if ep.startswith('accounts.') %} active{% endif %}" href="{{ url_for('accounts.list_accounts') }}">Учётные записи</a>
             {% if current_user.is_admin %}
+            <a class="app-nav-link{% if ep.startswith('scripts.') %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
             <a class="app-nav-link{% if ep.startswith('password_expiry.') and ep != 'password_expiry.settings_page' %} active{% endif %}" href="{{ url_for('password_expiry.dashboard') }}">Пароли AD</a>
             {% endif %}
             <a class="app-nav-link{% if settings_active %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Настройки</a>
