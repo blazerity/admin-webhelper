@@ -27,6 +27,17 @@ def admin_required(view):
     return wrapper
 
 
+def user_can_run_scripts(user) -> bool:
+    """Может ли пользователь запускать/управлять скриптами библиотеки.
+
+    W1: только admin (`is_admin`). W3 расширит для operator
+    (опубликованные скрипты на доступных секторах) — см. docs/adr/002-authz-v2.md.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    return bool(getattr(user, "is_admin", False))
+
+
 def accessible_sectors_query(user):
     if user.is_admin:
         return Sector.query
