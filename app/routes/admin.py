@@ -1,8 +1,9 @@
 """Настройки администратора: учётка PsExec, WMI discovery, опрос, обновление.
 
 Эндпоинты:
-- settings   GET/POST /admin/settings
-- updates    GET/POST /admin/updates
+- settings      GET/POST /admin/settings
+- poll-run      POST /admin/poll-run — принудительный опрос сети
+- updates       GET/POST /admin/updates
 
 Формы на странице настроек различаются скрытым полем form:
 psexec, discovery или poll. Открытый пароль в шаблон и во flash не попадает.
@@ -14,9 +15,14 @@ PsExec: учётка только текущего администратора.
 Discovery: глобальная учётка WMI для опроса (серийник / MAC / текущая УЗ).
 Пароль — Fernet в app_settings. Пустые поля отключают WMI (или оставляют .env).
 
+Опрос: интервал в app_settings; журнал прогонов — network_poll_runs;
+кнопка «Запустить сейчас» вызывает ту же run_network_poll, что и планировщик.
+
 Обновление — отдельные кнопки на /admin/updates. Замена кода
 начинается только после резервной копии, см. update_service.
 """
+
+import logging
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user
@@ -28,6 +34,11 @@ from app.services.credential_service import (
     save_remote_admin_credentials,
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
+from app.services.ping_service import (
+    PollInProgressError,
+    load_recent_poll_runs,
+    run_network_poll,
+)
 from app.services.settings_service import (
     DiscoveryCredentialsError,
     get_discovery_credential_view,
@@ -36,6 +47,8 @@ from app.services.settings_service import (
     set_poll_interval_seconds,
 )
 from app.services.update_service import UpdateError, begin_rollback, begin_update, build_page, check_for_updates
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -124,7 +137,30 @@ def settings():
         discovery_domain=discovery.domain,
         discovery_password_set=discovery.password_set,
         poll_interval=get_poll_interval_seconds(),
+        poll_runs=load_recent_poll_runs(),
     )
+
+
+@bp.route("/poll-run", methods=["POST"])
+@admin_required
+def poll_run():
+    """Принудительный полный опрос сети (тот же код, что у планировщика)."""
+    try:
+        stats = run_network_poll(mode="manual")
+    except PollInProgressError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("admin.settings"))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Сбой ручного опроса сети")
+        flash(f"Ошибка опроса: {exc}", "danger")
+        return redirect(url_for("admin.settings"))
+
+    flash(
+        "Опрос завершён: проверено {scanned}, онлайн {online}, "
+        "офлайн {offline}, ошибок {errors}.".format(**stats),
+        "success",
+    )
+    return redirect(url_for("admin.settings"))
 
 
 @bp.route("/updates", methods=["GET", "POST"])

@@ -26,7 +26,7 @@ from app.services.password_expiry_settings import (
     DEFAULT_SCHEDULE_CRON,
     get_password_expiry_settings,
 )
-from app.services.ping_service import poll_all_sectors
+from app.services.ping_service import PollInProgressError, run_network_poll
 from app.services.settings_service import get_poll_interval_seconds
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def register_commands(app) -> None:
             # flask уже открывает контекст, но опрос обязан работать и тогда,
             # когда команду вызовут не из CLI. Вложенный контекст это не ломает.
             with app.app_context():
-                stats = poll_all_sectors()
+                stats = run_network_poll(mode="cli")
                 print(stats)
 
     if "archive-logs" not in app.cli.commands:
@@ -137,7 +137,11 @@ def start_scheduler(app) -> BackgroundScheduler:
         # У планировщика нет HTTP-запроса, который открыл бы контекст сам.
         with app.app_context():
             try:
-                poll_all_sectors()
+                run_network_poll(mode="scheduled")
+            except PollInProgressError as exc:
+                logger.warning("Плановый опрос пропущен: %s", exc)
+            except Exception:
+                logger.exception("Сбой планового опроса сети")
             finally:
                 # Даже если опрос упал, интервал из формы должен примениться,
                 # а соединение с БД — вернуться в пул.

@@ -5,6 +5,7 @@ from app.models.action import ACTION_KIND_SEED, ActionKind, ActionKindCode, seed
 from app.models.device import Device, DeviceHistory, DeviceStatus
 from app.models.login_service import LoginService
 from app.models.password_expiry import PasswordExpiryRun, PasswordNotification
+from app.models.poll_run import NetworkPollRun
 from app.models.script import RunAs, RunStatus, RunType, Script, ScriptRun
 from app.models.sector import Sector, SectorAccess, SectorRange
 from app.models.setting import POLL_INTERVAL_KEY, AppSetting, RemoteCredential
@@ -21,6 +22,7 @@ __all__ = [
     "DeviceStatus",
     "EndpointAccount",
     "LoginService",
+    "NetworkPollRun",
     "PasswordExpiryRun",
     "PasswordNotification",
     "POLL_INTERVAL_KEY",
