@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.extensions import db
 from app.models import Device, DeviceHistory, Sector, SectorAccess, User
-from app.services.search_service import search_devices, suggest_devices
+from app.services.search_service import search_devices
 from app.utils import utcnow
 
 
@@ -52,7 +52,6 @@ def test_alice_finds_only_her_device_by_ip_fragment(app, alice_id):
         assert [item.ip for item in search_devices(alice, "ee:01")] == ["10.0.0.5"]
         assert search_devices(alice, "") == []
         assert search_devices(alice, "   ") == []
-        assert suggest_devices(alice, "1") == []
 
 
 def test_alice_does_not_see_foreign_hostname(app, alice_id):
@@ -83,34 +82,6 @@ def test_percent_is_literal_not_wildcard(app, alice_id):
 
         found = search_devices(alice, "10%")
         assert [item.id for item in found] == [literal.id]
-
-
-def test_suggest_url_points_at_device(app, client, alice_id):
-    with app.app_context():
-        own = _sector("Склад", "alice")
-        other = _sector("Офис", "bob")
-        mine = _device(
-            ip="10.0.0.5",
-            sector=own,
-            hostname="printer",
-            mac="AA:BB:CC:DD:EE:01",
-        )
-        foreign = _device(ip="10.0.0.6", sector=other, hostname="printer")
-        db.session.commit()
-        mine_id = mine.id
-        foreign_id = foreign.id
-
-    _login(client, alice_id)
-    response = client.get("/search/suggest", query_string={"q": "10.0"})
-    assert response.status_code == 200
-    items = response.get_json()
-    assert len(items) == 1
-    assert items[0]["label"] == "10.0.0.5  printer  AA:BB:CC:DD:EE:01"
-    assert f"/devices/{mine_id}" in items[0]["url"]
-    assert f"/devices/{foreign_id}" not in items[0]["url"]
-
-    short = client.get("/search/suggest", query_string={"q": "1"})
-    assert short.get_json() == []
 
 
 def test_search_page_redirects_to_map(app, client, alice_id):

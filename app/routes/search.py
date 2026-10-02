@@ -3,7 +3,7 @@
 from flask import Blueprint, jsonify, redirect, request, url_for
 from flask_login import current_user, login_required
 
-from app.services.search_service import search_devices, suggest_devices
+from app.services.search_service import search_devices
 from app.utils import parse_optional_int
 
 bp = Blueprint("search", __name__)
@@ -21,13 +21,6 @@ def search_page():
     if sector_id is not None:
         args["sector_id"] = sector_id
     return redirect(url_for("devices.map", **args))
-
-
-@bp.get("/search/suggest")
-@login_required
-def suggest():
-    query = request.args.get("q") or ""
-    return jsonify(suggest_devices(current_user, query))
 
 
 @bp.get("/search/api")
