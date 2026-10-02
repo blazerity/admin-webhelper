@@ -27,6 +27,10 @@ class Config:
 
     LOG_FILE = os.environ.get("LOG_FILE", "logs/bawh.log")
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+    # Суточные хвосты (bawh.log.YYYY-MM-DD) текущего месяца лежат рядом с LOG_FILE.
+    # Завершённые месяцы пакуются в LOG_ARCHIVE_DIR; старше N месяцев удаляются.
+    LOG_ARCHIVE_DIR = os.environ.get("LOG_ARCHIVE_DIR", "logs/archive")
+    LOG_ARCHIVE_KEEP_MONTHS = int(os.environ.get("LOG_ARCHIVE_KEEP_MONTHS", "12"))
 
     LDAP_HOST = os.environ.get("LDAP_HOST", "")
     LDAP_PORT = int(os.environ.get("LDAP_PORT", "636"))

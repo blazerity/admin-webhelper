@@ -14,7 +14,7 @@ bAWH/
     config.py             настройки из переменных окружения
     extensions.py         объекты Flask-расширений (БД, логин, CSRF, миграции)
     authz.py              кто какой сектор и устройство видит
-    logging_config.py     лог в файл и в stdout (stdout забирает journalctl)
+    logging_config.py     лог в файл (суточная ротация) и в stdout (journalctl)
     models/               таблицы
     services/             бизнес-логика без HTTP
     routes/               URL и формы (blueprints)
@@ -280,7 +280,21 @@ journalctl -u bawh-web -u bawh-scheduler -f
 systemctl status bawh-web bawh-scheduler
 ```
 
-Дополнительно пишется `logs/bawh.log` (`LOG_FILE`).
+Дополнительно пишется `logs/bawh.log` (`LOG_FILE`):
+
+| Файл | Что это |
+| --- | --- |
+| `logs/bawh.log` | текущий день |
+| `logs/bawh.log.YYYY-MM-DD` | суточный хвост (ротация около полуночи) |
+| `logs/archive/bawh-YYYY-MM.tar.gz` | упаковка завершённого месяца |
+
+Месячную упаковку делает `bawh-scheduler` раз в сутки (~00:20 UTC) или вручную:
+
+```bash
+cd /opt/bawh && sudo -u bawh .venv/bin/flask archive-logs
+```
+
+Срок хранения месячных архивов — `LOG_ARCHIVE_KEEP_MONTHS` (по умолчанию 12).
 
 #### 9. Обновление из веб-интерфейса
 
