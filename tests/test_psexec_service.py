@@ -9,7 +9,13 @@ from app.services.credential_service import (
     remember_login_password,
     save_remote_admin_credentials,
 )
-from app.services.psexec_service import RemoteExecError, run_remote_command, run_remote_script
+from app.services.psexec_service import (
+    RemoteExecError,
+    _decode,
+    _scrub,
+    run_remote_command,
+    run_remote_script,
+)
 from app.services.script_service import execute_run
 
 
@@ -169,3 +175,38 @@ def test_empty_command_is_rejected(app):
             with pytest.raises(RemoteExecError):
                 run_remote_command("10.1.1.5", "   ")
         client.assert_not_called()
+
+
+def test_decode_utf8_cyrillic():
+    assert _decode("Привет".encode("utf-8")) == "Привет"
+
+
+def test_decode_cp866_cyrillic():
+    assert _decode("Привет".encode("cp866")) == "Привет"
+
+
+def test_decode_cp1251_cyrillic():
+    assert _decode("Привет".encode("cp1251")) == "Привет"
+
+
+def test_decode_none_and_str_passthrough():
+    assert _decode(None) == ""
+    assert _decode("уже строка") == "уже строка"
+    assert _decode(b"") == ""
+
+
+def test_scrub_still_masks_password_after_decode(app, admin_id):
+    secret = "Sup3rSecret"
+    with app.app_context():
+        save_remote_admin_credentials("winadmin", "CORP", secret, admin_id)
+        # cp866-байты с паролем в тексте — после decode scrub должен сработать.
+        payload = f"auth failed: {secret}".encode("cp866")
+        created, fake = _fake_client(stdout=payload, stderr=None, rc=1)
+        with patch("pypsexec.client.Client", fake):
+            rc, output = run_remote_command("10.1.1.5", "echo fail", user_id=admin_id)
+        assert rc == 1
+        assert secret not in output
+        assert "***" in output
+        assert _scrub(_decode(payload), secret) == "auth failed: ***"
+        assert created[0].removed is True
+        assert created[0].disconnected is True

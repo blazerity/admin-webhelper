@@ -406,12 +406,41 @@ def _cleanup(client, ip: str, secret: str) -> bool:
     return ok
 
 
+# Кириллица в выводе cmd.exe: OEM (cp866) или ANSI (cp1251), реже UTF-8.
+_FALLBACK_ENCODINGS = ("cp866", "cp1251", "latin-1")
+
+
+def _cyrillic_count(text: str) -> int:
+    return sum(1 for ch in text if "\u0400" <= ch <= "\u04ff")
+
+
 def _decode(data) -> str:
+    """Декодирует байты удалённого cmd/PsExec: UTF-8, иначе cp866/cp1251."""
     if data is None:
         return ""
-    if isinstance(data, bytes):
-        return data.decode("utf-8", errors="replace")
-    return str(data)
+    if not isinstance(data, bytes):
+        return str(data)
+    if not data:
+        return ""
+
+    utf8_text = data.decode("utf-8", errors="replace")
+    if "\ufffd" not in utf8_text:
+        return utf8_text
+
+    best_text = utf8_text
+    # Меньше replacement, больше кириллицы, при равенстве — раньше в fallback.
+    best_key = (
+        utf8_text.count("\ufffd"),
+        -_cyrillic_count(utf8_text),
+        len(_FALLBACK_ENCODINGS),
+    )
+    for index, encoding in enumerate(_FALLBACK_ENCODINGS):
+        text = data.decode(encoding, errors="replace")
+        key = (text.count("\ufffd"), -_cyrillic_count(text), index)
+        if key < best_key:
+            best_key = key
+            best_text = text
+    return best_text
 
 
 def _combine(stdout, stderr) -> str:
