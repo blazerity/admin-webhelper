@@ -317,6 +317,8 @@ def execute_run(app, run_id: int) -> None:
             run.status = status
             run.finished_at = utcnow()
             db.session.commit()
+            if status == RunStatus.FAILED:
+                _notify_script_failed(run_id)
         except Exception as exc:
             # Сообщение уже без пароля: psexec_service вычищает его до исключения.
             logger.exception("Запуск %s завершился ошибкой", run_id)
@@ -465,9 +467,27 @@ def _mark_failed(app, run_id: int, exc: BaseException, cancel_event: threading.E
         run.finished_at = utcnow()
         run.log_text = clip(merged, limit)
         db.session.commit()
+        if run.status == RunStatus.FAILED:
+            _notify_script_failed(run_id)
     except Exception:
         logger.exception("Не удалось записать ошибку запуска %s", run_id)
         db.session.rollback()
+
+
+def _notify_script_failed(run_id: int) -> None:
+    """Nice-to-have: уведомить автора скрипта о failed run."""
+    try:
+        from app.services import notification_service
+
+        run = db.session.get(ScriptRun, run_id)
+        if run is not None:
+            notification_service.notify_script_failed(run)
+    except Exception:
+        logger.exception("Не удалось создать уведомление script_failed для %s", run_id)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
 
 
 def library_root() -> Path:

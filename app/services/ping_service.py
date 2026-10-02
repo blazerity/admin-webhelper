@@ -364,9 +364,26 @@ def run_network_poll(*, mode: str = "scheduled") -> dict[str, int]:
         run.offline = int(stats.get("offline") or 0)
         run.errors = int(stats.get("errors") or 0)
         db.session.commit()
+        _emit_watchlist_alerts()
         return stats
     finally:
         _poll_run_lock.release()
+
+
+def _emit_watchlist_alerts() -> None:
+    """После успешного опроса — offline-алерты watchlist (ошибки не роняют poll)."""
+    try:
+        from app.services.watchlist_service import evaluate_watchlist_alerts
+
+        created = evaluate_watchlist_alerts()
+        if created:
+            logger.info("Watchlist: создано уведомлений offline=%s", created)
+    except Exception:
+        logger.exception("Watchlist: не удалось оценить offline-алерты")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
 
 
 def _active_poll_run(now) -> NetworkPollRun | None:

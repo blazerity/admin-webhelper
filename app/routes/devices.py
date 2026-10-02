@@ -9,6 +9,7 @@ from app.authz import (
     admin_required,
     filter_accessible_devices,
     get_visible_device_or_404,
+    user_can_access_device,
     user_can_bulk_ping,
     user_can_bulk_script,
     user_can_run_script,
@@ -23,6 +24,7 @@ from app.services.command_presets import list_command_presets
 from app.services.network_summary_service import get_network_summary
 from app.services.search_service import search_devices
 from app.services import script_service
+from app.services import watchlist_service
 from app.utils import parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
@@ -386,6 +388,14 @@ def detail(device_id: int):
             query = query.filter(Script.is_published.is_(True))
         scripts = query.all()
 
+    watch_entry = watchlist_service.get_watch(current_user.id, device.id)
+    watching = watch_entry is not None
+    offline_minutes = (
+        watch_entry.offline_minutes
+        if watch_entry is not None
+        else watchlist_service.DEFAULT_OFFLINE_MINUTES
+    )
+
     return render_template(
         "devices/detail.html",
         device=device,
@@ -398,7 +408,40 @@ def detail(device_id: int):
         account_rows=account_rows,
         command_presets=command_presets,
         scripts=scripts,
+        watching=watching,
+        offline_minutes=offline_minutes,
     )
+
+
+@bp.post("/devices/<int:device_id>/watch")
+@login_required
+def watch_device(device_id: int):
+    """Добавить/обновить подписку на offline (form: offline_minutes, csrf)."""
+    device = db.session.get(Device, device_id)
+    if device is None:
+        abort(404)
+    if not user_can_access_device(current_user, device):
+        abort(403)
+    minutes = watchlist_service.normalize_offline_minutes(
+        request.form.get("offline_minutes")
+    )
+    watchlist_service.watch(current_user.id, device.id, offline_minutes=minutes)
+    flash(f"Устройство в watchlist (порог {minutes} мин).", "success")
+    return redirect(url_for("devices.detail", device_id=device.id))
+
+
+@bp.post("/devices/<int:device_id>/unwatch")
+@login_required
+def unwatch_device(device_id: int):
+    """Снять подписку с устройства."""
+    device = db.session.get(Device, device_id)
+    if device is None:
+        abort(404)
+    if not user_can_access_device(current_user, device):
+        abort(403)
+    watchlist_service.unwatch(current_user.id, device.id)
+    flash("Подписка снята.", "success")
+    return redirect(url_for("devices.detail", device_id=device.id))
 
 
 @bp.post("/devices/<int:device_id>/scripts/run")
