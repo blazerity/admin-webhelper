@@ -289,7 +289,7 @@ def test_login_post_redirects_and_creates_user(client, app, monkeypatch):
         groups=["bawh-admins"],
         is_admin=True,
     )
-    monkeypatch.setattr("app.routes.auth.authenticate", lambda username, password: identity)
+    monkeypatch.setattr("app.routes.auth.authenticate_ldap", lambda username, password: identity)
 
     response = client.post(
         "/login?next=/health",
@@ -319,7 +319,7 @@ def test_login_ignores_external_next(client, monkeypatch):
         groups=[],
         is_admin=False,
     )
-    monkeypatch.setattr("app.routes.auth.authenticate", lambda username, password: identity)
+    monkeypatch.setattr("app.routes.auth.authenticate_ldap", lambda username, password: identity)
 
     response = client.post(
         "/login?next=//evil.example/phish",
@@ -331,7 +331,7 @@ def test_login_ignores_external_next(client, monkeypatch):
 
 
 def test_login_failure_shows_message(client, app, monkeypatch):
-    monkeypatch.setattr("app.routes.auth.authenticate", lambda username, password: None)
+    monkeypatch.setattr("app.routes.auth.authenticate_ldap", lambda username, password: None)
     response = client.post("/login", data={"username": "alice", "password": "nope"})
     assert response.status_code == 200
     assert "Неверное имя или пароль." in response.get_data(as_text=True)

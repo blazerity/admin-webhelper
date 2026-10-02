@@ -61,7 +61,11 @@ def test_health(client):
 def test_login_page(client):
     response = client.get("/login")
     assert response.status_code == 200
-    assert "Имя пользователя" in response.get_data(as_text=True)
+    html = response.get_data(as_text=True)
+    assert "Имя пользователя" in html
+    assert "Способ входа" in html
+    assert 'value="ldap"' in html
+    assert 'value="local"' in html
 
 
 def test_map_requires_login(client):

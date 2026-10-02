@@ -42,6 +42,16 @@ class Config:
     LDAP_ADMIN_GROUP = os.environ.get("LDAP_ADMIN_GROUP", "bawh-admins")
     LDAP_DOMAIN = os.environ.get("LDAP_DOMAIN", "")
 
+    # Локальный вход (без AD). На проде по умолчанию выключен.
+    # На странице /login появляется выбор «LDAP / Локально».
+    LOCAL_AUTH_ENABLED = _flag("LOCAL_AUTH_ENABLED", "0")
+    LOCAL_ADMIN_USERNAME = os.environ.get("LOCAL_ADMIN_USERNAME", "testadmin").strip()
+    LOCAL_ADMIN_PASSWORD = os.environ.get("LOCAL_ADMIN_PASSWORD", "testadmin")
+    LOCAL_ADMIN_DISPLAY_NAME = os.environ.get(
+        "LOCAL_ADMIN_DISPLAY_NAME",
+        "Локальный администратор",
+    ).strip()
+
     POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "300"))
     MIN_CIDR_PREFIX = int(os.environ.get("MIN_CIDR_PREFIX", "22"))
     MAX_HOSTS_PER_POLL = int(os.environ.get("MAX_HOSTS_PER_POLL", "2048"))
@@ -89,12 +99,17 @@ class TestingConfig(Config):
     LDAP_BASE_DN = "DC=example,DC=com"
     LDAP_ADMIN_GROUP = "bawh-admins"
     LDAP_DOMAIN = "example.com"
+    LOCAL_AUTH_ENABLED = True
+    LOCAL_ADMIN_USERNAME = "testadmin"
+    LOCAL_ADMIN_PASSWORD = "testadmin"
     FERNET_KEY = os.environ.get("FERNET_KEY", "")
     UPDATE_RESTART = False
 
 
 class DevelopmentConfig(Config):
     DEBUG = True
+    # В разработке AD часто недоступен — локальный админ по умолчанию есть.
+    LOCAL_AUTH_ENABLED = _flag("LOCAL_AUTH_ENABLED", "1")
 
 
 CONFIGS = {

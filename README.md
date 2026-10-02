@@ -42,7 +42,7 @@ bAWH/
 
 Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0004_device_serial`).
 
-- `users`, `user_ldap_groups` — человек после входа через LDAP и его группы.
+- `users`, `user_ldap_groups` — человек после входа (LDAP или локально) и его группы; у локальных учёток — `password_hash`.
 - `sectors`, `sector_ranges`, `sector_access` — имя сектора, CIDR-диапазоны и кому он виден.
 - `devices`, `device_history` — машина и журнал опросов. Уникальность: `serial_number` (WMI), иначе hostname; IP — последний адрес.
 - `scripts`, `script_runs` — библиотека скриптов и журнал запусков (скрипт, ping, tracert, команда). У скрипта есть `run_as`: учётка PsExec или `NT AUTHORITY\SYSTEM`.
@@ -56,6 +56,7 @@ bAWH/
 - `credential_service.py` — учётка удалённого запуска для конкретного пользователя: `get_remote_admin_credentials`, `save_remote_admin_credentials`, `remember_login_password`.
 - `settings_service.py` — интервал опроса: `get_poll_interval_seconds`, `set_poll_interval_seconds`.
 - `ldap_service.py` — проверка пароля в LDAP и список групп.
+- `local_auth_service.py` — локальный вход и тестовый администратор (`LOCAL_AUTH_ENABLED`).
 - `sector_service.py` — создание и правка секторов.
 - `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
 - `discovery_service.py` — обратный DNS, MAC из ARP/WMI и серийник по WMI (`DISCOVERY_*` в `.env`).
@@ -79,7 +80,7 @@ bAWH/
 | `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>` (лог, отмена) |
 | `admin.py` | `GET/POST /admin/settings` — учётка PsExec текущего пользователя и интервал опроса; `GET/POST /admin/updates` — обновление из git и откат |
 
-`POST /login` проверяет пароль в LDAP и сохраняет зашифрованный пароль входа для возможного PsExec. Ping и трассировка стартуют с сервера приложения; команда и скрипт — через `psexec_service`. Страница `/scripts/runs/<id>` дочитывает лог опросом раз в 1,5 секунды.
+`POST /login` проверяет пароль в LDAP или локально (поле `auth_method`, по умолчанию LDAP) и сохраняет зашифрованный пароль входа для возможного PsExec. Ping и трассировка стартуют с сервера приложения; команда и скрипт — через `psexec_service`. Страница `/scripts/runs/<id>` дочитывает лог опросом раз в 1,5 секунды.
 
 ## Локальная разработка
 
@@ -145,6 +146,10 @@ flask --app wsgi db upgrade
 Вход через **ldap3** (чистый Python; `libldap` на сервере не нужен). Переменные: `LDAP_HOST`, `LDAP_PORT`, `LDAP_USE_SSL`, `LDAP_BASE_DN`, `LDAP_BIND_DN`, `LDAP_BIND_PASSWORD`, `LDAP_USER_FILTER`, `LDAP_ADMIN_GROUP`, `LDAP_DOMAIN`.
 
 `LDAP_HOST` может быть `ldap://...` / `ldaps://...` или голым хостом (тогда берутся `LDAP_PORT` и `LDAP_USE_SSL`). `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` можно оставить пустыми — группы читаются от имени вошедшего. Члены `LDAP_ADMIN_GROUP` (в образце `bawh-admins`) — администраторы приложения. `LDAP_DOMAIN` с точкой — UPN (`user@domain`); без точки — NetBIOS (`DOMAIN\user`).
+
+### Локальный вход
+
+`LOCAL_AUTH_ENABLED=1` добавляет на `/login` выбор **LDAP / Локально** (по умолчанию LDAP) и создаёт тестового администратора из `LOCAL_ADMIN_USERNAME` / `LOCAL_ADMIN_PASSWORD` (в образце `testadmin` / `testadmin`). В `DevelopmentConfig` и тестах локальный вход включён по умолчанию. На проде с рабочим AD оставьте `LOCAL_AUTH_ENABLED=0`.
 
 ### FERNET_KEY
 

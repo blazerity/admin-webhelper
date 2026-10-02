@@ -1,7 +1,9 @@
-"""Пользователи, вошедшие через LDAP.
+"""Пользователи приложения.
 
-Пароль не хранится. Колонку нельзя назвать is_active —
-так называется свойство Flask-Login.
+Обычный вход — через LDAP (пароль в БД не хранится). Для стендов
+без AD можно включить LOCAL_AUTH_ENABLED: тогда у локальных учёток
+в password_hash лежит werkzeug-хеш.
+Колонку нельзя назвать is_active — так называется свойство Flask-Login.
 """
 
 from flask_login import UserMixin
@@ -19,7 +21,10 @@ class User(UserMixin, db.Model):
     display_name = db.Column(db.String(255), nullable=False, default="")
     email = db.Column(db.String(255), nullable=True)
     ldap_dn = db.Column(db.String(512), nullable=True)
-    # Обновляется при каждом входе по членству в LDAP_ADMIN_GROUP.
+    # Только для локального входа. LDAP-пользователи оставляют NULL.
+    password_hash = db.Column(db.String(255), nullable=True)
+    # Обновляется при каждом LDAP-входе по членству в LDAP_ADMIN_GROUP.
+    # У локального админа выставляется при создании/обновлении из .env.
     is_admin = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)

@@ -948,6 +948,48 @@ code {
   margin-bottom: 0.35rem;
 }
 
+.auth-method {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+.auth-method .form-label {
+  margin-bottom: 0.45rem;
+}
+
+.auth-method-options {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.auth-method-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.auth-method-option:has(input:checked) {
+  border-color: rgba(15, 118, 110, 0.45);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.auth-method-option input {
+  margin: 0;
+}
+
 .terminal-panel {
   background: #1e1e1e;
   border-radius: var(--radius);

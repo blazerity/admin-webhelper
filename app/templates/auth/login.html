@@ -3,12 +3,31 @@
 {% block content %}
 <div class="panel login-card">
   <h1 class="page-title">Вход</h1>
+  {% if local_auth_enabled %}
+  <p class="page-subtitle mb-3">Выберите способ: LDAP (каталог компании) или локальная учётка стенда.</p>
+  {% else %}
   <p class="page-subtitle mb-3">Учётная запись проверяется в LDAP, пароль в базе приложения не хранится.</p>
+  {% endif %}
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if local_auth_enabled %}
+    <fieldset class="mb-3 auth-method">
+      <legend class="form-label">Способ входа</legend>
+      <div class="auth-method-options">
+        <label class="auth-method-option">
+          <input type="radio" name="auth_method" value="ldap"{% if auth_method != 'local' %} checked{% endif %}>
+          <span>LDAP</span>
+        </label>
+        <label class="auth-method-option">
+          <input type="radio" name="auth_method" value="local"{% if auth_method == 'local' %} checked{% endif %}>
+          <span>Локально</span>
+        </label>
+      </div>
+    </fieldset>
+    {% endif %}
     <div class="mb-3">
       <label class="form-label" for="username">Имя пользователя</label>
-      <input class="form-control" id="username" name="username" autocomplete="username" required>
+      <input class="form-control" id="username" name="username" autocomplete="username" required{% if local_auth_enabled and local_admin_username %} placeholder="{{ local_admin_username }}"{% endif %}>
     </div>
     <div class="mb-3">
       <label class="form-label" for="password">Пароль</label>
