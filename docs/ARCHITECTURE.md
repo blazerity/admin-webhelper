@@ -24,6 +24,7 @@ flowchart TB
     R_ACC["accounts · actions"]
     R_SEC["sectors"]
     R_SCR["scripts"]
+    R_PWD["password_expiry"]
     R_ADM["admin"]
   end
 
@@ -32,6 +33,7 @@ flowchart TB
     S_ACC["account_service · action_service"]
     S_ID["ldap_service · credential_service · crypto_service"]
     S_RUN["script_service · psexec_service"]
+    S_PWD["password_expiry_service · password_ad_client · password_mailer"]
     S_OTH["sector_service · search_service · settings_service · update_service · log_archive_service · net_utils"]
   end
 
@@ -40,6 +42,7 @@ flowchart TB
     M_NET["sectors · sector_ranges · sector_access · devices · device_history"]
     M_ACC["endpoint_accounts · device_account_history · action_kinds"]
     M_SCR["scripts · script_runs · app_settings"]
+    M_PWD["password_notifications · password_expiry_runs"]
   end
 
   WSGI --> CREATE

@@ -1,6 +1,6 @@
 """SMTP-отправка писем о сроке пароля.
 
-Параметры SMTP — только из .env (SMTP_*), LDAP/секрет входа не дублируются.
+Параметры — из настроек модуля (app_settings) с fallback на SMTP_* в .env.
 """
 
 from __future__ import annotations
@@ -66,7 +66,8 @@ class PasswordMailer:
 
         if not self._smtp.configured:
             raise PasswordMailerError(
-                "SMTP не настроен: задайте SMTP_HOST и SMTP_FROM в .env"
+                "SMTP не настроен: укажите хост и From в Настройки → Пароли AD "
+                "(или SMTP_HOST / SMTP_FROM в .env)"
             )
 
         message = MIMEMultipart("alternative")
@@ -104,7 +105,9 @@ class PasswordMailer:
 def test_smtp_connection(smtp: SmtpSettings | None = None) -> str:
     smtp = smtp or get_smtp_settings()
     if not smtp.configured:
-        raise PasswordMailerError("SMTP не настроен: SMTP_HOST / SMTP_FROM")
+        raise PasswordMailerError(
+            "SMTP не настроен: укажите хост и From в Настройки → Пароли AD"
+        )
     try:
         with smtplib.SMTP(smtp.host, smtp.port, timeout=30) as client:
             client.ehlo()

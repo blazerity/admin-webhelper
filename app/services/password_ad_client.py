@@ -1,7 +1,7 @@
 """LDAP-выборка пользователей AD для проверки срока пароля.
 
-Подключение и bind — те же LDAP_* из .env, что и у входа в bAWH.
-Отдельный AD_SERVICE_* не заводится.
+Host/base/domain — из .env (общие с входом). Bind-учётка — из настроек модуля
+(app_settings) с fallback на LDAP_BIND_* в .env.
 """
 
 from __future__ import annotations
@@ -16,7 +16,11 @@ from ldap3 import BASE, NONE, SUBTREE, Connection, Server
 from ldap3.core.exceptions import LDAPException
 
 from app.services import ldap_service
-from app.services.password_expiry_settings import PasswordExpirySettings, get_password_expiry_settings
+from app.services.password_expiry_settings import (
+    PasswordExpirySettings,
+    get_ldap_bind_settings,
+    get_password_expiry_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,18 +137,17 @@ def _is_excluded(dn: str, excluded_ou: list[str]) -> bool:
 
 
 def _open_service_connection() -> Connection:
-    """Bind сервисной учёткой LDAP_BIND_* (те же переменные, что у входа)."""
+    """Bind сервисной учёткой модуля (UI) или LDAP_BIND_* из .env."""
     cfg = current_app.config
-    host = str(cfg.get("LDAP_HOST") or "").strip()
+    ldap = get_ldap_bind_settings()
+    host = ldap.host
     if not host:
         raise PasswordAdError("LDAP_HOST пуст — укажите контроллер домена в .env")
 
-    bind_dn = str(cfg.get("LDAP_BIND_DN") or "").strip()
-    bind_password = str(cfg.get("LDAP_BIND_PASSWORD") or "")
-    if not bind_dn or not bind_password:
+    if not ldap.configured:
         raise PasswordAdError(
-            "Для чтения каталога нужны LDAP_BIND_DN и LDAP_BIND_PASSWORD в .env "
-            "(та же сервисная учётка, что и для входа в bAWH)"
+            "Для чтения каталога укажите DN и пароль сервисной учётки "
+            "в Настройки → Пароли AD (или LDAP_BIND_DN / LDAP_BIND_PASSWORD в .env)"
         )
 
     try:
@@ -158,8 +161,8 @@ def _open_service_connection() -> Connection:
     try:
         return Connection(
             server,
-            user=bind_dn,
-            password=bind_password,
+            user=ldap.bind_dn,
+            password=ldap.bind_password,
             auto_bind=True,
             receive_timeout=30,
             raise_exceptions=True,

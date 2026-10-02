@@ -1,13 +1,14 @@
 """UI модуля уведомлений о сроке паролей AD.
 
 Доступ — только администраторам bAWH (LDAP-группа), без отдельного Basic Auth.
+Отчёт — отдельный пункт верхнего меню; настройки — в разделе «Настройки».
 """
 
 from __future__ import annotations
 
 import logging
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, redirect, render_template, request, url_for
 
 from app.authz import admin_required
 from app.services.password_ad_client import PasswordAdError, verify_password_directory_access
@@ -19,25 +20,18 @@ from app.services.password_expiry_service import (
     run_password_expiry,
 )
 from app.services.password_expiry_settings import (
+    get_ldap_bind_settings,
     get_password_expiry_settings,
     get_smtp_settings,
+    set_ldap_bind_settings,
     set_password_expiry_settings,
+    set_smtp_settings,
 )
 from app.services.password_mailer import PasswordMailerError, test_smtp_connection
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("password_expiry", __name__, url_prefix="/password-expiry")
-
-
-def _ldap_view() -> dict[str, str]:
-    cfg = current_app.config
-    return {
-        "ldap_host": str(cfg.get("LDAP_HOST") or ""),
-        "ldap_base_dn": str(cfg.get("LDAP_BASE_DN") or ""),
-        "ldap_bind_dn": str(cfg.get("LDAP_BIND_DN") or ""),
-        "ldap_domain": str(cfg.get("LDAP_DOMAIN") or ""),
-    }
 
 
 @bp.route("/", methods=["GET"])
@@ -70,6 +64,7 @@ def dashboard():
                 or q in row.email.lower()
             ]
 
+    ldap = get_ldap_bind_settings()
     return render_template(
         "password_expiry/dashboard.html",
         report=report,
@@ -79,7 +74,7 @@ def dashboard():
         q=q,
         section=section,
         smtp=get_smtp_settings(),
-        **_ldap_view(),
+        ldap=ldap,
     )
 
 
@@ -109,6 +104,34 @@ def settings_page():
             flash("Настройки модуля сохранены.", "success")
             return redirect(url_for("password_expiry.settings_page"))
 
+        if kind == "ldap_bind":
+            try:
+                set_ldap_bind_settings(
+                    bind_dn=request.form.get("ldap_bind_dn", ""),
+                    bind_password=request.form.get("ldap_bind_password"),
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("password_expiry.settings_page"))
+            flash("Учётка LDAP для модуля сохранена.", "success")
+            return redirect(url_for("password_expiry.settings_page"))
+
+        if kind == "smtp":
+            try:
+                set_smtp_settings(
+                    host=request.form.get("smtp_host", ""),
+                    port=request.form.get("smtp_port", ""),
+                    use_starttls=request.form.get("smtp_use_starttls") == "1",
+                    from_address=request.form.get("smtp_from", ""),
+                    username=request.form.get("smtp_user", ""),
+                    password=request.form.get("smtp_password"),
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("password_expiry.settings_page"))
+            flash("Настройки SMTP сохранены.", "success")
+            return redirect(url_for("password_expiry.settings_page"))
+
         if kind == "test_ldap":
             try:
                 message = verify_password_directory_access()
@@ -130,11 +153,12 @@ def settings_page():
         flash("Неизвестная форма.", "danger")
         return redirect(url_for("password_expiry.settings_page"))
 
+    ldap = get_ldap_bind_settings()
     return render_template(
         "password_expiry/settings.html",
         settings=get_password_expiry_settings(),
         smtp=get_smtp_settings(),
-        **_ldap_view(),
+        ldap=ldap,
     )
 
 
