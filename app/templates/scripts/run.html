@@ -56,6 +56,8 @@
         <dd>{{ pc_name }}</dd>
         <dt>IP</dt>
         <dd>{{ run.device.ip if run.device else '—' }}</dd>
+        <dt>Серийный номер</dt>
+        <dd>{{ run.device.serial_number if run.device and run.device.serial_number else '—' }}</dd>
         <dt>MAC</dt>
         <dd>{{ run.device.mac if run.device and run.device.mac else '—' }}</dd>
         <dt>Сектор</dt>

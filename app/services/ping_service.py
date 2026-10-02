@@ -11,9 +11,9 @@
    пустой адрес на карте не нужен.
 3. Снова главный поток:
    * офлайн по уже известному IP → статус и device_history;
-   * онлайн → serial (WMI) / hostname / IP как ключ идентичности,
+   * онлайн → serial+MAC (WMI) / hostname / IP как ключ идентичности,
      обновление или создание одной машины, история сохраняется
-     при смене адреса и сектора.
+     при смене адреса и сектора. MAC сначала из ARP, иначе из WMI.
 
 Позже ту же функцию poll_all_sectors вызовет задача Celery. Менять
 разбор пинга и запись истории для этого не нужно.
@@ -384,8 +384,12 @@ def _probe(ip: str) -> _Probe:
         # Ищем атрибут на модуле в момент вызова, а не копией функции:
         # так подмена в тестах (и будущий кэш DNS) видна без правки этого файла.
         hostname = discovery_service.lookup_hostname(ip)
+        # ARP — только свой L2. Через маршрутизатор MAC доберём из WMI.
         mac = discovery_service.lookup_mac(ip)
-        serial_number = discovery_service.lookup_serial(ip)
+        inventory = discovery_service.lookup_wmi_inventory(ip)
+        serial_number = inventory.serial_number
+        if not mac and inventory.mac:
+            mac = inventory.mac
     return _Probe(
         ip=ip,
         result=result,

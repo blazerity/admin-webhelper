@@ -21,6 +21,7 @@ def _seed_office(app, owner="admin"):
                 ip="10.0.0.1",
                 hostname="NBOOK01",
                 serial_number="NB-SERIAL-01",
+                mac="AA:BB:CC:DD:00:01",
                 sector_id=sector.id,
                 last_status="online",
                 last_seen=seen,
@@ -29,6 +30,7 @@ def _seed_office(app, owner="admin"):
                 ip="10.0.0.2",
                 hostname="WDESK01",
                 serial_number="WD-SERIAL-02",
+                mac="AA:BB:CC:DD:00:02",
                 sector_id=sector.id,
                 last_status="offline",
                 last_seen=seen,
@@ -37,6 +39,7 @@ def _seed_office(app, owner="admin"):
                 ip="10.0.0.3",
                 hostname="SRV01",
                 serial_number="SRV-SERIAL-03",
+                mac="AA:BB:CC:DD:00:03",
                 sector_id=sector.id,
                 last_status="online",
                 last_seen=seen,
@@ -89,6 +92,9 @@ def test_map_shows_collapsed_sectors_with_active_count(client, app, admin_id):
     assert "map.js" in html
     assert "map-search" in html
     assert "search.js" in html
+    assert "NB-SERIAL-01" in html
+    assert "AA:BB:CC:DD:00:01" in html
+    assert "device-card-meta" in html
 
 
 def test_map_status_json(client, app, admin_id):
@@ -138,6 +144,8 @@ def test_device_detail_shows_object_card(client, app, admin_id):
     assert "NBOOK01" in html
     assert "NB-SERIAL-01" in html
     assert "Серийный номер" in html
+    assert "AA:BB:CC:DD:00:01" in html
+    assert ">MAC<" in html or ">MAC</" in html or "MAC" in html
     assert "10.0.0.1" in html
     assert "Проверки доступности" in html
     assert "Запуски на этом ПК" in html
