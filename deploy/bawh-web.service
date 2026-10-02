@@ -1,0 +1,14 @@
+[Unit]
+Description=Веб-интерфейс bAWH (Gunicorn)
+After=network.target postgresql.service
+
+[Service]
+User=bawh
+Group=bawh
+WorkingDirectory=/opt/bawh
+EnvironmentFile=/opt/bawh/.env
+ExecStart=/opt/bawh/.venv/bin/gunicorn --bind 127.0.0.1:8000 --workers 2 --threads 4 --timeout 120 wsgi:app
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

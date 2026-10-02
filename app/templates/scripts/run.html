@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Лог запуска{% endblock %}
+{% block content %}
+{% if not run %}
+<p>Запуск не найден.</p>
+{% else %}
+<h1 class="h3">Запуск #{{ run.id }}</h1>
+<p>
+  Тип: {{ run.run_type }}.
+  Статус: <span id="run-status">{{ run.status }}</span>.
+  Устройство: {{ run.device.ip if run.device else '—' }}.
+</p>
+<pre class="log-view" id="run-log">{{ run.log_text }}</pre>
+{% if batch_runs|default([]) %}
+<h2 class="h5 mt-4">Другие запуски этой пачки</h2>
+<ul>
+  {% for other in batch_runs %}
+  <li>
+    <a href="{{ url_for('scripts.run_detail', run_id=other.id) }}">#{{ other.id }}</a>
+    — {{ other.device.ip if other.device else '—' }}, {{ other.status }}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if run %}
+<script src="{{ url_for('static', filename='js/run_log.js') }}" data-status-url="{{ url_for('scripts.run_status', run_id=run.id) }}"></script>
+{% endif %}
+{% endblock %}

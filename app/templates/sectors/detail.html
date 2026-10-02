@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "macros/status.html" import device_card %}
+{% block title %}{{ sector.name if sector else 'Сектор' }}{% endblock %}
+{% block content %}
+{% if sector %}
+<p><a href="{{ url_for('sectors.list_sectors') }}">← Сектора</a></p>
+<div class="d-flex justify-content-between">
+  <h1 class="h3">{{ sector.name }}</h1>
+  {% if current_user.is_admin %}
+  <a class="btn btn-outline-primary" href="{{ url_for('sectors.edit_sector', sector_id=sector.id) }}">Изменить</a>
+  {% endif %}
+</div>
+<p>{{ sector.description }}</p>
+<p class="small text-muted">Диапазоны: {% for item in sector.ranges %}{{ item.cidr }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+<div class="row g-3">
+  {% for device in sector.devices %}
+  <div class="col-md-4 col-lg-3">{{ device_card(device) }}</div>
+  {% else %}
+  <p class="text-muted">Устройств пока нет.</p>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

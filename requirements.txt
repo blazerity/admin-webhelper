@@ -1,0 +1,39 @@
+# Зависимости bAWH.
+# Версии указаны снизу (>=), чтобы новичок мог поставить пакеты
+# обычным pip install -r requirements.txt. Для продакшена позже
+# имеет смысл зафиксировать точные версии (pip freeze).
+
+# Веб-фреймворк и расширения
+Flask>=3.0
+Flask-Login>=0.6
+Flask-SQLAlchemy>=3.1
+Flask-Migrate>=4.0
+Flask-WTF>=1.2
+
+# База и миграции
+SQLAlchemy>=2.0
+alembic>=1.13
+psycopg2-binary>=2.9
+
+# Конфигурация из .env
+python-dotenv>=1.0
+
+# LDAP-вход (чистый Python, системная libldap не нужна)
+ldap3>=2.9
+
+# Периодический опрос. Позже этот слой можно заменить на Celery + Redis,
+# не переписывая ping_service: воркер просто будет вызывать ту же функцию.
+APScheduler>=3.10
+
+# Шифрование пароля учётной записи PsExec (ключ — в переменной окружения)
+cryptography>=42.0
+
+# Удалённый запуск команд на Windows с Debian-сервера.
+# Почему pypsexec, а не psexec.exe и не Impacket — см. app/services/psexec_service.py
+pypsexec>=0.3
+
+# Прод-сервер приложений (перед ним ставится Nginx)
+gunicorn>=22.0
+
+# Тесты
+pytest>=8.0

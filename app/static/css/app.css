@@ -1,0 +1,33 @@
+.device-card {
+  display: block;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-left-width: 6px;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  height: 100%;
+  color: inherit;
+}
+
+.device-card.online { border-left-color: #198754; }
+.device-card.offline { border-left-color: #dc3545; }
+.device-card.unknown { border-left-color: #6c757d; }
+
+.device-card:hover { background: #f8f9fa; }
+
+.log-view {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  min-height: 16rem;
+  white-space: pre-wrap;
+  padding: 1rem;
+  border-radius: 0.5rem;
+}
+
+.suggest-list {
+  position: absolute;
+  z-index: 10;
+  width: 100%;
+}

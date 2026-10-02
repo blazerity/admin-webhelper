@@ -1,0 +1,16 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.env
+*.db
+instance/
+logs/*
+!logs/.gitkeep
+dist/
+build/
+*.egg-info/
+.idea/
+.vscode/

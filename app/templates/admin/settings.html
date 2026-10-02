@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block content %}
+<h1 class="h3">Настройки</h1>
+<p class="text-muted">Пароль удалённого администратора шифруется перед записью в базу. Ключ шифрования — FERNET_KEY в окружении, не в этой форме.</p>
+<form method="post" class="mb-5">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="form" value="psexec">
+  <h2 class="h5">Учётка PsExec</h2>
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      <label class="form-label" for="username">Пользователь</label>
+      <input class="form-control" id="username" name="username" value="{{ username|default('') }}">
+    </div>
+    <div class="col-md-4 mb-3">
+      <label class="form-label" for="domain">Домен</label>
+      <input class="form-control" id="domain" name="domain" value="{{ domain|default('') }}">
+    </div>
+    <div class="col-md-4 mb-3">
+      <label class="form-label" for="password">Пароль</label>
+      <input class="form-control" id="password" name="password" type="password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if password_set else 'TODO: задайте пароль' }}">
+    </div>
+  </div>
+  <button class="btn btn-primary" type="submit">Сохранить учётку</button>
+</form>
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="form" value="poll">
+  <h2 class="h5">Интервал опроса, секунды</h2>
+  <div class="col-md-3 mb-3">
+    <input class="form-control" name="poll_interval" type="number" min="30" max="86400" value="{{ poll_interval|default(300) }}">
+  </div>
+  <button class="btn btn-primary" type="submit">Сохранить интервал</button>
+</form>
+{% endblock %}

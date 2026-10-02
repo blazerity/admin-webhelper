@@ -1,0 +1,14 @@
+[Unit]
+Description=Опрос сети bAWH (отдельный процесс)
+After=network.target postgresql.service
+
+[Service]
+User=bawh
+Group=bawh
+WorkingDirectory=/opt/bawh
+EnvironmentFile=/opt/bawh/.env
+ExecStart=/opt/bawh/.venv/bin/python -m app.scheduler_worker
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

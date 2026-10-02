@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Скрипты{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between mb-3">
+  <h1 class="h3">Скрипты</h1>
+  <a class="btn btn-primary" href="{{ url_for('scripts.new_script') }}">Новый скрипт</a>
+</div>
+<table class="table">
+  <thead><tr><th>Название</th><th>ОС</th><th>Интерпретатор</th><th></th></tr></thead>
+  <tbody>
+  {% for script in scripts %}
+    <tr>
+      <td>{{ script.name }}</td>
+      <td>{{ script.target_os }}</td>
+      <td>{{ script.interpreter }}</td>
+      <td><a href="{{ url_for('scripts.edit_script', script_id=script.id) }}">Изменить</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="text-muted">Библиотека пуста.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

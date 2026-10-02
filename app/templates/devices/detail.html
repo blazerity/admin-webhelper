@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "macros/status.html" import status_badge %}
+{% block title %}{{ device.ip if device else 'Устройство' }}{% endblock %}
+{% block content %}
+{% if not device %}
+<p>Устройство не передано в шаблон.</p>
+{% else %}
+<p><a href="{{ url_for('devices.map') }}">← К карте</a></p>
+<h1 class="h3">{{ device.ip }} {{ status_badge(device.last_status) }}</h1>
+<dl class="row">
+  <dt class="col-sm-3">Имя</dt><dd class="col-sm-9">{{ device.hostname or '—' }}</dd>
+  <dt class="col-sm-3">MAC</dt><dd class="col-sm-9">{{ device.mac or '—' }}</dd>
+  <dt class="col-sm-3">Сектор</dt><dd class="col-sm-9">{{ device.sector.name }}</dd>
+  <dt class="col-sm-3">Последний ответ</dt><dd class="col-sm-9">{{ device.last_seen|dt }}{% if device.last_response_time_ms is not none %} ({{ device.last_response_time_ms }} мс){% endif %}</dd>
+</dl>
+{% include "devices/_diagnostics.html" %}
+<h2 class="h5 mt-4">Последние проверки</h2>
+<table class="table table-sm">
+  <thead><tr><th>Время</th><th>Статус</th><th>Отклик, мс</th></tr></thead>
+  <tbody>
+  {% for row in history %}
+    <tr>
+      <td>{{ row.timestamp|dt }}</td>
+      <td>{{ status_badge(row.status) }}</td>
+      <td>{{ row.response_time_ms if row.response_time_ms is not none else '—' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="text-muted">Истории ещё нет.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

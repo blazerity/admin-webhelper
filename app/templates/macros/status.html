@@ -1,0 +1,20 @@
+{% macro status_badge(status) -%}
+{% if status == 'online' %}
+<span class="badge text-bg-success">доступен</span>
+{% elif status == 'offline' %}
+<span class="badge text-bg-danger">недоступен</span>
+{% else %}
+<span class="badge text-bg-secondary">неизвестно</span>
+{% endif %}
+{%- endmacro %}
+
+{% macro device_card(device) -%}
+<a class="device-card {{ device.last_status }} text-decoration-none" href="{{ url_for('devices.detail', device_id=device.id) }}">
+  <div class="d-flex justify-content-between">
+    <strong>{{ device.ip }}</strong>
+    {{ status_badge(device.last_status) }}
+  </div>
+  <div class="small text-muted mt-1">{{ device.hostname or 'имя не определено' }}</div>
+  <div class="small text-muted">{{ device.mac or 'MAC неизвестен' }}</div>
+</a>
+{%- endmacro %}
