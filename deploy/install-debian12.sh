@@ -22,6 +22,9 @@ BAWH_REF="${BAWH_REF:-main}"
 ENV_CREATED=0
 # Путь к этому файлу. При запуске через curl | bash его нет: тогда код берётся из git.
 SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+if [[ -n "$SCRIPT_PATH" && -f "$SCRIPT_PATH" ]]; then
+  SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
+fi
 
 die() {
   printf '%s\n' "$*" >&2
@@ -439,6 +442,9 @@ print_summary() {
 }
 
 main() {
+  # sudo запускают из домашнего каталога. postgres и bawh туда зайти не могут,
+  # и pg_isready пишет «could not change directory to /home/...».
+  cd /
   require_root
   require_debian_12
   install_packages

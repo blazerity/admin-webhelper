@@ -18,7 +18,7 @@ WORKDIR /opt/bawh
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY alembic.ini wsgi.py ./
+COPY wsgi.py ./
 COPY app ./app
 COPY migrations ./migrations
 

@@ -1,11 +1,15 @@
 import logging
+import os
 from logging.config import fileConfig
 
 from alembic import context
 from flask import current_app
 
 config = context.config
-fileConfig(config.config_file_name)
+# logging.fileConfig на отсутствующем ini молча получает пустой разбор
+# и падает с KeyError: 'formatters'. Файл должен лежать в migrations/.
+if config.config_file_name and os.path.isfile(config.config_file_name):
+    fileConfig(config.config_file_name)
 logger = logging.getLogger("alembic.env")
 
 
