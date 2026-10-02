@@ -72,11 +72,11 @@ sequenceDiagram
 
   Sch->>Ping: run_network_poll()
   Ping->>Ping: ICMP по CIDR секторов
+  Note over Ping: учётка WMI читается в главном потоке<br/>(Параметры / DISCOVERY_*), не в воркерах
   Note over Ping: итог → network_poll_runs
   alt online
-      Ping->>Disc: hostname / ARP MAC / WMI inventory
+      Ping->>Disc: hostname / ARP MAC / WMI inventory (+creds)
     Disc-->>Ping: serial, mac, logged_on_user
-    Note over Disc: учётка WMI из Параметров (Fernet) или DISCOVERY_*
     Ping->>DB: devices + device_history
     opt logged_on_user is not None
       Ping->>Acc: apply_logged_on_user (savepoint)

@@ -144,15 +144,20 @@ def lookup_mac(ip: str) -> str | None:
     return _mac_from_command(["arp", "-a", ip], ip)
 
 
-def lookup_wmi_inventory(ip: str) -> WmiInventory:
+def lookup_wmi_inventory(
+    ip: str,
+    creds: DiscoveryCredentials | None = None,
+) -> WmiInventory:
     """Серийник и MAC одним WMI-заходом после успешного ping.
 
-    Без DISCOVERY_USERNAME/DISCOVERY_PASSWORD сразу пустой инвентарь —
-    опрос не обязан ходить в WMI; идентичность тогда по hostname,
+    creds лучше передать с главного потока опроса: в ThreadPoolExecutor
+    нет Flask app context, и читать app_settings/current_app оттуда нельзя.
+    Без учётки — пустой инвентарь; идентичность тогда по hostname,
     MAC — только из ARP, если сегмент общий.
     """
     ip = assert_public_ipv4(ip)
-    creds = discovery_credentials()
+    if creds is None:
+        creds = discovery_credentials()
     if creds is None:
         return WmiInventory()
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -173,7 +178,11 @@ def lookup_serial(ip: str) -> str | None:
 
 
 def discovery_credentials() -> DiscoveryCredentials | None:
-    """Учётка для WMI: БД (Параметры) важнее .env. Пустые поля — WMI выключен."""
+    """Учётка для WMI: БД (Параметры) важнее .env. Пустые поля — WMI выключен.
+
+    Вызывать из потока с app.app_context() (главный поток poll / flask CLI),
+    не из рабочих потоков ThreadPoolExecutor.
+    """
     from app.services.crypto_service import CryptoError, CryptoNotConfigured
     from app.services.settings_service import get_stored_discovery_credentials
 
@@ -184,6 +193,9 @@ def discovery_credentials() -> DiscoveryCredentials | None:
         stored = None
     except RuntimeError:
         # Нет Flask app context — только .env / environ.
+        logger.debug(
+            "discovery credentials: нет app context, читаем DISCOVERY_* из environ"
+        )
         stored = None
     if stored is not None:
         return DiscoveryCredentials(

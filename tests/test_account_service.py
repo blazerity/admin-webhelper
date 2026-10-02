@@ -182,7 +182,7 @@ def test_poll_persists_logged_on_user(app, monkeypatch):
         )
         monkeypatch.setattr(
             "app.services.discovery_service.lookup_wmi_inventory",
-            lambda ip: WmiInventory(
+            lambda ip, creds=None: WmiInventory(
                 serial_number="ACCTAG1",
                 mac="AA:BB:CC:DD:00:11",
                 logged_on_user=r"CORP\carol",
@@ -229,7 +229,7 @@ def test_poll_preserves_account_when_wmi_fails(app, monkeypatch):
         )
         monkeypatch.setattr(
             "app.services.discovery_service.lookup_wmi_inventory",
-            lambda ip: WmiInventory(),  # logged_on_user is None
+            lambda ip, creds=None: WmiInventory(),  # logged_on_user is None
         )
 
         poll_all_sectors()
