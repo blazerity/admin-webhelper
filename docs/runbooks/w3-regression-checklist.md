@@ -150,7 +150,7 @@ python3 -m pytest -q
 
 | Дата (UTC) | Ветка | Результат | Примечание |
 | --- | --- | --- | --- |
-| _(заполнить после прогона A5)_ | `cursor/w3-07-regression-85f5` | _pending_ | Чеклист + edge matrix при необходимости |
+| 2026-10-02 | `cursor/w3-07-regression-85f5` | **273 passed** in ~9s | База integration W3 + A5 checklist; edge `no_access` / viewer HTTP в `test_authz` |
 
 Полный зелёный прогон на **интеграционной** после merge A2 — зона координатора (DoD волны).
 
