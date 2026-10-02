@@ -44,6 +44,7 @@ def _project(tmp_path: Path) -> Path:
     root.mkdir()
     (root / "wsgi.py").write_text("old", encoding="utf-8")
     (root / "obsolete.py").write_text("gone", encoding="utf-8")
+    (root / "VERSION").write_text("0.1.0\n", encoding="utf-8")
     (root / ".env").write_text("SECRET=1", encoding="utf-8")
     (root / "local.db").write_text("db", encoding="utf-8")
     venv = root / ".venv"
@@ -55,7 +56,7 @@ def _project(tmp_path: Path) -> Path:
     return root
 
 
-def _install_fake_remote(monkeypatch, sha: str = SHA, body: str = "new") -> None:
+def _install_fake_remote(monkeypatch, sha: str = SHA, body: str = "new", version: str = "0.2.0") -> None:
     def head(url, branch, *, cwd):
         assert url == URL
         assert branch == "main"
@@ -65,6 +66,7 @@ def _install_fake_remote(monkeypatch, sha: str = SHA, body: str = "new") -> None
         dest.mkdir(parents=True)
         (dest / "wsgi.py").write_text(body, encoding="utf-8")
         (dest / "added.py").write_text("added", encoding="utf-8")
+        (dest / "VERSION").write_text(f"{version}\n", encoding="utf-8")
         return sha, "Новая версия"
 
     monkeypatch.setattr(update_service, "remote_head", head)
@@ -109,6 +111,7 @@ def test_backup_is_created_before_files_change(tmp_path, monkeypatch, no_side_ef
         dest.mkdir(parents=True)
         (dest / "wsgi.py").write_text("new", encoding="utf-8")
         (dest / "added.py").write_text("added", encoding="utf-8")
+        (dest / "VERSION").write_text("0.2.0\n", encoding="utf-8")
         return SHA, "Новая версия"
 
     monkeypatch.setattr(update_service, "remote_head", lambda url, branch, cwd: SHA)
@@ -126,6 +129,11 @@ def test_backup_is_created_before_files_change(tmp_path, monkeypatch, no_side_ef
     assert (root / ".venv" / "pyvenv.cfg").is_file()
     assert (root / "script_library" / "keep.txt").read_text(encoding="utf-8") == "keep"
     assert (root / "backups" / "installed.json").is_file()
+    installed = (root / "backups" / "installed.json").read_text(encoding="utf-8")
+    assert "0.2.0" in installed
+    assert "Установлена версия 0.2.0" in result.message
+    backups = list_backups(root)
+    assert backups[0].version == "0.1.0"
 
 
 def test_failed_backup_does_not_download(tmp_path, monkeypatch, no_side_effects):
@@ -170,6 +178,7 @@ def test_replace_failure_restores_backup(tmp_path, monkeypatch, no_side_effects)
         dest.mkdir(parents=True)
         (dest / "wsgi.py").write_text("new", encoding="utf-8")
         (dest / "requirements.txt").write_text("new\n", encoding="utf-8")
+        (dest / "VERSION").write_text("0.2.0\n", encoding="utf-8")
         return SHA, "Новая версия"
 
     monkeypatch.setattr(update_service, "clone_repository", clone)
@@ -191,7 +200,7 @@ def test_replace_failure_restores_backup(tmp_path, monkeypatch, no_side_effects)
 
 def test_same_commit_skips_backup(tmp_path, monkeypatch, no_side_effects):
     root = _project(tmp_path)
-    update_service._write_installed(root, SHA, "уже стоит", "main", "")
+    update_service._write_installed(root, SHA, "уже стоит", "0.1.0", "main", "")
     monkeypatch.setattr(update_service, "remote_head", lambda url, branch, cwd: SHA)
     monkeypatch.setattr(
         update_service,
@@ -200,8 +209,26 @@ def test_same_commit_skips_backup(tmp_path, monkeypatch, no_side_effects):
     )
     result = _update(root)
     assert result.changed is False
+    assert "0.1.0" in result.message
     assert list_backups(root) == []
     assert (root / "wsgi.py").read_text(encoding="utf-8") == "old"
+
+
+def test_check_for_updates_uses_version_numbers(app, tmp_path, monkeypatch):
+    root = _project(tmp_path)
+    other = "b" * 40
+    app.config["PROJECT_ROOT"] = str(root)
+    app.config["GIT_REMOTE_URL"] = URL
+    app.config["GIT_BRANCH"] = "main"
+    update_service._write_installed(root, SHA, "локально", "0.1.0", "main", "")
+    monkeypatch.setattr(update_service, "remote_head", lambda url, branch, cwd: other)
+    monkeypatch.setattr(update_service, "remote_version", lambda url, branch, commit, cwd: "0.2.0")
+    with app.app_context():
+        message = update_service.check_for_updates()
+    assert message == "Доступно обновление: 0.1.0 → 0.2.0."
+    remote = update_service._read_json(root / "backups" / "remote-check.json")
+    assert remote["version"] == "0.2.0"
+    assert remote["commit"] == other
 
 
 def test_rollback_restores_files_and_keeps_secret(tmp_path, monkeypatch, no_side_effects):

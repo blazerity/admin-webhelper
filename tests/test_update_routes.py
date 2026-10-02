@@ -40,6 +40,7 @@ def test_admin_sees_update_and_rollback_controls(client, app, admin_id, tmp_path
     assert page.status_code == 200
     assert "Обновить из git" in text
     assert "Резервные копии" in text
+    assert "<th>Версия</th>" in text
     assert "<th>Зачем</th>" not in text
     assert "Откатить" not in text
 
