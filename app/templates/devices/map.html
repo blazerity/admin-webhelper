@@ -2,20 +2,53 @@
 {% from "macros/status.html" import device_card %}
 {% block title %}Карта сети{% endblock %}
 {% block content %}
-<h1 class="h3 mb-4">Карта сети</h1>
+<div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
+  <h1 class="h4 mb-0">Карта сети</h1>
+  {% if sectors %}
+  <p class="small text-muted mb-0">Откройте сектор, чтобы увидеть машины</p>
+  {% endif %}
+</div>
+
 {% if not sectors %}
 <p class="text-muted">Нет секторов, которые вам доступны. Администратор создаёт их в разделе «Сектора».</p>
+{% else %}
+<div class="sector-map">
+  {% for sector in sectors %}
+  {% set online_count = sector.devices|selectattr('last_status', 'equalto', 'online')|list|length %}
+  {% set total_count = sector.devices|length %}
+  {% set panel_id = 'sector-panel-' ~ sector.id %}
+  <section class="sector-panel">
+    <button
+      class="sector-toggle collapsed"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#{{ panel_id }}"
+      aria-expanded="false"
+      aria-controls="{{ panel_id }}"
+    >
+      <span class="sector-toggle-main">
+        <span class="sector-toggle-name">{{ sector.name }}</span>
+        <span class="sector-toggle-meta">
+          <strong>{{ online_count }}</strong> активн. · {{ total_count }} всего
+        </span>
+      </span>
+      <span class="sector-toggle-chevron" aria-hidden="true"></span>
+    </button>
+    <div class="collapse" id="{{ panel_id }}">
+      <div class="sector-devices">
+        {% if sector.devices %}
+        <div class="row g-2">
+          {% for device in sector.devices %}
+          <div class="col-6 col-sm-4 col-md-3 col-xl-2">{{ device_card(device) }}</div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0 px-1 py-2">Устройств пока нет. Они появятся после опроса.</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+</div>
 {% endif %}
-{% for sector in sectors %}
-<section class="mb-4">
-  <h2 class="h5">{{ sector.name }}</h2>
-  <div class="row g-3">
-    {% for device in sector.devices %}
-    <div class="col-md-4 col-lg-3">{{ device_card(device) }}</div>
-    {% else %}
-    <p class="text-muted">Устройств пока нет. Они появятся после опроса.</p>
-    {% endfor %}
-  </div>
-</section>
-{% endfor %}
 {% endblock %}

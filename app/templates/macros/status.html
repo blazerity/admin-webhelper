@@ -8,13 +8,54 @@
 {% endif %}
 {%- endmacro %}
 
+{% macro status_dot(status) -%}
+{% if status == 'online' %}
+<span class="status-dot online" title="доступен" aria-label="доступен"></span>
+{% elif status == 'offline' %}
+<span class="status-dot offline" title="недоступен" aria-label="недоступен"></span>
+{% else %}
+<span class="status-dot unknown" title="неизвестно" aria-label="неизвестно"></span>
+{% endif %}
+{%- endmacro %}
+
+{% macro device_type_icon(hostname) -%}
+{% set name = (hostname or '')|lower %}
+{% if name.startswith('n') %}
+<span class="device-type-icon" title="Ноутбук" aria-label="Ноутбук">
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="12" rx="1.5"></rect>
+    <path d="M2 20h20"></path>
+    <path d="M8 20h8"></path>
+  </svg>
+</span>
+{% elif name.startswith('w') %}
+<span class="device-type-icon" title="Компьютер" aria-label="Компьютер">
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="13" rx="1.5"></rect>
+    <path d="M8 20h8"></path>
+    <path d="M12 16v4"></path>
+  </svg>
+</span>
+{% else %}
+<span class="device-type-icon muted" title="Тип неизвестен" aria-label="Тип неизвестен">
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="9"></circle>
+    <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5"></path>
+    <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"></circle>
+  </svg>
+</span>
+{% endif %}
+{%- endmacro %}
+
 {% macro device_card(device) -%}
 <a class="device-card {{ device.last_status }} text-decoration-none" href="{{ url_for('devices.detail', device_id=device.id) }}">
-  <div class="d-flex justify-content-between">
-    <strong>{{ device.ip }}</strong>
-    {{ status_badge(device.last_status) }}
+  <div class="device-card-top">
+    {{ device_type_icon(device.hostname) }}
+    {{ status_dot(device.last_status) }}
   </div>
-  <div class="small text-muted mt-1">{{ device.hostname or 'имя не определено' }}</div>
-  <div class="small text-muted">{{ device.mac or 'MAC неизвестен' }}</div>
+  <div class="device-card-name" title="{{ device.hostname or 'имя не определено' }}">
+    {{ device.hostname or 'без имени' }}
+  </div>
+  <div class="device-card-ip font-monospace">{{ device.ip }}</div>
 </a>
 {%- endmacro %}

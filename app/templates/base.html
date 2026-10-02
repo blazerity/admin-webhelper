@@ -17,13 +17,30 @@
       </button>
       <div class="collapse navbar-collapse" id="nav">
         <ul class="navbar-nav me-auto">
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('devices.map') }}">Карта</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('sectors.list_sectors') }}">Сектора</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('search.search_page') }}">Поиск</a></li>
+          <li class="nav-item">
+            <a class="nav-link{% if request.endpoint == 'devices.map' %} active{% endif %}" href="{{ url_for('devices.map') }}">Карта сети</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link{% if request.endpoint and request.endpoint.startswith('search.') %} active{% endif %}" href="{{ url_for('search.search_page') }}">Поиск устройств</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link{% if request.endpoint and request.endpoint.startswith('sectors.') %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Сектора</a>
+          </li>
           {% if current_user.is_admin %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.settings') }}">Настройки</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.updates') }}">Обновления</a></li>
+          <li class="nav-item dropdown">
+            <a
+              class="nav-link dropdown-toggle{% if request.endpoint and (request.endpoint.startswith('scripts.') or request.endpoint.startswith('admin.')) %} active{% endif %}"
+              href="#"
+              role="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+            >Администрирование</a>
+            <ul class="dropdown-menu dropdown-menu-dark">
+              <li><a class="dropdown-item{% if request.endpoint and request.endpoint.startswith('scripts.') %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a></li>
+              <li><a class="dropdown-item{% if request.endpoint == 'admin.settings' %} active{% endif %}" href="{{ url_for('admin.settings') }}">Настройки</a></li>
+              <li><a class="dropdown-item{% if request.endpoint == 'admin.updates' %} active{% endif %}" href="{{ url_for('admin.updates') }}">Обновления</a></li>
+            </ul>
+          </li>
           {% endif %}
         </ul>
         <span class="navbar-text me-3">{{ current_user.display_name or current_user.username }}</span>
