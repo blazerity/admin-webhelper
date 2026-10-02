@@ -120,5 +120,12 @@
     {{ device.hostname or 'без имени' }}
   </div>
   <div class="device-card-ip font-monospace">{{ device.ip }}</div>
+  {% if device.serial_number or device.mac %}
+  <div class="device-card-meta font-monospace">
+    {% if device.serial_number %}<span title="Серийный номер">{{ device.serial_number }}</span>{% endif %}
+    {% if device.serial_number and device.mac %}<span class="device-card-meta-sep">·</span>{% endif %}
+    {% if device.mac %}<span title="MAC">{{ device.mac }}</span>{% endif %}
+  </div>
+  {% endif %}
 </a>
 {%- endmacro %}

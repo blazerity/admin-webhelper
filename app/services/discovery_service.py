@@ -1,17 +1,19 @@
 """Имя хоста, MAC и серийный номер без сканера пакетов.
 
-Три разные проверки, их легко перепутать:
+Четыре разные проверки, их легко перепутать:
 
 * Имя (lookup_hostname) — вопрос к DNS: «какой PTR у этого IP?».
   Сервер и устройство могут быть в разных подсетях, DNS всё равно ответит,
   если запись заведена.
-* MAC (lookup_mac) — адрес канального уровня. Его видно только когда
+* MAC из ARP (lookup_mac) — адрес канального уровня. Его видно только когда
   этот сервер и устройство сидят в одном L2-сегменте: коммутатор
   доставил кадр, и ядро записало соседа в таблицу ARP (Windows)
   или neighbor (Linux). Через маршрутизатор MAC чужой сети не приходит.
-* Серийник (lookup_serial) — Win32_BIOS.SerialNumber по WMI после ping.
-  Нужна учётка DISCOVERY_* в окружении. Без неё возвращаем None,
-  и идентичность машины строится по hostname.
+* Серийник и MAC по WMI (lookup_wmi_inventory) — один DCOM-заход после ping:
+  Win32_BIOS.SerialNumber и MAC адаптера с нашим IP
+  (Win32_NetworkAdapterConfiguration). Нужна учётка DISCOVERY_* в окружении.
+  Без неё возвращаем пустой инвентарь, идентичность строится по hostname,
+  а MAC остаётся только из ARP.
 
 Scapy здесь не используем. Ему нужен захват пакетов и дополнительные
 права (raw socket / Npcap). Для первой версии достаточно прочитать
@@ -52,7 +54,7 @@ _MAC_RE = re.compile(
 _NEIGHBOR_TIMEOUT_S = 5
 
 # WMI по DCOM на живой машине обычно < 2 с; потолок — чтобы один хост
-# не держал весь опрос сектора.
+# не держал весь опрос сектора. Два WQL в одной сессии укладываются сюда же.
 _WMI_TIMEOUT_S = 8
 
 # Заглушки BIOS/OEM, которые нельзя считать service tag.
@@ -81,6 +83,14 @@ class DiscoveryCredentials:
     username: str
     password: str
     domain: str
+
+
+@dataclass(frozen=True)
+class WmiInventory:
+    """Что удалось прочитать по WMI за один заход к машине."""
+
+    serial_number: str | None = None
+    mac: str | None = None
 
 
 def lookup_hostname(ip: str) -> str | None:
@@ -131,27 +141,32 @@ def lookup_mac(ip: str) -> str | None:
     return _mac_from_command(["arp", "-a", ip], ip)
 
 
-def lookup_serial(ip: str) -> str | None:
-    """Service tag / серийник через WMI Win32_BIOS после успешного ping.
+def lookup_wmi_inventory(ip: str) -> WmiInventory:
+    """Серийник и MAC одним WMI-заходом после успешного ping.
 
-    Без DISCOVERY_USERNAME/DISCOVERY_PASSWORD сразу None — опрос не обязан
-    ходить в WMI, идентичность тогда строится по hostname.
+    Без DISCOVERY_USERNAME/DISCOVERY_PASSWORD сразу пустой инвентарь —
+    опрос не обязан ходить в WMI; идентичность тогда по hostname,
+    MAC — только из ARP, если сегмент общий.
     """
     ip = assert_public_ipv4(ip)
     creds = discovery_credentials()
     if creds is None:
-        return None
+        return WmiInventory()
     with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(_wmi_bios_serial, ip, creds)
+        future = pool.submit(_wmi_inventory, ip, creds)
         try:
-            raw = future.result(timeout=_WMI_TIMEOUT_S)
+            return future.result(timeout=_WMI_TIMEOUT_S)
         except FuturesTimeout:
-            logger.info("WMI serial: таймаут для %s", ip)
-            return None
+            logger.info("WMI inventory: таймаут для %s", ip)
+            return WmiInventory()
         except Exception:
-            logger.exception("WMI serial: сбой для %s", ip)
-            return None
-    return normalize_serial(raw)
+            logger.exception("WMI inventory: сбой для %s", ip)
+            return WmiInventory()
+
+
+def lookup_serial(ip: str) -> str | None:
+    """Только серийник. Для полного опроса предпочтительнее lookup_wmi_inventory."""
+    return lookup_wmi_inventory(ip).serial_number
 
 
 def discovery_credentials() -> DiscoveryCredentials | None:
@@ -201,19 +216,22 @@ def hostnames_match(left: str | None, right: str | None) -> bool:
     return bool(a and b and a == b)
 
 
-def _wmi_bios_serial(ip: str, creds: DiscoveryCredentials) -> str | None:
-    """Один WQL-запрос к Win32_BIOS. Импорт Impacket — внутри, чтобы тесты
-    без сети и без пакета не падали на загрузке модуля.
+def _wmi_inventory(ip: str, creds: DiscoveryCredentials) -> WmiInventory:
+    """Один DCOM к машине: BIOS serial + MAC адаптера с этим IP.
+
+    Импорт Impacket — внутри, чтобы тесты без сети и без пакета
+    не падали на загрузке модуля.
     """
     try:
         from impacket.dcerpc.v5.dcom import wmi
         from impacket.dcerpc.v5.dcomrt import DCOMConnection
         from impacket.dcerpc.v5.dtypes import NULL
     except ImportError:
-        logger.warning("WMI serial: пакет для удалённого WMI не установлен")
-        return None
+        logger.warning("WMI inventory: пакет для удалённого WMI не установлен")
+        return WmiInventory()
 
     dcom = None
+    services = None
     try:
         dcom = DCOMConnection(
             ip,
@@ -230,38 +248,93 @@ def _wmi_bios_serial(ip: str, creds: DiscoveryCredentials) -> str | None:
         login = wmi.IWbemLevel1Login(interface)
         services = login.NTLMLogin("//./root/cimv2", NULL, NULL)
         login.RemRelease()
-        enum_obj = services.ExecQuery("SELECT SerialNumber FROM Win32_BIOS")
-        try:
-            while True:
-                try:
-                    item = enum_obj.Next(0xFFFFFFFF, 1)[0]
-                except Exception as exc:
-                    if "S_FALSE" in str(exc):
-                        break
-                    raise
-                props = item.getProperties()
-                raw = props.get("SerialNumber", {}).get("value")
-                if raw is not None:
-                    return str(raw)
-        finally:
-            try:
-                enum_obj.RemRelease()
-            except Exception:
-                pass
+        serial_raw = _wmi_query_serial(services)
+        mac = _wmi_query_mac(services, ip)
+        return WmiInventory(
+            serial_number=normalize_serial(serial_raw),
+            mac=mac,
+        )
+    except Exception as exc:
+        logger.info("WMI inventory: %s — %s", ip, exc)
+        return WmiInventory()
+    finally:
+        if services is not None:
             try:
                 services.RemRelease()
             except Exception:
                 pass
-    except Exception as exc:
-        logger.info("WMI serial: %s — %s", ip, exc)
-        return None
-    finally:
         if dcom is not None:
             try:
                 dcom.disconnect()
             except Exception:
                 pass
+
+
+def _wmi_query_serial(services) -> str | None:
+    """SELECT SerialNumber FROM Win32_BIOS — первый непустой ответ."""
+    enum_obj = services.ExecQuery("SELECT SerialNumber FROM Win32_BIOS")
+    try:
+        for props in _wmi_enum_properties(enum_obj):
+            raw = props.get("SerialNumber", {}).get("value")
+            if raw is not None and str(raw).strip():
+                return str(raw)
+    finally:
+        try:
+            enum_obj.RemRelease()
+        except Exception:
+            pass
     return None
+
+
+def _wmi_query_mac(services, ip: str) -> str | None:
+    """MAC адаптера, у которого в IPAddress есть наш адрес.
+
+    Если точного совпадения нет — берём первый валидный MAC среди
+    IPEnabled-адаптеров (лучше хоть какой-то, чем пусто через маршрутизатор).
+    """
+    enum_obj = services.ExecQuery(
+        "SELECT MACAddress, IPAddress FROM Win32_NetworkAdapterConfiguration "
+        "WHERE IPEnabled = True"
+    )
+    fallback: str | None = None
+    try:
+        for props in _wmi_enum_properties(enum_obj):
+            mac = normalize_mac(str(props.get("MACAddress", {}).get("value") or ""))
+            if not mac:
+                continue
+            if _wmi_ip_list_contains(props.get("IPAddress", {}).get("value"), ip):
+                return mac
+            if fallback is None:
+                fallback = mac
+    finally:
+        try:
+            enum_obj.RemRelease()
+        except Exception:
+            pass
+    return fallback
+
+
+def _wmi_enum_properties(enum_obj):
+    """Итератор getProperties() по результатам ExecQuery."""
+    while True:
+        try:
+            item = enum_obj.Next(0xFFFFFFFF, 1)[0]
+        except Exception as exc:
+            if "S_FALSE" in str(exc):
+                break
+            raise
+        yield item.getProperties()
+
+
+def _wmi_ip_list_contains(raw_addresses, ip: str) -> bool:
+    """IPAddress в WMI — список/кортеж строк или одно значение."""
+    if raw_addresses is None:
+        return False
+    if isinstance(raw_addresses, (list, tuple)):
+        values = raw_addresses
+    else:
+        values = [raw_addresses]
+    return any(str(item).strip() == ip for item in values if item is not None)
 
 
 def _mac_from_command(argv: list[str], ip: str) -> str | None:

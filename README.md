@@ -58,7 +58,7 @@ bAWH/
 - `ldap_service.py` — проверка пароля в LDAP и список групп.
 - `sector_service.py` — создание и правка секторов.
 - `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
-- `discovery_service.py` — обратный DNS, MAC из ARP и серийник по WMI (`DISCOVERY_*` в `.env`).
+- `discovery_service.py` — обратный DNS, MAC из ARP/WMI и серийник по WMI (`DISCOVERY_*` в `.env`).
 - `scheduler_service.py` — цикл опроса для отдельного процесса.
 - `search_service.py` — поиск устройств по IP, MAC, hostname, serial.
 - `psexec_service.py` — удалённая команда на Windows.

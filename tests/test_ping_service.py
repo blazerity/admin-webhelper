@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.extensions import db
 from app.models import Device, DeviceHistory, DeviceStatus, Sector, SectorRange
+from app.services.discovery_service import WmiInventory
 from app.services.net_utils import NetworkInputError
 from app.services.ping_service import PingResult, ping_host, poll_all_sectors, trace_host
 from app.utils import utcnow
@@ -69,7 +70,9 @@ def test_trace_host_shell_is_not_true(monkeypatch):
     assert calls[0][0][-1] == "10.0.0.5"
 
 
-def _patch_discovery(monkeypatch, *, hostname="lab-pc.example", mac="AA:BB:CC:DD:EE:FF", serial="ABC1234"):
+def _patch_discovery(
+    monkeypatch, *, hostname="lab-pc.example", mac="AA:BB:CC:DD:EE:FF", serial="ABC1234"
+):
     monkeypatch.setattr(
         "app.services.discovery_service.lookup_hostname",
         lambda ip: hostname,
@@ -79,8 +82,8 @@ def _patch_discovery(monkeypatch, *, hostname="lab-pc.example", mac="AA:BB:CC:DD
         lambda ip: mac,
     )
     monkeypatch.setattr(
-        "app.services.discovery_service.lookup_serial",
-        lambda ip: serial,
+        "app.services.discovery_service.lookup_wmi_inventory",
+        lambda ip: WmiInventory(serial_number=serial, mac=None),
     )
 
 
@@ -96,7 +99,12 @@ def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
     )
     names = iter(["lab-pc.example", None])
     macs = iter(["AA:BB:CC:DD:EE:FF", None])
-    serials = iter(["ABC1234", None])
+    inventories = iter(
+        [
+            WmiInventory(serial_number="ABC1234", mac=None),
+            WmiInventory(),
+        ]
+    )
     monkeypatch.setattr(
         "app.services.discovery_service.lookup_hostname",
         lambda ip: next(names),
@@ -106,8 +114,8 @@ def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
         lambda ip: next(macs),
     )
     monkeypatch.setattr(
-        "app.services.discovery_service.lookup_serial",
-        lambda ip: next(serials),
+        "app.services.discovery_service.lookup_wmi_inventory",
+        lambda ip: next(inventories),
     )
 
     stats = poll_all_sectors()
@@ -141,6 +149,37 @@ def test_poll_all_sectors_writes_device_and_history(app, monkeypatch):
         select(DeviceHistory).where(DeviceHistory.device_id == device.id)
     ).all()
     assert len(history) == 2
+
+
+def test_poll_fills_mac_from_wmi_when_arp_empty(app, monkeypatch):
+    sector = Sector(name="lab", description="")
+    sector.ranges.append(SectorRange(cidr="10.0.0.5"))
+    db.session.add(sector)
+    db.session.commit()
+
+    monkeypatch.setattr(
+        "app.services.ping_service.ping_host",
+        lambda ip, timeout_s=1: PingResult(DeviceStatus.ONLINE, 9, "time=9 ms"),
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_hostname",
+        lambda ip: "n14002",
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_mac",
+        lambda ip: None,
+    )
+    monkeypatch.setattr(
+        "app.services.discovery_service.lookup_wmi_inventory",
+        lambda ip: WmiInventory(serial_number="DELLTAG9", mac="DE:AD:BE:EF:00:01"),
+    )
+
+    stats = poll_all_sectors()
+    assert stats["online"] == 1
+    device = db.session.scalar(select(Device).where(Device.serial_number == "DELLTAG9"))
+    assert device is not None
+    assert device.mac == "DE:AD:BE:EF:00:01"
+    assert device.hostname == "n14002"
 
 
 def test_poll_does_not_create_device_for_empty_ip(app, monkeypatch):
