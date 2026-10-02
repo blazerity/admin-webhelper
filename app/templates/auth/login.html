@@ -5,7 +5,6 @@
 <div class="{% if show_service_status %}login-layout{% else %}login-card-wrap{% endif %}">
   <div class="panel login-card">
     <h1 class="page-title">Вход</h1>
-    <p class="page-subtitle mb-3">Учётная запись проверяется в LDAP, пароль в базе приложения не хранится.</p>
     <form method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
@@ -22,14 +21,12 @@
   {% if show_service_status %}
   <aside class="panel login-status-panel" aria-label="Доступность сервисов">
     <h2 class="login-status-title">Доступность сервисов</h2>
-    <p class="page-subtitle login-status-subtitle">Состояние инфраструктуры до входа</p>
     <ul class="login-status-list" id="login-status-list" data-status-url="{{ url_for('login_services.status') }}">
       {% for service in login_services %}
       <li class="login-status-item" data-service-id="{{ service.id }}">
         <span class="status-dot unknown" aria-hidden="true"></span>
         <div class="login-status-meta">
           <span class="login-status-name">{{ service.name }}</span>
-          <span class="login-status-address font-monospace">{{ service.address }}</span>
         </div>
         <span class="login-status-latency" data-role="latency">…</span>
       </li>

@@ -86,7 +86,7 @@ def test_login_page_shows_status_panel(client, app):
     html = response.get_data(as_text=True)
     assert "Доступность сервисов" in html
     assert "Почта" in html
-    assert "mail.corp.local" in html
+    assert "mail.corp.local" not in html
     assert "login_status.js" in html
 
 
