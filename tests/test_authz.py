@@ -1,3 +1,5 @@
+import pytest
+
 from app.authz import accessible_sectors, user_can_access_device, user_can_run_scripts
 from app.extensions import db
 from app.models import Device, Sector, SectorAccess, User
@@ -90,8 +92,6 @@ def test_non_admin_cannot_use_existing_script_routes(client, app, alice_id):
 
 def test_device_script_run_route_forbids_non_admin_when_present(client, app, alice_id):
     """W1-07: POST /devices/<id>/scripts/run must be 403 for non-admin once A3 lands it."""
-    import pytest
-
     with app.app_context():
         sector = _sector("Склад", users=["alice"])
         device = Device(ip="10.0.0.11", sector_id=sector.id, last_status="unknown")
