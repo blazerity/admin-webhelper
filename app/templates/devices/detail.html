@@ -40,6 +40,25 @@
             {{ status_badge(device.last_status) }}
           </div>
         </div>
+        <div class="device-watch-bar">
+          {% if watching|default(false) %}
+          <form method="post" action="/devices/{{ device.id }}/unwatch" class="device-watch-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Не следить</button>
+          </form>
+          <p class="device-watch-hint mb-0">Алерт, если offline дольше {{ offline_minutes|default(15) }} мин</p>
+          {% else %}
+          <form method="post" action="/devices/{{ device.id }}/watch" class="device-watch-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="visually-hidden" for="offline_minutes">Минут offline до алерта</label>
+            <input class="form-control form-control-sm device-watch-minutes" id="offline_minutes"
+                   name="offline_minutes" type="number" min="1" max="1440"
+                   value="{{ offline_minutes|default(15) }}" title="Минут offline до алерта">
+            <button class="btn btn-sm btn-primary" type="submit">Следить</button>
+          </form>
+          <p class="device-watch-hint mb-0">Уведомление, если устройство offline дольше порога</p>
+          {% endif %}
+        </div>
         <dl class="device-object-meta">
           <div>
             <dt>Серийный номер</dt>
