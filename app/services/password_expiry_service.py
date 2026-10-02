@@ -1,6 +1,7 @@
 """Пайплайн проверки срока паролей AD и рассылки.
 
-LDAP — из .env bAWH; пороги/расписание — app_settings; SMTP — SMTP_* в .env.
+LDAP host/base — из .env; bind и SMTP — из настроек модуля (с fallback на .env);
+пороги и расписание — app_settings.
 """
 
 from __future__ import annotations

@@ -76,7 +76,7 @@ bAWH/
 - `psexec_service.py` — удалённая команда на Windows.
 - `script_service.py` — библиотека скриптов и запуск в фоновом потоке.
 - `update_service.py` — обновление кода из публичного git и откат на резервную копию.
-- `password_expiry_service.py` — проверка срока паролей AD, письма и админ-отчёт (LDAP из `.env`, пороги в `app_settings`, SMTP через `SMTP_*`).
+- `password_expiry_service.py` — проверка срока паролей AD, письма и админ-отчёт (LDAP host из `.env`, bind/SMTP в настройках модуля с fallback на `.env`, пороги в `app_settings`).
 
 Процесс опроса — `python -m app.scheduler_worker`. Он создаёт приложение (конфиг и БД), HTTP не обслуживает. APScheduler берёт интервал через `get_poll_interval_seconds()` и вызывает опрос секторов.
 
@@ -93,7 +93,7 @@ bAWH/
 | `diagnostics.py` | `POST /devices/<id>/ping`, `/tracert`, `/command` |
 | `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>` (лог, отмена) |
 | `admin.py` | `GET/POST /admin/settings` — учётка PsExec текущего пользователя и интервал опроса; `GET/POST /admin/updates` — обновление из git и откат |
-| `password_expiry.py` | `/password-expiry` — отчёт и ручной прогон; `/password-expiry/settings` — пороги и расписание (админы) |
+| `password_expiry.py` | `/password-expiry` — отчёт (пункт верхнего меню); `/password-expiry/settings` — bind/SMTP/пороги в «Настройки» (админы) |
 
 `POST /login` проверяет пароль в LDAP и сохраняет зашифрованный пароль входа для возможного PsExec. Ping и трассировка стартуют с сервера приложения; команда и скрипт — через `psexec_service`. Страница `/scripts/runs/<id>` дочитывает лог опросом раз в 1,5 секунды.
 

@@ -22,8 +22,11 @@
         <div class="collapse app-nav-collapse" id="app-nav">
           <nav class="app-nav" aria-label="Основное меню">
             {% set ep = request.endpoint or '' %}
-            {% set settings_active = ep.startswith('sectors.') or ep.startswith('scripts.') or ep.startswith('admin.') or ep.startswith('accounts.') or ep.startswith('actions.') or ep.startswith('password_expiry.') %}
+            {% set settings_active = ep.startswith('sectors.') or ep.startswith('scripts.') or ep.startswith('admin.') or ep.startswith('accounts.') or ep.startswith('actions.') or ep == 'password_expiry.settings_page' %}
             <a class="app-nav-link{% if ep == 'devices.map' or ep == 'devices.detail' %} active{% endif %}" href="{{ url_for('devices.map') }}">Карта сети</a>
+            {% if current_user.is_admin %}
+            <a class="app-nav-link{% if ep.startswith('password_expiry.') and ep != 'password_expiry.settings_page' %} active{% endif %}" href="{{ url_for('password_expiry.dashboard') }}">Пароли AD</a>
+            {% endif %}
             <a class="app-nav-link{% if settings_active %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Настройки</a>
           </nav>
           <div class="app-user">

@@ -1,7 +1,7 @@
 """История уведомлений о сроке пароля AD и прогоны проверки.
 
-LDAP-сервер и bind берутся из .env (как у входа в bAWH).
-Пороги, SMTP-получатели и расписание — в app_settings.
+LDAP host/base — из .env; bind и SMTP — из настроек модуля (app_settings) с fallback на .env.
+Пороги, получатели и расписание — в app_settings.
 """
 
 from __future__ import annotations

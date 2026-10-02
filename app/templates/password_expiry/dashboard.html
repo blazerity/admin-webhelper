@@ -1,6 +1,8 @@
-{% extends "layouts/settings.html" %}
+{% extends "base.html" %}
 {% block title %}Пароли AD{% endblock %}
-{% block settings_content %}
+{% block body_class %}page-password-expiry{% endblock %}
+{% block main_class %}app-main-wide{% endblock %}
+{% block content %}
 <div class="page-header">
   <div>
     <h1 class="page-title">Пароли AD</h1>
@@ -68,8 +70,8 @@
     </form>
   </div>
   <p class="text-muted small mt-2 mb-0">
-    LDAP: {{ ldap_host }} · база {{ settings.search_base or ldap_base_dn or "—" }}.
-    SMTP: {% if smtp.configured %}{{ smtp.host }}:{{ smtp.port }}{% else %}не задан в .env{% endif %}.
+    LDAP: {{ ldap.host }} · база {{ settings.search_base or ldap.base_dn or "—" }}.
+    SMTP: {% if smtp.configured %}{{ smtp.host }}:{{ smtp.port }}{% else %}не настроен{% endif %}.
   </p>
 </div>
 
