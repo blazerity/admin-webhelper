@@ -1,24 +1,31 @@
-{% extends "base.html" %}
+{% extends "layouts/settings.html" %}
 {% block title %}Скрипты{% endblock %}
-{% block content %}
-<div class="d-flex justify-content-between mb-3">
-  <h1 class="h3">Скрипты</h1>
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Скрипты</h1>
+    <p class="page-subtitle">Библиотека команд для удалённого запуска</p>
+  </div>
   <a class="btn btn-primary" href="{{ url_for('scripts.new_script') }}">Новый скрипт</a>
 </div>
-<table class="table">
-  <thead><tr><th>Название</th><th>ОС</th><th>Интерпретатор</th><th>Процесс</th><th></th></tr></thead>
-  <tbody>
-  {% for script in scripts %}
-    <tr>
-      <td>{{ script.name }}</td>
-      <td>{{ script.target_os }}</td>
-      <td>{{ script.interpreter }}</td>
-      <td>{% if script.run_as == 'system' %}NT AUTHORITY\SYSTEM{% else %}учётка PsExec{% endif %}</td>
-      <td><a href="{{ url_for('scripts.edit_script', script_id=script.id) }}">Изменить</a></td>
-    </tr>
-  {% else %}
-    <tr><td colspan="5" class="text-muted">Библиотека пуста.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="panel content-card p-0 overflow-hidden">
+  <div class="table-responsive">
+    <table class="table">
+      <thead><tr><th>Название</th><th>ОС</th><th>Интерпретатор</th><th>Процесс</th><th></th></tr></thead>
+      <tbody>
+      {% for script in scripts %}
+        <tr>
+          <td>{{ script.name }}</td>
+          <td>{{ script.target_os }}</td>
+          <td>{{ script.interpreter }}</td>
+          <td>{% if script.run_as == 'system' %}NT AUTHORITY\SYSTEM{% else %}учётка PsExec{% endif %}</td>
+          <td class="text-end"><a href="{{ url_for('scripts.edit_script', script_id=script.id) }}">Изменить</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-muted">Библиотека пуста.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

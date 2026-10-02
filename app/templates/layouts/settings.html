@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block body_class %}page-settings{% endblock %}
+{% block main_class %}app-main-wide{% endblock %}
+{% block content %}
+<div class="settings-layout">
+  <aside class="settings-sidebar" aria-label="Разделы настроек">
+    <p class="settings-sidebar-title">Настройки</p>
+    <nav class="settings-nav">
+      {% set ep = request.endpoint or '' %}
+      <a class="settings-nav-link{% if ep.startswith('sectors.') %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Сектора</a>
+      {% if current_user.is_admin %}
+      <a class="settings-nav-link{% if ep.startswith('scripts.') %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
+      <a class="settings-nav-link{% if ep == 'admin.settings' %} active{% endif %}" href="{{ url_for('admin.settings') }}">Параметры</a>
+      <a class="settings-nav-link{% if ep == 'admin.updates' %} active{% endif %}" href="{{ url_for('admin.updates') }}">Обновления</a>
+      {% endif %}
+    </nav>
+  </aside>
+  <div class="settings-content">
+    {% block settings_content %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Ошибка{% endblock %}
 {% block content %}
-<h1 class="h3">Внутренняя ошибка</h1>
-<p>Запрос не выполнен. Подробности есть в логе приложения и в journalctl.</p>
+<div class="panel content-card">
+  <h1 class="page-title">Внутренняя ошибка</h1>
+  <p class="page-subtitle mb-0">Запрос не выполнен. Подробности есть в логе приложения и в journalctl.</p>
+</div>
 {% endblock %}
