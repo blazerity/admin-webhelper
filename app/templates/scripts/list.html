@@ -7,7 +7,9 @@
     <h1 class="page-title">Скрипты</h1>
     <p class="page-subtitle">Библиотека команд для удалённого запуска</p>
   </div>
+  {% if can_manage_scripts|default(false) %}
   <a class="btn btn-primary" href="{{ url_for('scripts.new_script') }}">Новый скрипт</a>
+  {% endif %}
 </div>
 <div class="panel content-card p-0 overflow-hidden">
   <div class="table-responsive">
@@ -20,7 +22,11 @@
           <td>{{ script.target_os }}</td>
           <td>{{ script.interpreter }}</td>
           <td>{% if script.run_as == 'system' %}NT AUTHORITY\SYSTEM{% else %}учётка PsExec{% endif %}</td>
-          <td class="text-end"><a href="{{ url_for('scripts.edit_script', script_id=script.id) }}">Изменить</a></td>
+          <td class="text-end">
+            <a href="{{ url_for('scripts.edit_script', script_id=script.id) }}">
+              {% if can_manage_scripts|default(false) %}Изменить{% else %}Запустить{% endif %}
+            </a>
+          </td>
         </tr>
       {% else %}
         <tr><td colspan="5" class="text-muted">Библиотека пуста.</td></tr>

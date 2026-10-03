@@ -51,6 +51,8 @@ class Script(TimestampMixin, db.Model):
     storage = db.Column(db.String(16), nullable=False, default="db")
     file_path = db.Column(db.String(512), nullable=True)
     content = db.Column(db.Text, nullable=True)
+    # Operator может запускать только опубликованные (admin — любые).
+    is_published = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
     created_by_id = db.Column(
         db.Integer,
         db.ForeignKey("users.id", ondelete="SET NULL"),

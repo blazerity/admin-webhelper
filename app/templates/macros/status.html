@@ -107,25 +107,49 @@
 {%- endmacro %}
 
 {% macro device_card(device) -%}
-<a
-  class="device-card {{ device.last_status }} text-decoration-none"
-  href="{{ url_for('devices.detail', device_id=device.id) }}"
-  data-device-link
->
-  <div class="device-card-top">
-    {{ device_type_icon(device.hostname) }}
-    {{ status_dot(device.last_status) }}
-  </div>
-  <div class="device-card-name" title="{{ device.hostname or 'имя не определено' }}">
-    {{ device.hostname or 'без имени' }}
-  </div>
-  <div class="device-card-ip font-monospace">{{ device.ip }}</div>
-  {% if device.serial_number or device.mac %}
-  <div class="device-card-meta font-monospace">
-    {% if device.serial_number %}<span title="Серийный номер">{{ device.serial_number }}</span>{% endif %}
-    {% if device.serial_number and device.mac %}<span class="device-card-meta-sep">·</span>{% endif %}
-    {% if device.mac %}<span title="MAC">{{ device.mac }}</span>{% endif %}
-  </div>
-  {% endif %}
-</a>
+<div class="device-card-shell">
+  <button
+    type="button"
+    class="device-select-hit"
+    data-device-select
+    aria-pressed="false"
+    aria-label="Выбрать устройство"
+    title="Выбрать"
+  >
+    <span class="device-select-box" aria-hidden="true"></span>
+  </button>
+  <button
+    type="button"
+    class="device-fav-btn"
+    data-device-fav
+    aria-pressed="false"
+    aria-label="В избранное"
+    title="Избранное"
+  >
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+    </svg>
+  </button>
+  <a
+    class="device-card {{ device.last_status }} text-decoration-none"
+    href="{{ url_for('devices.detail', device_id=device.id) }}"
+    data-device-link
+  >
+    <div class="device-card-top">
+      {{ device_type_icon(device.hostname) }}
+      {{ status_dot(device.last_status) }}
+    </div>
+    <div class="device-card-name" title="{{ device.hostname or 'имя не определено' }}">
+      {{ device.hostname or 'без имени' }}
+    </div>
+    <div class="device-card-ip font-monospace">{{ device.ip }}</div>
+    {% if device.serial_number or device.mac %}
+    <div class="device-card-meta font-monospace">
+      {% if device.serial_number %}<span title="Серийный номер">{{ device.serial_number }}</span>{% endif %}
+      {% if device.serial_number and device.mac %}<span class="device-card-meta-sep">·</span>{% endif %}
+      {% if device.mac %}<span title="MAC">{{ device.mac }}</span>{% endif %}
+    </div>
+    {% endif %}
+  </a>
+</div>
 {%- endmacro %}

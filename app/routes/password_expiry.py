@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import logging
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask_login import current_user, login_required
 
-from app.authz import admin_required
+from app.authz import admin_required, user_can_view_password_expiry
 from app.services.password_ad_client import PasswordAdError, verify_password_directory_access
 from app.services.password_expiry_service import (
     RunInProgressError,
@@ -35,8 +36,10 @@ bp = Blueprint("password_expiry", __name__, url_prefix="/password-expiry")
 
 
 @bp.route("/", methods=["GET"])
-@admin_required
+@login_required
 def dashboard():
+    if not user_can_view_password_expiry(current_user):
+        abort(403)
     report = load_last_report()
     run = load_last_run()
     settings = get_password_expiry_settings()

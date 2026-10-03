@@ -1,7 +1,8 @@
 """Библиотека скриптов и просмотр лога запуска.
 
-CRUD/запуск — admin_required; run_detail/status доступны автору Ping
-и тем, кто видит устройство (опрос лога — static/js/run_log.js).
+CRUD — admin_required; список и запуск — user_can_run_scripts /
+user_can_run_script (operator: только опубликованные).
+run_detail/status доступны автору Ping и тем, кто видит устройство.
 """
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
@@ -9,21 +10,25 @@ from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
 from app.authz import (
+    accessible_devices,
+    accessible_sectors,
     admin_required,
     get_visible_device_or_404,
     get_visible_script_run_or_404,
     get_visible_sector_or_404,
+    user_can_run_script,
+    user_can_run_scripts,
     user_can_see_script_run,
 )
 from app.extensions import db
-from app.models import Device, RunStatus, RunType, Script, ScriptRun, Sector
+from app.models import Device, RunStatus, RunType, Script, ScriptRun
 from app.run_display import (
     run_launch_label,
     run_status_label,
     run_type_label,
     run_when_label,
 )
-from app.services import script_service
+from app.services import audit_service, batch_service, script_service
 from app.services.credential_service import get_stored_credential
 from app.utils import parse_optional_int
 
@@ -37,8 +42,9 @@ _SESSION_HINTS = {
 
 
 def _render_form(script: Script | None):
-    devices = Device.query.order_by(Device.ip).all()
-    sectors = Sector.query.order_by(Sector.name).all()
+    # Селекты только по доступным устройствам/секторам (W3 harden).
+    devices = accessible_devices(current_user)
+    sectors = accessible_sectors(current_user)
     script_body = ""
     if script is not None:
         try:
@@ -52,6 +58,7 @@ def _render_form(script: Script | None):
         script_body=script_body,
         devices=devices,
         sectors=sectors,
+        can_manage_scripts=bool(getattr(current_user, "is_admin", False)),
     )
 
 
@@ -64,6 +71,7 @@ def _form_fields():
         storage=request.form.get("storage", "db"),
         run_as=request.form.get("run_as", "psexec"),
         content=request.form.get("content", ""),
+        is_published=request.form.get("is_published") == "1",
         user_id=current_user.id,
     )
 
@@ -134,11 +142,24 @@ def _session_hint(run: ScriptRun, state: str) -> str:
     return _SESSION_HINTS.get(state, _SESSION_HINTS["closed"])
 
 
+def _scripts_for_user():
+    query = Script.query.order_by(Script.name)
+    if not getattr(current_user, "is_admin", False):
+        query = query.filter(Script.is_published.is_(True))
+    return query.all()
+
+
 @bp.get("/")
-@admin_required
+@login_required
 def list_scripts():
-    scripts = Script.query.order_by(Script.name).all()
-    return render_template("scripts/list.html", scripts=scripts)
+    if not user_can_run_scripts(current_user):
+        abort(403)
+    scripts = _scripts_for_user()
+    return render_template(
+        "scripts/list.html",
+        scripts=scripts,
+        can_manage_scripts=bool(getattr(current_user, "is_admin", False)),
+    )
 
 
 @bp.get("/new")
@@ -155,16 +176,28 @@ def create_script():
     except script_service.ScriptError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("scripts.new_script"))
+    audit_service.log(
+        current_user,
+        "create",
+        "script",
+        script.id,
+        detail=script.name,
+    )
     flash("Скрипт сохранён.", "success")
     return redirect(url_for("scripts.edit_script", script_id=script.id))
 
 
 @bp.get("/<int:script_id>/edit")
-@admin_required
+@login_required
 def edit_script(script_id: int):
+    """Admin — правка; operator — просмотр/запуск опубликованного."""
     script = db.session.get(Script, script_id)
     if script is None:
         abort(404)
+    if getattr(current_user, "is_admin", False):
+        return _render_form(script)
+    if not user_can_run_script(current_user, script):
+        abort(403)
     return _render_form(script)
 
 
@@ -179,6 +212,13 @@ def update_script(script_id: int):
     except script_service.ScriptError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("scripts.edit_script", script_id=script.id))
+    audit_service.log(
+        current_user,
+        "update",
+        "script",
+        script.id,
+        detail=script.name,
+    )
     flash("Скрипт сохранён.", "success")
     return redirect(url_for("scripts.edit_script", script_id=script.id))
 
@@ -186,19 +226,30 @@ def update_script(script_id: int):
 @bp.post("/<int:script_id>/delete")
 @admin_required
 def delete_script(script_id: int):
-    if db.session.get(Script, script_id) is None:
+    script = db.session.get(Script, script_id)
+    if script is None:
         abort(404)
+    name = script.name
     script_service.delete_script(script_id)
+    audit_service.log(
+        current_user,
+        "delete",
+        "script",
+        script_id,
+        detail=name,
+    )
     flash("Скрипт удалён.", "success")
     return redirect(url_for("scripts.list_scripts"))
 
 
 @bp.post("/<int:script_id>/run")
-@admin_required
+@login_required
 def run_script(script_id: int):
     script = db.session.get(Script, script_id)
     if script is None:
         abort(404)
+    if not user_can_run_script(current_user, script):
+        abort(403)
     if script.target_os == "linux" or script.interpreter == "bash":
         flash(
             "Удалённый Linux в v1 не реализован: PsExec работает только с Windows.",
@@ -231,6 +282,28 @@ def run_script(script_id: int):
         flash(str(exc), "danger")
         return redirect(url_for("scripts.edit_script", script_id=script.id))
     return redirect(url_for("scripts.run_detail", run_id=runs[0].id))
+
+
+@bp.get("/batches/<batch_id>")
+@login_required
+def batch_detail(batch_id: str):
+    """SSR прогресс пачки. Разметку дополняет A2; минимум — context + polling URL."""
+    payload = batch_service.batch_status_payload(current_user, batch_id)
+    if payload is None:
+        abort(404)
+    return render_template(
+        "scripts/batch.html",
+        batch_id=payload["batch_id"],
+        total=payload["total"],
+        pending=payload["pending"],
+        running=payload["running"],
+        success=payload["success"],
+        failed=payload["failed"],
+        cancelled=payload["cancelled"],
+        finished=payload["finished"],
+        runs=payload["runs"],
+        status_url=url_for("devices.batch_status", batch_id=batch_id),
+    )
 
 
 @bp.get("/runs/<int:run_id>")

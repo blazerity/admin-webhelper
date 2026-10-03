@@ -1,23 +1,21 @@
 # Устройство offline
 
-Краткий операторский сценарий (заготовка; полное наполнение — W4-04).
+Операторский сценарий: хост на карте **offline**.
 
 ## Симптом
 
-На карте сети устройство в статусе **offline** (или «не отвечает» после опроса). Карточка открывается, вкладка polls показывает неуспешные проходы.
+Карточка устройства и/или сводка показывают offline. Watchlist (W3) может прислать in-app уведомление.
 
 ## Быстрая проверка
 
-1. Убедиться, что `bawh-scheduler` активен: `systemctl is-active bawh-scheduler`.
-2. На **Параметры** (`/admin/settings`) посмотреть последний `network_poll_runs` и блок health scheduler (после W1-08): не `stale` ли опрос.
-3. С карточки устройства: **Ping** (diagnostics) — ICMP доходит?
-4. Если ping ок, а WMI/инвентарь пустой — проверить учётку WMI в Параметрах и сеть до хоста (RPC/firewall). См. будущий runbook WMI.
-5. Сектор и CIDR: устройство всё ещё в диапазоне сектора? ACL non-admin не скрывает «чужие» хосты как offline.
+1. `systemctl is-active bawh-web bawh-scheduler`
+2. `/admin/settings` → health scheduler и последний `network_poll_runs`
+3. С карточки: **Ping**
+4. Если ping ок, а инвентарь пуст → [WMI не отвечает](wmi-no-response.md)
+5. Сектор/CIDR/ACL: хост всё ещё в диапазоне? Non-admin не видит чужие сектора
 
-## Когда эскалировать
+## Эскалация
 
-- Весь сектор offline при живом scheduler → сеть / маршрут / MIN_CIDR_PREFIX.
-- Scheduler stale, web жив (`/health` ok) → журнал `bawh-scheduler`, диск, БД.
-- Только один хост → кабель/питание/локальный firewall; PsExec отдельно.
-
-Связано: [W1 regression checklist](w1-regression-checklist.md) §3–§6, §9.
+- Весь сектор offline при живом scheduler → сеть / маршрут
+- Scheduler stale, `/health` ok → журнал scheduler, диск, БД
+- Один хост → питание/firewall; удалённые скрипты — [PsExec отказал](psexec-failed.md)

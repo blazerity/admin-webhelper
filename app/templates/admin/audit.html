@@ -1,0 +1,39 @@
+{% extends "layouts/settings.html" %}
+{% block title %}Аудит{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Журнал аудита</h1>
+    <p class="page-subtitle">Критичные изменения: сектора, настройки, скрипты, обновления</p>
+  </div>
+</div>
+
+<div class="panel content-card p-0 overflow-hidden">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>Время</th>
+          <th>Кто</th>
+          <th>Действие</th>
+          <th>Сущность</th>
+          <th>Детали</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for entry in entries %}
+        <tr>
+          <td class="text-nowrap">{{ entry.created_at|dt }}</td>
+          <td>{{ entry.actor_username or '—' }}</td>
+          <td class="font-monospace">{{ entry.action }}</td>
+          <td class="font-monospace">{{ entry.entity_type }}:{{ entry.entity_id }}</td>
+          <td>{{ entry.detail or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-muted">Записей пока нет.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
