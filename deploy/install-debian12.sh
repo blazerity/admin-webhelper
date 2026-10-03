@@ -55,7 +55,7 @@ require_debian_12() {
 ensure_utf8_locale() {
   # Минимальные образы и curl|bash часто стартуют с LC_ALL=C (ASCII).
   # Flask-Migrate/Alembic читают ini через encoding=locale — без UTF-8 падают
-  # на не-ASCII в файлах миграций. На Debian 12 C.UTF-8 есть из коробки (glibc).
+  # на не-ASCII. На Debian 12 C.UTF-8 есть из коробки (glibc).
   export LANG=C.UTF-8
   export LC_ALL=C.UTF-8
 }
@@ -350,7 +350,7 @@ if cur.fetchone() is None:
 conn.close()
 
 # В PostgreSQL 15 схема public принадлежит владельцу базы.
-# Явная выдача прав оставляет миграции рабочими и на более старой политике.
+# Явная выдача прав нужна и на более старой политике.
 conn = psycopg2.connect(dbname="bawh", user="postgres", host="/var/run/postgresql")
 conn.autocommit = True
 conn.cursor().execute("GRANT ALL ON SCHEMA public TO bawh")
@@ -358,7 +358,7 @@ PY
 }
 
 run_migrations() {
-  log "Применяю миграции."
+  log "Готовлю схему базы данных."
   mkdir -p "$INSTALL_DIR/logs"
   chown bawh:bawh "$INSTALL_DIR/logs"
   runuser -u bawh -- env LANG="${LANG}" LC_ALL="${LC_ALL}" \

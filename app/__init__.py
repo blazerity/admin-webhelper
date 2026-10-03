@@ -33,7 +33,7 @@ def create_app(config_name: str | None = None) -> Flask:
     login_manager.init_app(app)
     csrf.init_app(app)
 
-    # Регистрирует таблицы в metadata до миграций / create_all.
+    # Регистрирует таблицы в metadata SQLAlchemy.
     from app import models
 
     login_manager.login_view = "auth.login"

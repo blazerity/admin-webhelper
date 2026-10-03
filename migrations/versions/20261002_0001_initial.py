@@ -3,10 +3,6 @@
 Revision ID: 0001_initial
 Revises:
 Create Date: 2026-10-02
-
-device_history пока одна таблица. Когда объём вырастет, отдельной
-миграцией её переводят на PARTITION BY RANGE (timestamp) по месяцам.
-До этого момента достаточно индекса (device_id, timestamp).
 """
 
 from alembic import op
@@ -163,7 +159,7 @@ def upgrade():
     if bind.dialect.name == "postgresql":
         op.execute(
             "COMMENT ON TABLE device_history IS "
-            "'История опросов. Позже PARTITION BY RANGE (timestamp) по месяцам.'"
+            "'История опросов.'"
         )
 
 
