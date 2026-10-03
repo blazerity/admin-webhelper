@@ -26,7 +26,7 @@ sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsS
 sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo BAWH_SERVER_NAME=bawh.example.com bash
 ```
 
-Установщик кладёт код в `/opt/bawh`, поднимает PostgreSQL, Nginx, `bawh-web` и `bawh-scheduler`, пишет секреты в `/opt/bawh/.env`.
+Установщик кладёт код в `/opt/bawh`, поднимает PostgreSQL, Nginx, `bawh-web` и `bawh-scheduler`, пишет секреты в `/opt/bawh/.env`. В консоли показывает прогресс по шагам (пакеты → код → venv → БД → службы → Nginx → health).
 
 После установки заполните LDAP в `/opt/bawh/.env` и перезапустите службы:
 

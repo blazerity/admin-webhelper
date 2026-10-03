@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Установка bAWH на Debian 12: пакеты, PostgreSQL, venv, systemd, Nginx.
 # Каталог /opt/bawh совпадает с deploy/bawh-web.service и bawh-scheduler.service.
+# В консоли — баннер, прогресс-бар по шагам и спиннер ожидания PostgreSQL/health.
 #
 # С чистого сервера:
 #   sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo bash
@@ -12,6 +13,7 @@
 #   BAWH_SERVER_NAME  имя в Nginx (по умолчанию hostname -f)
 #   BAWH_REPO         git-адрес, если скрипт запущен не из каталога проекта
 #   BAWH_REF          ветка (по умолчанию main)
+#   NO_COLOR=1        отключить ANSI-цвета
 
 set -euo pipefail
 umask 022
@@ -20,19 +22,143 @@ INSTALL_DIR=/opt/bawh
 BAWH_REPO="${BAWH_REPO:-https://github.com/blazerity/admin-webhelper.git}"
 BAWH_REF="${BAWH_REF:-main}"
 ENV_CREATED=0
+TOTAL_STEPS=10
+CURRENT_STEP=0
 # Путь к этому файлу. При запуске через curl | bash его нет: тогда код берётся из git.
 SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$SCRIPT_PATH" && -f "$SCRIPT_PATH" ]]; then
   SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
 fi
 
+# Цвета и «живой» прогресс только если stdout — TTY (не при curl|bash > log).
+# При curl|bash без TTY всё равно печатаем понятные шаги без escape-кодов.
+UI_COLOR=0
+UI_TTY=0
+if [[ -t 1 ]]; then
+  UI_TTY=1
+  if [[ "${NO_COLOR:-}" == "" && "${TERM:-dumb}" != "dumb" ]]; then
+    UI_COLOR=1
+  fi
+fi
+
+C_RESET=""
+C_BOLD=""
+C_DIM=""
+C_CYAN=""
+C_GREEN=""
+C_YELLOW=""
+C_RED=""
+C_BLUE=""
+if [[ "$UI_COLOR" -eq 1 ]]; then
+  C_RESET=$'\033[0m'
+  C_BOLD=$'\033[1m'
+  C_DIM=$'\033[2m'
+  C_CYAN=$'\033[36m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_RED=$'\033[31m'
+  C_BLUE=$'\033[34m'
+fi
+
 die() {
-  printf '%s\n' "$*" >&2
+  printf '\n%s✗ Ошибка:%s %s\n' "$C_RED$C_BOLD" "$C_RESET" "$*" >&2
   exit 1
 }
 
 log() {
   printf '%s\n' "$*"
+}
+
+# Полоска прогресса: [████░░░░] 3/11
+_progress_bar() {
+  local current="$1" total="$2" width="${3:-28}"
+  local filled empty pct i
+  if (( total <= 0 )); then
+    total=1
+  fi
+  if (( current > total )); then
+    current="$total"
+  fi
+  filled=$(( current * width / total ))
+  empty=$(( width - filled ))
+  pct=$(( current * 100 / total ))
+  printf '['
+  for ((i = 0; i < filled; i++)); do printf '█'; done
+  for ((i = 0; i < empty; i++)); do printf '░'; done
+  printf '] %s/%s (%s%%)' "$current" "$total" "$pct"
+}
+
+print_banner() {
+  local line
+  line='════════════════════════════════════════════════════════════'
+  printf '\n'
+  printf '%s%s%s\n' "$C_CYAN$C_BOLD" "$line" "$C_RESET"
+  printf '%s  bAWH · установка на Debian 12%s\n' "$C_CYAN$C_BOLD" "$C_RESET"
+  printf '%s%s%s\n' "$C_CYAN$C_BOLD" "$line" "$C_RESET"
+  printf '%s  Каталог:%s  %s\n' "$C_DIM" "$C_RESET" "$INSTALL_DIR"
+  printf '%s  Репозиторий:%s %s\n' "$C_DIM" "$C_RESET" "$BAWH_REPO"
+  printf '%s  Ветка:%s       %s\n' "$C_DIM" "$C_RESET" "$BAWH_REF"
+  printf '%s  Шагов:%s       %s\n' "$C_DIM" "$C_RESET" "$TOTAL_STEPS"
+  printf '%s%s%s\n\n' "$C_CYAN$C_BOLD" "$line" "$C_RESET"
+}
+
+# Начало шага: обновляет общий прогресс и печатает заголовок.
+step_begin() {
+  local title="$1"
+  local detail="${2:-}"
+  CURRENT_STEP=$((CURRENT_STEP + 1))
+  printf '\n'
+  printf '%s▶ Шаг %s/%s%s  %s\n' \
+    "$C_BLUE$C_BOLD" "$CURRENT_STEP" "$TOTAL_STEPS" "$C_RESET" "$C_BOLD$title$C_RESET"
+  printf '  %s%s%s\n' "$C_CYAN" "$(_progress_bar "$CURRENT_STEP" "$TOTAL_STEPS")" "$C_RESET"
+  if [[ -n "$detail" ]]; then
+    printf '  %s%s%s\n' "$C_DIM" "$detail" "$C_RESET"
+  fi
+}
+
+step_ok() {
+  local message="${1:-готово}"
+  printf '  %s✓%s %s\n' "$C_GREEN$C_BOLD" "$C_RESET" "$message"
+}
+
+step_info() {
+  printf '  %s·%s %s\n' "$C_DIM" "$C_RESET" "$*"
+}
+
+# Спиннер ожидания (postgres / health). Работает и без TTY — тогда точки.
+wait_spinner() {
+  local label="$1"
+  local max_attempts="$2"
+  local check_cmd="$3"
+  local attempt=1
+  local frames='|/-\\'
+  local frame_i=0
+  local body frame
+
+  while (( attempt <= max_attempts )); do
+    if eval "$check_cmd"; then
+      if [[ "$UI_TTY" -eq 1 ]]; then
+        printf '\r  %s✓%s %s %s— ок%s\n' "$C_GREEN$C_BOLD" "$C_RESET" "$label" "$C_DIM" "$C_RESET"
+      else
+        printf '  ✓ %s — ок\n' "$label"
+      fi
+      return 0
+    fi
+    if [[ "$UI_TTY" -eq 1 ]]; then
+      frame_i=$(( (attempt - 1) % 4 ))
+      frame="${frames:frame_i:1}"
+      printf '\r  %s%s%s %s %s(%s/%s)%s   ' \
+        "$C_YELLOW" "$frame" "$C_RESET" "$label" "$C_DIM" "$attempt" "$max_attempts" "$C_RESET"
+    elif (( attempt == 1 || attempt % 5 == 0 )); then
+      printf '  … %s (%s/%s)\n' "$label" "$attempt" "$max_attempts"
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  if [[ "$UI_TTY" -eq 1 ]]; then
+    printf '\r'
+  fi
+  return 1
 }
 
 require_root() {
@@ -60,7 +186,7 @@ ensure_utf8_locale() {
 }
 
 install_packages() {
-  log "Ставлю пакеты Debian."
+  step_begin "Пакеты Debian" "apt-get update и установка python, PostgreSQL, Nginx, git…"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y \
@@ -77,14 +203,18 @@ install_packages() {
     ca-certificates \
     curl \
     sudo
+  step_ok "пакеты установлены"
 }
 
 ensure_user() {
+  step_begin "Системный пользователь" "учётная запись bawh для сервисов и файлов"
   if id bawh >/dev/null 2>&1; then
+    step_info "пользователь bawh уже есть"
+    step_ok "пропущено создание"
     return
   fi
-  log "Создаю системного пользователя bawh."
   useradd --system --home-dir "$INSTALL_DIR" --shell /usr/sbin/nologin bawh
+  step_ok "пользователь bawh создан"
 }
 
 detect_local_repo() {
@@ -100,7 +230,7 @@ detect_local_repo() {
 }
 
 update_git_checkout() {
-  log "Обновляю $INSTALL_DIR из $BAWH_REPO ($BAWH_REF)."
+  step_info "обновляю git: $BAWH_REPO ($BAWH_REF)"
   chown -R bawh:bawh "$INSTALL_DIR"
   runuser -u bawh -- env GIT_TERMINAL_PROMPT=0 git -C "$INSTALL_DIR" remote set-url origin "$BAWH_REPO"
   runuser -u bawh -- env GIT_TERMINAL_PROMPT=0 git -C "$INSTALL_DIR" fetch origin "$BAWH_REF"
@@ -109,6 +239,7 @@ update_git_checkout() {
 }
 
 install_sources() {
+  step_begin "Исходники приложения" "код в $INSTALL_DIR"
   detect_local_repo
   mkdir -p "$INSTALL_DIR"
 
@@ -119,10 +250,10 @@ install_sources() {
       if [[ -d "$INSTALL_DIR/.git" ]]; then
         update_git_checkout
       else
-        log "Код уже лежит в $INSTALL_DIR."
+        step_info "код уже лежит в $INSTALL_DIR"
       fi
     else
-      log "Копирую проект в $INSTALL_DIR."
+      step_info "копирую проект из $LOCAL_REPO"
       rsync -a \
         --exclude .venv \
         --exclude .env \
@@ -135,11 +266,13 @@ install_sources() {
         --exclude '*.pyc' \
         "$LOCAL_REPO/" "$INSTALL_DIR/"
     fi
+    step_ok "исходники на месте"
     return
   fi
 
   if [[ -d "$INSTALL_DIR/.git" ]]; then
     update_git_checkout
+    step_ok "репозиторий обновлён"
     return
   fi
 
@@ -147,13 +280,14 @@ install_sources() {
     die "Каталог $INSTALL_DIR уже есть, и это не git-копия. Запустите скрипт из каталога проекта: sudo bash deploy/install-debian12.sh. Либо уберите $INSTALL_DIR и выполните команду ещё раз."
   fi
 
-  log "Клонирую $BAWH_REPO в $INSTALL_DIR."
+  step_info "клонирую $BAWH_REPO → $INSTALL_DIR"
   chown bawh:bawh "$INSTALL_DIR"
   runuser -u bawh -- env GIT_TERMINAL_PROMPT=0 git clone --branch "$BAWH_REF" "$BAWH_REPO" "$INSTALL_DIR"
+  step_ok "репозиторий склонирован"
 }
 
 ensure_venv() {
-  log "Собираю виртуальное окружение и ставлю зависимости Python."
+  step_begin "Python venv и зависимости" "python3.11 -m venv + pip install -r requirements.txt"
   chown -R bawh:bawh "$INSTALL_DIR"
   runuser -u bawh -- python3.11 -m venv "$INSTALL_DIR/.venv"
   runuser -u bawh -- "$INSTALL_DIR/.venv/bin/pip" install \
@@ -163,10 +297,11 @@ ensure_venv() {
   # Роль PostgreSQL создаёт интерпретатор из этого venv от имени postgres.
   chmod 755 "$INSTALL_DIR"
   chmod -R a+rX "$INSTALL_DIR/.venv"
+  step_ok "venv готов"
 }
 
 write_env_file() {
-  log "Создаю $INSTALL_DIR/.env с новыми SECRET_KEY, FERNET_KEY и паролем базы."
+  step_info "создаю $INSTALL_DIR/.env (SECRET_KEY, FERNET_KEY, пароль БД)"
   BAWH_INSTALL_DIR="$INSTALL_DIR" BAWH_REPO="$BAWH_REPO" BAWH_REF="$BAWH_REF" \
     "$INSTALL_DIR/.venv/bin/python" - <<'PY'
 import os
@@ -217,23 +352,19 @@ PY
 }
 
 wait_for_postgres() {
-  log "Жду PostgreSQL."
+  step_info "запускаю PostgreSQL и жду готовности"
   systemctl enable --now postgresql
-  local attempt
-  for attempt in $(seq 1 30); do
-    if runuser -u postgres -- pg_isready -q; then
-      return
-    fi
-    sleep 1
-  done
-  die "PostgreSQL не ответил. Смотрите: journalctl -u postgresql -n 50 --no-pager"
+  if ! wait_spinner "ожидание PostgreSQL" 30 'runuser -u postgres -- pg_isready -q'; then
+    die "PostgreSQL не ответил. Смотрите: journalctl -u postgresql -n 50 --no-pager"
+  fi
 }
 
 ensure_database() {
+  step_begin "PostgreSQL и .env" "роль/база bawh, секреты в $INSTALL_DIR/.env"
   if [[ ! -f "$INSTALL_DIR/.env" ]]; then
     write_env_file
   else
-    log "Файл $INSTALL_DIR/.env уже есть, оставляю его."
+    step_info "файл $INSTALL_DIR/.env уже есть — оставляю без перезаписи"
     chown bawh:bawh "$INSTALL_DIR/.env"
     chmod 600 "$INSTALL_DIR/.env"
   fi
@@ -309,7 +440,7 @@ print(password, end="")
 PY
   )" || die "Не удалось прочитать пароль базы из $INSTALL_DIR/.env."
 
-  log "Проверяю роль и базу PostgreSQL bawh."
+  step_info "проверяю роль и базу PostgreSQL bawh"
   chmod 755 "$INSTALL_DIR"
   runuser -u postgres -- env -i \
     PATH="/usr/bin:/bin" \
@@ -354,36 +485,41 @@ conn = psycopg2.connect(dbname="bawh", user="postgres", host="/var/run/postgresq
 conn.autocommit = True
 conn.cursor().execute("GRANT ALL ON SCHEMA public TO bawh")
 PY
+  step_ok "база bawh готова"
 }
 
 prepare_database() {
-  log "Готовлю схему базы данных."
+  step_begin "Схема приложения" "flask init-db — таблицы и справочники"
   mkdir -p "$INSTALL_DIR/logs"
   chown bawh:bawh "$INSTALL_DIR/logs"
   runuser -u bawh -- env LANG="${LANG}" LC_ALL="${LC_ALL}" \
     bash -c "cd '$INSTALL_DIR' && exec .venv/bin/flask --app wsgi init-db"
+  step_ok "схема создана"
 }
 
 install_systemd() {
-  log "Включаю сервисы bawh-web и bawh-scheduler."
+  step_begin "systemd-службы" "bawh-web (Gunicorn) и bawh-scheduler"
   cp "$INSTALL_DIR/deploy/bawh-web.service" "$INSTALL_DIR/deploy/bawh-scheduler.service" /etc/systemd/system/
   systemctl daemon-reload
   systemctl enable --now bawh-web bawh-scheduler
   systemctl restart bawh-web bawh-scheduler
+  step_ok "службы запущены"
 }
 
 install_update_sudoers() {
+  step_begin "Sudoers для обновления из UI" "passwordless restart bawh-web / bawh-scheduler"
   local src="$INSTALL_DIR/deploy/bawh-update.sudoers"
   local dest=/etc/sudoers.d/bawh-update
   if [[ ! -f "$src" ]]; then
-    log "Нет $src — правило для автоперезапуска после обновления не ставлю."
+    step_info "нет $src — правило не ставлю"
+    step_ok "пропущено"
     return 0
   fi
   if ! command -v visudo >/dev/null 2>&1; then
-    log "Нет visudo — правило для автоперезапуска после обновления не ставлю."
+    step_info "нет visudo — правило не ставлю"
+    step_ok "пропущено"
     return 0
   fi
-  log "Ставлю passwordless sudo для перезапуска служб после обновления из UI."
   mkdir -p /etc/sudoers.d
   cp "$src" "$dest"
   chmod 440 "$dest"
@@ -391,9 +527,11 @@ install_update_sudoers() {
     rm -f "$dest"
     die "Файл $src не прошёл проверку visudo. Автоперезапуск после обновления не настроен."
   fi
+  step_ok "sudoers установлен"
 }
 
 install_nginx() {
+  step_begin "Nginx" "прокси на Gunicorn :8000, порт 80"
   local server_name
   server_name="${BAWH_SERVER_NAME:-}"
   if [[ -z "$server_name" ]]; then
@@ -402,7 +540,7 @@ install_nginx() {
   if [[ ! "$server_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
     die "BAWH_SERVER_NAME может содержать только буквы, цифры, точку, дефис и подчёркивание."
   fi
-  log "Настраиваю Nginx на порту 80 (default_server), имя $server_name."
+  step_info "server_name = $server_name"
   sed "s/server_name _ bawh.example.com;/server_name _ ${server_name};/" \
     "$INSTALL_DIR/deploy/nginx-bawh.conf" > /etc/nginx/sites-available/bawh
   ln -sfn /etc/nginx/sites-available/bawh /etc/nginx/sites-enabled/bawh
@@ -411,62 +549,70 @@ install_nginx() {
   systemctl enable --now nginx
   systemctl reload nginx
   if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
-    log "В ufw открываю TCP 80 для доступа из локальной сети."
+    step_info "ufw активен — открываю TCP 80"
     ufw allow 80/tcp comment bawh
   fi
   SERVER_NAME="$server_name"
   LAN_IP="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | grep -v '^127\.' | head -n 1 || true)"
+  step_ok "Nginx настроен"
 }
 
 wait_until_ok() {
-  local url host attempt body curl_host
-  url="$1"
-  host="${2:-}"
-  curl_host=()
+  local url="$1"
+  local host="${2:-}"
+  local curl_host=()
   if [[ -n "$host" ]]; then
     curl_host=(-H "Host: $host")
   fi
-  for attempt in $(seq 1 30); do
-    body="$(curl -fsS "${curl_host[@]}" "$url" 2>/dev/null || true)"
-    if [[ "$body" == *'"ok"'* ]]; then
-      return 0
-    fi
-    sleep 1
-  done
-  return 1
+  local body
+  body="$(curl -fsS "${curl_host[@]}" "$url" 2>/dev/null || true)"
+  [[ "$body" == *'"ok"'* ]]
 }
 
 wait_for_health() {
-  log "Проверяю http://127.0.0.1:8000/health."
-  if ! wait_until_ok "http://127.0.0.1:8000/health"; then
+  step_begin "Проверка здоровья" "Gunicorn /health и Nginx /health"
+  if ! wait_spinner "Gunicorn http://127.0.0.1:8000/health" 30 \
+    'wait_until_ok "http://127.0.0.1:8000/health"'; then
     die "bawh-web не ответил на /health. Журнал: journalctl -u bawh-web -n 50 --no-pager"
   fi
-  log "Проверяю http://127.0.0.1/health через Nginx."
-  if ! wait_until_ok "http://127.0.0.1/health" "$SERVER_NAME"; then
+  if ! wait_spinner "Nginx http://127.0.0.1/health" 30 \
+    "wait_until_ok \"http://127.0.0.1/health\" \"$SERVER_NAME\""; then
     die "Nginx не отдал /health. Журнал: journalctl -u nginx -n 50 --no-pager"
   fi
   if [[ -n "${LAN_IP:-}" ]]; then
-    log "Проверяю http://${LAN_IP}/health (как из локальной сети, по IP)."
-    if ! wait_until_ok "http://${LAN_IP}/health"; then
+    if ! wait_spinner "LAN http://${LAN_IP}/health" 30 \
+      "wait_until_ok \"http://${LAN_IP}/health\""; then
       die "Nginx не ответил на http://${LAN_IP}/health. Порт 80 должен быть открыт на адресе сервера."
     fi
+  else
+    step_info "LAN IP не определён — проверку по сети пропускаю"
   fi
+  step_ok "сервис отвечает"
 }
 
 print_summary() {
-  log ""
-  log "bAWH установлен."
-  log "  Каталог: $INSTALL_DIR"
-  log "  Настройки: $INSTALL_DIR/.env"
+  local line
+  line='════════════════════════════════════════════════════════════'
+  printf '\n'
+  printf '%s%s%s\n' "$C_GREEN$C_BOLD" "$line" "$C_RESET"
+  printf '%s  ✓  bAWH установлен успешно%s\n' "$C_GREEN$C_BOLD" "$C_RESET"
+  printf '  %s%s%s\n' "$C_CYAN" "$(_progress_bar "$TOTAL_STEPS" "$TOTAL_STEPS")" "$C_RESET"
+  printf '%s%s%s\n' "$C_GREEN$C_BOLD" "$line" "$C_RESET"
+  printf '\n'
+  printf '  %sКаталог:%s     %s\n' "$C_BOLD" "$C_RESET" "$INSTALL_DIR"
+  printf '  %sНастройки:%s   %s/.env\n' "$C_BOLD" "$C_RESET" "$INSTALL_DIR"
   if [[ -n "${LAN_IP:-}" ]]; then
-    log "  Сайт в локальной сети: http://${LAN_IP}/"
+    printf '  %sСайт (LAN):%s  http://%s/\n' "$C_BOLD" "$C_RESET" "$LAN_IP"
   fi
-  log "  Сайт по имени: http://${SERVER_NAME}/"
-  log "  Проверка: curl -s http://127.0.0.1:8000/health"
-  log ""
-  log "Заполните LDAP в $INSTALL_DIR/.env (LDAP_HOST, LDAP_BASE_DN, LDAP_DOMAIN) и перезапустите сервисы:"
-  log "  systemctl restart bawh-web bawh-scheduler"
-  log "Учётку PsExec задают на странице /admin/settings (на пользователя). Пока Nginx отдаёт HTTP, оставьте SESSION_COOKIE_SECURE=0."
+  printf '  %sСайт (имя):%s  http://%s/\n' "$C_BOLD" "$C_RESET" "$SERVER_NAME"
+  printf '  %sПроверка:%s    curl -s http://127.0.0.1:8000/health\n' "$C_BOLD" "$C_RESET"
+  printf '\n'
+  printf '%sСледующий шаг:%s заполните LDAP в %s/.env\n' "$C_YELLOW$C_BOLD" "$C_RESET" "$INSTALL_DIR"
+  printf '  (LDAP_HOST, LDAP_BASE_DN, LDAP_DOMAIN) и перезапустите:\n'
+  printf '    systemctl restart bawh-web bawh-scheduler\n'
+  printf '\n'
+  printf '%sPsExec:%s учётка на странице /admin/settings (на пользователя).\n' "$C_DIM" "$C_RESET"
+  printf '%sHTTP:%s  пока без TLS оставьте SESSION_COOKIE_SECURE=0.\n\n' "$C_DIM" "$C_RESET"
 }
 
 main() {
@@ -477,6 +623,7 @@ main() {
   require_debian_12
   export DEBIAN_FRONTEND=noninteractive
   ensure_utf8_locale
+  print_banner
   install_packages
   ensure_user
   install_sources
