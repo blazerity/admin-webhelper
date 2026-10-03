@@ -10,8 +10,6 @@ import uuid
 
 from sqlalchemy.orm import selectinload
 
-from flask import url_for
-
 from app.authz import accessible_sector_ids
 from app.models import Device, RunStatus, RunType, Script, ScriptRun
 from app.services.script_service import start_run, start_script_on_devices
@@ -80,7 +78,8 @@ def batch_status_payload(user, batch_id: str) -> dict | None:
                 "ip": (device.ip if device is not None else None) or "",
                 "status": status,
                 "run_type": run.run_type,
-                "url": url_for("scripts.run_detail", run_id=run.id),
+                # Относительный путь: сервис вызывается и вне request context.
+                "url": f"/scripts/runs/{run.id}",
             }
         )
 
