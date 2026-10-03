@@ -16,7 +16,12 @@ class NetworkPollRun(db.Model):
     __tablename__ = "network_poll_runs"
 
     id = db.Column(db.Integer, primary_key=True)
-    started_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    started_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        index=True,
+    )
     finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
     scanned = db.Column(db.Integer, nullable=False, default=0)
     online = db.Column(db.Integer, nullable=False, default=0)

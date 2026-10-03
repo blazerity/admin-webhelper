@@ -29,5 +29,9 @@ class Notification(db.Model):
 
     user = db.relationship("User")
 
+    __table_args__ = (
+        db.Index("ix_notifications_user_read", "user_id", "read_at"),
+    )
+
     def __repr__(self) -> str:
         return f"<Notification {self.kind} user={self.user_id}>"

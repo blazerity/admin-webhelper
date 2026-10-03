@@ -350,7 +350,7 @@ def perform_update(
             progress("Устанавливаю зависимости")
             pip_install(root)
         progress("Готовлю схему базы данных")
-        db_upgrade(root)
+        prepare_schema(root)
         align_git_head(root, url, branch)
         _write_installed(root, commit, subject, version, branch, backup.name)
         prune_backups(root, keep, protect={backup.name})
@@ -635,15 +635,15 @@ def pip_install(root: Path) -> None:
         raise UpdateError(f"Не удалось установить зависимости: {_tail(result.stderr)}")
 
 
-def db_upgrade(root: Path) -> None:
+def prepare_schema(root: Path) -> None:
     result = _run(
-        [sys.executable, "-m", "flask", "--app", "wsgi", "db", "upgrade"],
+        [sys.executable, "-m", "flask", "--app", "wsgi", "init-db"],
         cwd=root,
         timeout=180,
     )
     if result.returncode != 0:
         detail = _tail(result.stderr or result.stdout)
-        raise UpdateError(f"Не удалось обновить схему базы: {detail}")
+        raise UpdateError(f"Не удалось подготовить схему базы: {detail}")
 
 
 def align_git_head(root: Path, url: str, branch: str) -> None:

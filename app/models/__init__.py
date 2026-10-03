@@ -1,4 +1,4 @@
-"""Импорт моделей, чтобы SQLAlchemy увидел таблицы до create_all / Alembic."""
+"""Импорт моделей, чтобы SQLAlchemy увидел таблицы до create_all."""
 
 from app.models.account import DeviceAccountHistory, EndpointAccount, SessionType
 from app.models.action import ACTION_KIND_SEED, ActionKind, ActionKindCode, seed_action_kinds
