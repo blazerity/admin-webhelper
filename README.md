@@ -16,14 +16,14 @@ bAWH/
     __init__.py           create_app(): собирает конфиг, БД, маршруты
     config.py             настройки из переменных окружения
     extensions.py         объекты Flask-расширений (БД, логин, CSRF, миграции)
-    authz.py              видимость секторов, устройств и script_runs
-    utils.py              utcnow, as_utc, ilike_pattern, clip
+    authz.py              секторы, роли (Authz v2), script_runs
+    utils.py              utcnow, as_utc, ilike_pattern, normalize_page, clip
     logging_config.py     лог в файл (суточная ротация) и в stdout (journalctl)
     models/               таблицы
     services/             бизнес-логика без HTTP
-    routes/               URL и формы (blueprints)
+    routes/               URL и формы (blueprints), api_v1 aliases
     templates/            HTML-страницы
-    static/               CSS и JS
+    static/               CSS и JS (http.js — общий fetch для UI)
   migrations/             схема PostgreSQL (Alembic через Flask-Migrate)
   docs/                   архитектура, roadmap, брифы агентов (A1–A5), план развития (ROADMAP)
   tests/                  pytest
@@ -34,28 +34,30 @@ bAWH/
 
 | Слой | Каталог | Назначение |
 | --- | --- | --- |
-| Модели | `app/models/` | Таблицы: пользователь, сектор, устройство, УЗ на ПК, история, скрипт, настройки. Без пинга и без HTML. |
-| Сервисы | `app/services/` | LDAP, опрос, УЗ, действия, шифрование, поиск, PsExec. Вызываются из веба, планировщика и тестов. |
-| Маршруты | `app/routes/` | Blueprint: форма → сервис → шаблон. Пинг, LDAP и PsExec отсюда напрямую не выполняются. |
-| Шаблоны | `app/templates/` | HTML. Общий каркас — `base.html`. |
+| Модели | `app/models/` | Таблицы: пользователь, сектор, устройство, УЗ на ПК, история, скрипт, уведомления, настройки. Без пинга и без HTML. |
+| Сервисы | `app/services/` | LDAP, опрос, УЗ, действия, шифрование, поиск, PsExec, batch, watchlist. Вызываются из веба, планировщика и тестов. |
+| Маршруты | `app/routes/` | Blueprint: форма → сервис → шаблон/JSON. Пинг, LDAP и PsExec отсюда напрямую не выполняются. |
+| Шаблоны / JS | `app/templates/`, `app/static/js/` | HTML + общий `http.js` (`BawhHttp`) для map/batch/notifications/search. |
 
-`app/authz.py`: администратор видит всё; обычный пользователь — секторы по логину/LDAP-группе; `script_runs` — автор или доступное устройство (`user_can_see_script_run`).
+`app/authz.py` (Authz v2): администратор видит всё; обычный пользователь — секторы по логину/LDAP-группе; роли `viewer` / `operator` / `password_viewer` additive; `script_runs` — автор или доступное устройство (`user_can_see_script_run`). Подробнее — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) и [`docs/adr/002-authz-v2.md`](docs/adr/002-authz-v2.md).
 
-Сборка одна: `create_app()` в `app/__init__.py`. Её вызывают веб-процесс, тесты и процесс опроса. Проверка «процесс жив» — `GET /health` (без входа, ответ `{"status": "ok"}`). Доступность сервисов компании на экране входа — `GET /api/login-services/status`.
+Сборка одна: `create_app()` в `app/__init__.py`. Её вызывают веб-процесс, тесты и процесс опроса. Проверка «процесс жив» — `GET /health` (без входа, ответ `{"status": "ok"}`; alias `GET /api/v1/health`). Доступность сервисов компании на экране входа — `GET /api/login-services/status`.
 
 ### Модели
 
-Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0008_network_poll_runs`).
+Импорт всех таблиц — `app/models/__init__.py`. Схема создаётся миграциями в `migrations/versions/` (сейчас до `0010_watchlist_notifications`).
 
 Справочники и журналы разделены:
 
-- `users`, `user_ldap_groups` — операторы сайта после входа через LDAP и их группы.
+- `users`, `user_ldap_groups` — операторы сайта после входа через LDAP и их группы (в т.ч. флаги ролей Authz v2).
 - `sectors`, `sector_ranges`, `sector_access` — справочник секторов, CIDR и кому сектор виден.
 - `devices`, `device_history` — справочник машин и журнал опросов. Уникальность: `serial_number` (WMI), иначе hostname; IP — последний адрес; `current_account_id` — кто сейчас за ПК.
 - `network_poll_runs` — журнал прогонов полного опроса (время, режим, сводка).
 - `endpoint_accounts`, `device_account_history` — справочник УЗ на конечных точках и факты «УЗ замечена на устройстве» (не путать с `users`). Ключ домена — NetBIOS (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
 - `action_kinds` — справочник типов действий (`ACTION_KIND_SEED` в модели); лента `/actions` собирается из `script_runs` и `device_account_history` с теми же правилами видимости, что и карточка запуска.
-- `scripts`, `script_runs` — библиотека скриптов и журнал запусков (скрипт, ping, tracert, команда). У скрипта есть `run_as`: учётка PsExec или `NT AUTHORITY\SYSTEM`.
+- `scripts`, `script_runs` — библиотека скриптов и журнал запусков (скрипт, ping, tracert, команда; `batch_id` для bulk). У скрипта есть `run_as`: учётка PsExec или `NT AUTHORITY\SYSTEM`.
+- `notifications`, `device_watchlist` — in-app уведомления и подписки «offline N минут».
+- `admin_audit_log` — журнал админ-действий (секторы, настройки, скрипты, обновления).
 - `app_settings` — параметры вроде интервала опроса.
 - `password_notifications`, `password_expiry_runs` — история писем о сроке пароля и снимки прогонов.
 - `login_services` — сервисы компании для блока доступности на экране входа (имя + IP/FQDN).
@@ -70,14 +72,19 @@ bAWH/
 - `ldap_service.py` — проверка пароля в LDAP и список групп.
 - `sector_service.py` — создание и правка секторов.
 - `login_service_status.py` — CRUD сервисов экрана входа и ICMP-проверка для публичного статуса.
-- `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `run_network_poll` (журнал + защита от параллели) → `poll_all_sectors`. Пустые адреса в `devices` не создаёт.
+- `ping_service.py` — ICMP-пинг и запись истории. Общий вход опроса: `run_network_poll` (журнал + защита от параллели) → `poll_all_sectors` → `evaluate_watchlist_alerts`. Пустые адреса в `devices` не создаёт.
 - `discovery_service.py` — обратный DNS, MAC из ARP/WMI, серийник и текущая УЗ по WMI (учётка в Параметрах или `DISCOVERY_*` в `.env`).
 - `account_service.py` — справочник `endpoint_accounts`, разбор/нормализация `DOMAIN\user`, upsert с защитой от гонки, запись появлений УЗ.
 - `action_service.py` — справочник `action_kinds` и лента недавних действий (authz как у `scripts.run_detail`).
+- `export_service.py` — CSV-выгрузки и `csv_attachment` для `/accounts`, `/actions`.
 - `scheduler_service.py` — цикл опроса для отдельного процесса.
 - `search_service.py` — поиск устройств по IP, MAC, hostname, serial.
+- `network_summary_service.py` / `command_presets.py` — сводка карты и пресеты команд.
 - `psexec_service.py` — удалённая команда на Windows.
-- `script_service.py` — библиотека скриптов и запуск в фоновом потоке.
+- `script_service.py` — библиотека скриптов; pending-строки одним commit, выполнение через `ThreadPoolExecutor` (`MAX_RUN_WORKERS=8`).
+- `batch_service.py` — bulk ping/script и агрегация статуса по `batch_id` (ACL одним запросом секторов).
+- `notification_service.py` / `watchlist_service.py` — лента уведомлений и offline-алерты с batch-dedupe.
+- `audit_service.py` — запись админ-аудита.
 - `update_service.py` — обновление кода из публичного git и откат на резервную копию.
 - `password_expiry_service.py` — проверка срока паролей AD, письма и админ-отчёт (LDAP host из `.env`, bind/SMTP в настройках модуля с fallback на `.env`, пороги в `app_settings`).
 
@@ -88,18 +95,20 @@ bAWH/
 | Файл | Адреса |
 | --- | --- |
 | `auth.py` | `GET/POST /login`, `POST /logout` |
-| `devices.py` | `GET /` карта сети, `GET /devices/<id>` (вкладки overview / accounts / commands / polls), `GET /api/network/summary`, `GET /api/command-presets`, `POST /devices/<id>/scripts/run` |
-| `accounts.py` | `/accounts` — справочник УЗ, `/accounts/<id>` — карточка |
-| `actions.py` | `/actions` — справочник типов действий и лента событий |
+| `devices.py` | `GET /` карта сети, `GET /devices/<id>` (overview / accounts / commands / polls / watch), `GET /api/network/summary`, `GET /api/command-presets`, `GET /api/map/status`, `POST /api/map/bulk/ping|script`, `GET /api/batches/<id>`, `POST /devices/<id>/scripts/run` |
+| `accounts.py` | `/accounts` — справочник УЗ, CSV, `/accounts/<id>` — карточка |
+| `actions.py` | `/actions` — типы действий, лента, CSV |
 | `sectors.py` | `/sectors` — список, создание, карточка, правка, удаление |
-| `search.py` | `GET /search` (редирект на карту), `GET /search/api` и alias `GET /search/suggest` (JSON для карты) |
+| `search.py` | `GET /search` (редирект на карту), `GET /search/api` и `GET /search/suggest` (JSON для карты) |
 | `diagnostics.py` | `POST /devices/<id>/ping`, `/tracert`, `/command` |
-| `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>` (лог, отмена) |
-| `admin.py` | `GET/POST /admin/settings` — учётка PsExec, учётка WMI, интервал, журнал и ручной запуск опроса; `POST /admin/poll-run`; `GET/POST /admin/updates` — обновление из git и откат |
-| `password_expiry.py` | `/password-expiry` — отчёт (пункт верхнего меню); `/password-expiry/settings` — bind/SMTP/пороги в «Настройки» (админы) |
-| `login_services.py` | `/login-services` — сервисы для панели доступности на `/login` (админы); `GET /api/login-services/status` — публичный JSON (online + ms) |
+| `scripts.py` | `/scripts` — библиотека, запуск, `/scripts/runs/<id>`, `/scripts/batches/<id>` |
+| `notifications.py` | `/notifications` — лента; JSON mark-read |
+| `admin.py` | `GET/POST /admin/settings` — учётка PsExec, WMI, интервал, журнал и ручной опрос; `POST /admin/poll-run`; `GET/POST /admin/updates` |
+| `password_expiry.py` | `/password-expiry` — отчёт; `/password-expiry/settings` — bind/SMTP/пороги (админы) |
+| `login_services.py` | `/login-services` — сервисы на `/login` (админы); `GET /api/login-services/status` |
+| `api_v1.py` | `/api/v1/...` — тонкие aliases на legacy JSON (`map/status`, `batches`, `notifications`, `search/suggest`, `health`, …) |
 
-`POST /login` проверяет пароль в LDAP и сохраняет зашифрованный пароль входа для возможного PsExec. Ping и трассировка стартуют с сервера приложения; команда и скрипт — через `psexec_service`. Страница `/scripts/runs/<id>` дочитывает лог опросом раз в 1,5 секунды.
+`POST /login` проверяет пароль в LDAP и сохраняет зашифрованный пароль входа для возможного PsExec. Ping и трассировка стартуют с сервера приложения; команда и скрипт — через `psexec_service` в очереди `script_service`. Страница `/scripts/runs/<id>` и batch дочитывают статус опросом JS.
 
 ## Локальная разработка
 
@@ -191,13 +200,15 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 Два сервиса systemd и Nginx. Docker в корне репозитория необязателен (см. `Dockerfile`). Каталог установки — `/opt/bawh`.
 
-### Установка одной командой
+### Установка одной командой (чистый Debian 12)
+
+Актуальный `main` = релиз **v0.6.0** (волны W1–W4 + simplify [#32](https://github.com/blazerity/admin-webhelper/pull/32)). С чистого сервера:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo bash
 ```
 
-Скрипт `deploy/install-debian12.sh` ставит пакеты, заводит пользователя Linux `bawh`, кладёт код в `/opt/bawh`, создаёт роль и базу PostgreSQL `bawh`, собирает venv, применяет миграции и включает `bawh-web`, `bawh-scheduler` и сайт Nginx. `SECRET_KEY`, `FERNET_KEY` и пароль базы пишет в `/opt/bawh/.env` (права `600`). `GIT_REMOTE_URL` / `GIT_BRANCH` берутся из `BAWH_REPO` / `BAWH_REF` (уже заданный свой адрес в `.env` не перезаписывается). Имя сайта — `hostname -f`, либо:
+Скрипт `deploy/install-debian12.sh` ставит пакеты, заводит пользователя Linux `bawh`, клонирует `main` в `/opt/bawh`, создаёт роль и базу PostgreSQL `bawh`, собирает venv, применяет миграции до `0010_watchlist_notifications` и включает `bawh-web`, `bawh-scheduler` и сайт Nginx. `SECRET_KEY`, `FERNET_KEY` и пароль базы пишет в `/opt/bawh/.env` (права `600`). `GIT_REMOTE_URL` / `GIT_BRANCH` берутся из `BAWH_REPO` / `BAWH_REF` (уже заданный свой адрес в `.env` не перезаписывается). Установщик выставляет UTF-8 locale (`C.UTF-8` / `en_US.UTF-8`), чтобы `flask db upgrade` не падал на ASCII-locale минимальных образов. Имя сайта — `hostname -f`, либо:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo BAWH_SERVER_NAME=bawh.example.com bash
@@ -320,7 +331,7 @@ cd /opt/bawh && sudo -u bawh .venv/bin/flask archive-logs
 
 Администратор → «Обновления»: «Обновить из git» сначала копирует код в `backups/`, затем подтягивает публичный репозиторий. «Откатить» возвращает выбранную копию (текущая версия перед откатом тоже сохраняется).
 
-Номер версии — файл `VERSION` в корне (сейчас `0.2.4`, semver: `MAJOR.MINOR.PATCH`). Страница обновлений показывает его, а не хеш коммита. Перед релизом увеличьте номер, закоммитьте и запушьте: правка `0.2.4` → `0.2.5` (исправление) или `0.3.0` (новые возможности). Пока `VERSION` не меняли, проверка всё равно увидит новый коммит и напишет «сборка …».
+Номер версии — файл `VERSION` в корне (сейчас `0.6.0`, semver: `MAJOR.MINOR.PATCH`). Страница обновлений показывает его, а не хеш коммита. Перед релизом увеличьте номер, закоммитьте и запушьте: правка `0.6.0` → `0.6.1` (исправление) или `0.7.0` (новые возможности). Пока `VERSION` не меняли, проверка всё равно увидит новый коммит и напишет «сборка …».
 
 Не входят в копию и не перезаписываются: `.env`, `.venv`, `logs/`, `script_library/`, `*.db`, `backups/`. Схема PostgreSQL при откате кода назад не откатывается.
 
@@ -371,7 +382,7 @@ python -m app.scheduler_worker
 - **Партиции `device_history`** — сейчас одна таблица и индекс `(device_id, timestamp)`; комментарий в `0001_initial` про `PARTITION BY RANGE (timestamp)`.
 - **WebSocket лога скрипта** — сейчас `GET` раз в 1,5 с (`app/static/js/run_log.js`) из‑за синхронного Gunicorn.
 - **Поиск** — при росте `devices` можно ускорить `pg_trgm` без смены контракта `search_service`.
-- **Вынос remote-exec** — PsExec/скрипты в отдельный процесс; веб только пишет `script_runs` и читает лог.
+- **Вынос remote-exec** — PsExec/скрипты в отдельный процесс/Celery; веб только пишет `script_runs` через `enqueue_run` и читает лог. Сейчас — `ThreadPoolExecutor` (`MAX_RUN_WORKERS=8`) внутри `script_service`.
 
 Права на секторы — в Python (`authz.accessible_sector_ids`); при тысячах секторов — кандидат на `EXISTS` в SQL.
 
