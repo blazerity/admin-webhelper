@@ -57,6 +57,14 @@ class ScriptError(ValueError):
     """Ошибка библиотеки. Текст можно показать администратору во flash."""
 
 
+def scripts_visible_to_user(user) -> list[Script]:
+    """Скрипты для UI запуска: admin — все; иначе только опубликованные."""
+    query = Script.query.order_by(Script.name)
+    if not getattr(user, "is_admin", False):
+        query = query.filter(Script.is_published.is_(True))
+    return query.all()
+
+
 def save_script(
     name: str,
     description: str,
@@ -484,10 +492,7 @@ def _notify_script_failed(run_id: int) -> None:
             notification_service.notify_script_failed(run)
     except Exception:
         logger.exception("Не удалось создать уведомление script_failed для %s", run_id)
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
+        db.session.rollback()
 
 
 def library_root() -> Path:

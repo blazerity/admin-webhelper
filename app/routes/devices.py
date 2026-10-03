@@ -9,14 +9,13 @@ from app.authz import (
     admin_required,
     filter_accessible_devices,
     get_visible_device_or_404,
-    user_can_access_device,
     user_can_bulk_ping,
     user_can_bulk_script,
     user_can_run_script,
     user_can_run_scripts,
 )
 from app.extensions import db
-from app.models import Device, DeviceHistory, RunType, Script, ScriptRun, Sector
+from app.models import DeviceHistory, RunType, Script, ScriptRun, Sector
 from app.run_display import run_launch_label, run_status_label, run_when_label
 from app.services.account_service import device_account_sightings
 from app.services import batch_service
@@ -34,8 +33,8 @@ _DEFAULT_LIST_LIMIT = 5
 _ALL_LIST_LIMIT = 50
 
 
-def _request_json_or_form() -> dict:
-    """Тело JSON или плоский form; для JSON — dict, иначе пустой dict."""
+def _request_json_dict() -> dict:
+    """JSON body as dict; non-JSON requests → {}."""
     if request.is_json:
         payload = request.get_json(silent=True)
         return payload if isinstance(payload, dict) else {}
@@ -47,7 +46,7 @@ def _parse_device_ids() -> list[int] | None:
 
     Form: повторяемые device_ids / device_ids[] или одно значение через запятую.
     """
-    payload = _request_json_or_form()
+    payload = _request_json_dict()
     raw = payload.get("device_ids") if payload else None
     if raw is None and not payload:
         raw_list = request.form.getlist("device_ids") or request.form.getlist("device_ids[]")
@@ -87,7 +86,7 @@ def _parse_device_ids() -> list[int] | None:
 
 
 def _parse_script_id() -> int | None:
-    payload = _request_json_or_form()
+    payload = _request_json_dict()
     if payload:
         return parse_optional_int(
             str(payload["script_id"]) if payload.get("script_id") is not None else None
@@ -95,11 +94,21 @@ def _parse_script_id() -> int | None:
     return parse_optional_int(request.form.get("script_id"))
 
 
-def _bulk_devices(device_ids: list[int]) -> tuple[list[Device], int]:
-    """Доступные устройства через authz.filter_accessible_devices; skipped — остальное."""
-    devices = filter_accessible_devices(current_user, device_ids)
-    skipped = len(device_ids) - len(devices)
-    return devices, skipped
+def _parse_bulk_device_ids_or_error():
+    """(device_ids, None) или (None, (jsonify(...), status))."""
+    device_ids = _parse_device_ids()
+    if device_ids is None:
+        return None, (jsonify({"error": "Укажите device_ids (список id)."}), 400)
+    if not device_ids:
+        return None, (jsonify({"error": "Список device_ids пуст."}), 400)
+    if len(device_ids) > batch_service.MAX_BULK_DEVICES:
+        return None, (
+            jsonify(
+                {"error": f"Не больше {batch_service.MAX_BULK_DEVICES} устройств за раз."}
+            ),
+            400,
+        )
+    return device_ids, None
 
 
 def _bulk_response(batch_id: str, runs: list[ScriptRun], skipped: int):
@@ -109,9 +118,40 @@ def _bulk_response(batch_id: str, runs: list[ScriptRun], skipped: int):
             "run_ids": [run.id for run in runs],
             "accepted": len(runs),
             "skipped": skipped,
-            "progress_url": f"/scripts/batches/{batch_id}",
+            "progress_url": url_for("scripts.batch_detail", batch_id=batch_id),
         }
     )
+
+
+def map_status_payload() -> dict:
+    """JSON-контракт /map/status и /api/v1/map/status."""
+    sectors_payload = []
+    for sector in _load_visible_sectors():
+        devices = [
+            {
+                "id": device.id,
+                "ip": device.ip,
+                "hostname": device.hostname,
+                "status": device.last_status,
+                "kind": device.kind,
+                "url": url_for("devices.detail", device_id=device.id),
+            }
+            for device in sector.visible_devices
+        ]
+        online = sum(1 for device in devices if device["status"] == "online")
+        sectors_payload.append(
+            {
+                "id": sector.id,
+                "name": sector.name,
+                "online": online,
+                "total": len(devices),
+                "devices": devices,
+            }
+        )
+    return {
+        "updated_at": utcnow().isoformat(),
+        "sectors": sectors_payload,
+    }
 
 
 def _load_visible_sectors():
@@ -150,12 +190,11 @@ def map():
     search_results = (
         search_devices(current_user, query, sector_id=sector_id) if query else []
     )
-    # Список скриптов для bulk-бара карты — только если user_can_run_scripts.
     map_scripts = []
     if user_can_run_scripts(current_user):
         map_scripts = [
             {"id": script.id, "name": script.name}
-            for script in Script.query.order_by(Script.name).all()
+            for script in script_service.scripts_visible_to_user(current_user)
         ]
     return render_template(
         "devices/map.html",
@@ -172,35 +211,7 @@ def map():
 @login_required
 def map_status():
     """JSON для автообновления карты: статусы устройств и счётчики секторов."""
-    sectors_payload = []
-    for sector in _load_visible_sectors():
-        devices = [
-            {
-                "id": device.id,
-                "ip": device.ip,
-                "hostname": device.hostname,
-                "status": device.last_status,
-                "kind": device.kind,
-                "url": url_for("devices.detail", device_id=device.id),
-            }
-            for device in sector.visible_devices
-        ]
-        online = sum(1 for device in devices if device["status"] == "online")
-        sectors_payload.append(
-            {
-                "id": sector.id,
-                "name": sector.name,
-                "online": online,
-                "total": len(devices),
-                "devices": devices,
-            }
-        )
-    return jsonify(
-        {
-            "updated_at": utcnow().isoformat(),
-            "sectors": sectors_payload,
-        }
-    )
+    return jsonify(map_status_payload())
 
 
 @bp.post("/api/map/bulk/ping")
@@ -209,17 +220,12 @@ def bulk_ping():
     """Массовый Ping: один batch_id, start_run(PING) на каждое доступное устройство."""
     if not user_can_bulk_ping(current_user):
         abort(403)
-    device_ids = _parse_device_ids()
-    if device_ids is None:
-        return jsonify({"error": "Укажите device_ids (список id)."}), 400
-    if not device_ids:
-        return jsonify({"error": "Список device_ids пуст."}), 400
-    if len(device_ids) > batch_service.MAX_BULK_DEVICES:
-        return jsonify(
-            {"error": f"Не больше {batch_service.MAX_BULK_DEVICES} устройств за раз."}
-        ), 400
+    device_ids, error = _parse_bulk_device_ids_or_error()
+    if error is not None:
+        return error
 
-    devices, skipped = _bulk_devices(device_ids)
+    devices = filter_accessible_devices(current_user, device_ids)
+    skipped = len(device_ids) - len(devices)
     if not devices:
         abort(403)
 
@@ -234,15 +240,9 @@ def bulk_script():
     if not user_can_bulk_script(current_user):
         abort(403)
 
-    device_ids = _parse_device_ids()
-    if device_ids is None:
-        return jsonify({"error": "Укажите device_ids (список id)."}), 400
-    if not device_ids:
-        return jsonify({"error": "Список device_ids пуст."}), 400
-    if len(device_ids) > batch_service.MAX_BULK_DEVICES:
-        return jsonify(
-            {"error": f"Не больше {batch_service.MAX_BULK_DEVICES} устройств за раз."}
-        ), 400
+    device_ids, error = _parse_bulk_device_ids_or_error()
+    if error is not None:
+        return error
 
     script_id = _parse_script_id()
     if script_id is None:
@@ -262,7 +262,8 @@ def bulk_script():
             }
         ), 400
 
-    devices, skipped = _bulk_devices(device_ids)
+    devices = filter_accessible_devices(current_user, device_ids)
+    skipped = len(device_ids) - len(devices)
     if not devices:
         abort(403)
 
@@ -381,12 +382,11 @@ def detail(device_id: int):
 
     # Пресеты всегда в context; библиотека — admin/operator (operator: published).
     command_presets = list_command_presets()
-    scripts = []
-    if user_can_run_scripts(current_user):
-        query = Script.query.order_by(Script.name)
-        if not getattr(current_user, "is_admin", False):
-            query = query.filter(Script.is_published.is_(True))
-        scripts = query.all()
+    scripts = (
+        script_service.scripts_visible_to_user(current_user)
+        if user_can_run_scripts(current_user)
+        else []
+    )
 
     watch_entry = watchlist_service.get_watch(current_user.id, device.id)
     watching = watch_entry is not None
@@ -417,11 +417,7 @@ def detail(device_id: int):
 @login_required
 def watch_device(device_id: int):
     """Добавить/обновить подписку на offline (form: offline_minutes, csrf)."""
-    device = db.session.get(Device, device_id)
-    if device is None:
-        abort(404)
-    if not user_can_access_device(current_user, device):
-        abort(403)
+    device = get_visible_device_or_404(device_id)
     minutes = watchlist_service.normalize_offline_minutes(
         request.form.get("offline_minutes")
     )
@@ -434,11 +430,7 @@ def watch_device(device_id: int):
 @login_required
 def unwatch_device(device_id: int):
     """Снять подписку с устройства."""
-    device = db.session.get(Device, device_id)
-    if device is None:
-        abort(404)
-    if not user_can_access_device(current_user, device):
-        abort(403)
+    device = get_visible_device_or_404(device_id)
     watchlist_service.unwatch(current_user.id, device.id)
     flash("Подписка снята.", "success")
     return redirect(url_for("devices.detail", device_id=device.id))

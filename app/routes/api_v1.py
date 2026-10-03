@@ -3,63 +3,19 @@
 Старые пути не удаляем — только добавляем `/api/v1/...` с тем же JSON.
 """
 
-from flask import Blueprint, abort, jsonify, request, url_for
+from flask import Blueprint, abort, jsonify, request
 from flask_login import current_user, login_required
 
-from app.authz import admin_required, accessible_sectors
+from app.authz import admin_required
+from app.routes.devices import map_status_payload
+from app.routes.search import _search_json_payload
 from app.services.batch_service import batch_status_payload
 from app.services.command_presets import list_command_presets
 from app.services.network_summary_service import get_network_summary
 from app.services.notification_service import list_for_user
-from app.services.search_service import search_devices
-from app.utils import parse_optional_int, utcnow
-from sqlalchemy.orm import selectinload
-
-from app.models import Sector
+from app.utils import utcnow
 
 bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
-
-
-def _map_status_payload():
-    """Тот же контракт, что devices.map_status (без HTTP-зависимости)."""
-    allowed = accessible_sectors(current_user)
-    if not allowed:
-        return {"updated_at": utcnow().isoformat(), "sectors": []}
-    loaded = (
-        Sector.query.options(selectinload(Sector.devices))
-        .filter(Sector.id.in_([sector.id for sector in allowed]))
-        .all()
-    )
-    by_id = {sector.id: sector for sector in loaded}
-    sectors_payload = []
-    for sector in allowed:
-        row = by_id.get(sector.id)
-        if row is None:
-            continue
-        visible = [d for d in row.devices if d.last_seen is not None]
-        visible.sort(key=lambda device: device.ip)
-        devices = [
-            {
-                "id": device.id,
-                "ip": device.ip,
-                "hostname": device.hostname,
-                "status": device.last_status,
-                "kind": device.kind,
-                "url": url_for("devices.detail", device_id=device.id),
-            }
-            for device in visible
-        ]
-        online = sum(1 for device in devices if device["status"] == "online")
-        sectors_payload.append(
-            {
-                "id": sector.id,
-                "name": sector.name,
-                "online": online,
-                "total": len(devices),
-                "devices": devices,
-            }
-        )
-    return {"updated_at": utcnow().isoformat(), "sectors": sectors_payload}
 
 
 @bp.get("/network/summary")
@@ -77,7 +33,7 @@ def command_presets():
 @bp.get("/map/status")
 @login_required
 def map_status():
-    return jsonify(_map_status_payload())
+    return jsonify(map_status_payload())
 
 
 @bp.get("/batches/<batch_id>")
@@ -98,20 +54,19 @@ def notifications():
 @bp.get("/search/suggest")
 @login_required
 def search_suggest():
+    """Autocomplete: тот же поиск, что /search/suggest, укороченные поля."""
     query = (request.args.get("q") or "").strip()
-    sector_id = parse_optional_int(request.args.get("sector_id"))
     if len(query) < 2:
-        return jsonify({"query": query, "results": []})
-    devices = search_devices(current_user, query, sector_id=sector_id)
+        return jsonify({"query": query, "results": [], "updated_at": utcnow().isoformat()})
     results = [
         {
-            "id": device.id,
-            "hostname": device.hostname,
-            "ip": device.ip,
-            "status": device.last_status,
-            "url": url_for("devices.detail", device_id=device.id),
+            "id": item["id"],
+            "hostname": item["hostname"],
+            "ip": item["ip"],
+            "status": item["status"],
+            "url": item["url"],
         }
-        for device in devices
+        for item in _search_json_payload()
     ]
     return jsonify({"query": query, "results": results, "updated_at": utcnow().isoformat()})
 

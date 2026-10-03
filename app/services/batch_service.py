@@ -10,7 +10,9 @@ import uuid
 
 from sqlalchemy.orm import selectinload
 
-from app.authz import user_can_see_script_run
+from flask import url_for
+
+from app.authz import accessible_sector_ids
 from app.models import Device, RunStatus, RunType, Script, ScriptRun
 from app.services.script_service import start_run, start_script_on_devices
 
@@ -27,7 +29,7 @@ _STATUS_BUCKETS = (
 
 def list_visible_batch_runs(user, batch_id: str) -> list[ScriptRun]:
     """Все ScriptRun с данным batch_id, видимые пользователю (по id)."""
-    if not batch_id:
+    if not batch_id or user is None or not getattr(user, "is_authenticated", False):
         return []
     rows = (
         ScriptRun.query.options(selectinload(ScriptRun.device))
@@ -35,7 +37,26 @@ def list_visible_batch_runs(user, batch_id: str) -> list[ScriptRun]:
         .order_by(ScriptRun.id)
         .all()
     )
-    return [run for run in rows if user_can_see_script_run(user, run)]
+    if not rows:
+        return []
+    if getattr(user, "is_admin", False):
+        return rows
+
+    # Один ACL-запрос секторов на пачку (вместо N× в user_can_access_device).
+    sector_ids = accessible_sector_ids(user)
+    visible: list[ScriptRun] = []
+    for run in rows:
+        if run.user_id is not None and run.user_id == getattr(user, "id", None):
+            visible.append(run)
+            continue
+        device = run.device
+        if (
+            device is not None
+            and device.sector_id is not None
+            and device.sector_id in sector_ids
+        ):
+            visible.append(run)
+    return visible
 
 
 def batch_status_payload(user, batch_id: str) -> dict | None:
@@ -59,7 +80,7 @@ def batch_status_payload(user, batch_id: str) -> dict | None:
                 "ip": (device.ip if device is not None else None) or "",
                 "status": status,
                 "run_type": run.run_type,
-                "url": f"/scripts/runs/{run.id}",
+                "url": url_for("scripts.run_detail", run_id=run.id),
             }
         )
 

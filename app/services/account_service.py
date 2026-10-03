@@ -206,22 +206,22 @@ def apply_logged_on_user(
 
 def list_visible_accounts(
     user,
-    query: str = "",
     *,
-    q: str | None = None,
+    q: str = "",
     page: int = 1,
     per_page: int = 50,
     limit: int | None = None,
 ) -> dict:
     """УЗ на доступных устройствах. ``{items, total, page, per_page}``.
 
-    ``query`` / ``q`` — поиск; ``limit`` — совместимость (page=1, per_page=limit).
+    ``limit`` — совместимость (page=1, per_page=limit).
     """
-    text = ((q if q is not None else query) or "").strip()
+    from app.utils import normalize_page
+
+    text = (q or "").strip()
     if limit is not None:
         page, per_page = 1, max(1, int(limit))
-    page = max(1, int(page or 1))
-    per_page = max(1, min(int(per_page or 50), 200))
+    page, per_page = normalize_page(page, per_page)
 
     empty = {"items": [], "total": 0, "page": page, "per_page": per_page}
     stmt = select(EndpointAccount)

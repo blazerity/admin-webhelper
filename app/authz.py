@@ -124,10 +124,15 @@ def filter_accessible_devices(user, device_ids) -> list[Device]:
         for device in Device.query.filter(Device.id.in_(unique_ids)).all()
     }
 
+    if getattr(user, "is_admin", False):
+        return [devices_by_id[device_id] for device_id in ids if device_id in devices_by_id]
+
+    # Один ACL-запрос секторов на весь bulk, без N× accessible_sector_ids.
+    sector_ids = accessible_sector_ids(user)
     result: list[Device] = []
     for device_id in ids:
         device = devices_by_id.get(device_id)
-        if device is not None and user_can_access_device(user, device):
+        if device is not None and device.sector_id is not None and device.sector_id in sector_ids:
             result.append(device)
     return result
 
