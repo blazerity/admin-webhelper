@@ -5,10 +5,11 @@
 пишется только относительное имя файла. Абсолютный путь и «..»
 отклоняются и при записи, и при чтении.
 
-Запуск не блокирует HTTP-запрос. start_run фиксирует строку script_runs
-со статусом pending и отдаёт работу демону. Демон умрёт при перезапуске
-процесса, незавершённый запуск останется в running. Позже задача Celery
-должна вызвать ту же execute_run с id запуска.
+Запуск не блокирует HTTP-запрос. start_run / start_runs фиксируют
+pending-строки script_runs одним commit и ставят execute_run в очередь
+ThreadPoolExecutor (bounded). При перезапуске процесса незавершённый
+запуск останется в running. Позже задача Celery должна вызвать ту же
+execute_run с id запуска.
 
 Пароль PsExec в command_text не пишется. Для скрипта в журнал кладётся
 исходный текст библиотеки, не base64 для PowerShell.
@@ -17,6 +18,7 @@
 import logging
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from flask import current_app
@@ -45,6 +47,11 @@ _log_lock = threading.Lock()
 _cancel_events: dict[int, threading.Event] = {}
 _local_processes: dict[int, object] = {}
 
+# Bounded очередь воркеров вместо N демонов на bulk.
+MAX_RUN_WORKERS = 8
+_run_executor: ThreadPoolExecutor | None = None
+_run_executor_lock = threading.Lock()
+
 MAX_SCRIPT_CHARS = 100_000
 _TARGET_OS = {"windows", "linux"}
 _INTERPRETERS = {"powershell", "cmd", "bash"}
@@ -53,8 +60,32 @@ _RUN_AS = {RunAs.PSEXEC, RunAs.SYSTEM}
 _EXTENSIONS = {"powershell": ".ps1", "cmd": ".cmd", "bash": ".sh"}
 
 
+def _run_pool() -> ThreadPoolExecutor:
+    global _run_executor
+    with _run_executor_lock:
+        if _run_executor is None:
+            _run_executor = ThreadPoolExecutor(
+                max_workers=MAX_RUN_WORKERS,
+                thread_name_prefix="bawh-run",
+            )
+        return _run_executor
+
+
+def enqueue_run(app, run_id: int) -> None:
+    """Поставить execute_run в очередь воркеров."""
+    _run_pool().submit(execute_run, app, run_id)
+
+
 class ScriptError(ValueError):
     """Ошибка библиотеки. Текст можно показать администратору во flash."""
+
+
+def scripts_visible_to_user(user) -> list[Script]:
+    """Скрипты для UI запуска: admin — все; иначе только опубликованные."""
+    query = Script.query.order_by(Script.name)
+    if not getattr(user, "is_admin", False):
+        query = query.filter(Script.is_published.is_(True))
+    return query.all()
 
 
 def save_script(
@@ -174,7 +205,7 @@ def get_script_body(script: Script) -> str:
     return script.content or ""
 
 
-def start_run(
+def _new_pending_run(
     run_type: str,
     user,
     device,
@@ -183,12 +214,7 @@ def start_run(
     batch_id: str | None = None,
     run_as: str = RunAs.PSEXEC,
 ) -> ScriptRun:
-    """Пишет pending-строку и запускает демон на execute_run.
-
-    Демон-поток умрёт при перезапуске процесса. Позже задача Celery
-    должна вызвать execute_run с тем же id запуска.
-    """
-    run = ScriptRun(
+    return ScriptRun(
         script_id=script.id if script is not None else None,
         device_id=device.id if device is not None else None,
         user_id=user.id if user is not None else None,
@@ -200,41 +226,86 @@ def start_run(
         log_text="",
         started_at=utcnow(),
     )
-    db.session.add(run)
+
+
+def start_runs(runs: list[ScriptRun], *, enqueue: bool = True) -> list[ScriptRun]:
+    """Один commit на пачку pending-строк, затем постановка в очередь воркеров."""
+    if not runs:
+        return []
+    for run in runs:
+        db.session.add(run)
     db.session.commit()
-    run_id = run.id
-    # Прокси current_app в другом потоке пустой. Нужен настоящий объект приложения.
-    app = current_app._get_current_object()
-    threading.Thread(
-        target=execute_run,
-        args=(app, run_id),
-        daemon=True,
-        name=f"bawh-run-{run_id}",
-    ).start()
-    return run
+    if enqueue:
+        # Прокси current_app в другом потоке пустой — нужен настоящий app.
+        app = current_app._get_current_object()
+        for run in runs:
+            enqueue_run(app, run.id)
+    return runs
+
+
+def start_run(
+    run_type: str,
+    user,
+    device,
+    command_text: str,
+    script: Script | None = None,
+    batch_id: str | None = None,
+    run_as: str = RunAs.PSEXEC,
+) -> ScriptRun:
+    """Пишет pending-строку и ставит execute_run в очередь воркеров."""
+    return start_runs(
+        [
+            _new_pending_run(
+                run_type,
+                user,
+                device,
+                command_text,
+                script=script,
+                batch_id=batch_id,
+                run_as=run_as,
+            )
+        ]
+    )[0]
 
 
 def start_script_on_devices(script: Script, user, devices: list[Device]) -> list[ScriptRun]:
-    """Один batch_id на пачку, отдельная строка и отдельный поток на устройство."""
+    """Один batch_id и один commit на пачку; воркеры — из очереди."""
     if not devices:
         return []
     batch_id = str(uuid.uuid4())
     # В журнал — исходный текст, не EncodedCommand.
     body = get_script_body(script)
-    runs: list[ScriptRun] = []
-    for device in devices:
-        runs.append(
-            start_run(
-                RunType.SCRIPT,
-                user,
-                device,
-                body,
-                script=script,
-                batch_id=batch_id,
-                run_as=script.run_as or RunAs.PSEXEC,
-            )
+    runs = [
+        _new_pending_run(
+            RunType.SCRIPT,
+            user,
+            device,
+            body,
+            script=script,
+            batch_id=batch_id,
+            run_as=script.run_as or RunAs.PSEXEC,
         )
-    return runs
+        for device in devices
+    ]
+    return start_runs(runs)
+
+
+def start_ping_on_devices(user, devices: list[Device]) -> tuple[str, list[ScriptRun]]:
+    """Один batch_id и один commit для bulk ping."""
+    if not devices:
+        return "", []
+    batch_id = str(uuid.uuid4())
+    runs = [
+        _new_pending_run(
+            RunType.PING,
+            user,
+            device,
+            f"ping {device.ip}",
+            batch_id=batch_id,
+        )
+        for device in devices
+    ]
+    return batch_id, start_runs(runs)
 
 
 def cancel_run(run_id: int) -> None:
@@ -484,10 +555,7 @@ def _notify_script_failed(run_id: int) -> None:
             notification_service.notify_script_failed(run)
     except Exception:
         logger.exception("Не удалось создать уведомление script_failed для %s", run_id)
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
+        db.session.rollback()
 
 
 def library_root() -> Path:

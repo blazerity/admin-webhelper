@@ -380,10 +380,7 @@ def _emit_watchlist_alerts() -> None:
             logger.info("Watchlist: создано уведомлений offline=%s", created)
     except Exception:
         logger.exception("Watchlist: не удалось оценить offline-алерты")
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
+        db.session.rollback()
 
 
 def _active_poll_run(now) -> NetworkPollRun | None:

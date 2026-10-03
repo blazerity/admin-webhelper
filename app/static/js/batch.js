@@ -1,5 +1,9 @@
 (() => {
+  const http = window.BawhHttp || {};
+  const escapeHtml = http.escapeHtml || ((value) => String(value ?? ""));
+  const fetchJson = http.fetchJson;
   const POLL_MS = 2000;
+  const ERROR_BACKOFF = [3000, 6000, 12000, 30000];
   const STATUS_LABELS = {
     pending: "ожидание",
     running: "выполняется",
@@ -15,7 +19,7 @@
     tracert: "Трассировка",
   };
   const root = document.getElementById("batch-progress");
-  if (!root) return;
+  if (!root || !fetchJson) return;
 
   const statusUrl = root.dataset.statusUrl;
   if (!statusUrl) return;
@@ -35,14 +39,7 @@
 
   let finished = root.dataset.finished === "1";
   let timer = null;
-
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
+  let errorStreak = 0;
 
   function setMetric(key, value) {
     const el = metricIds[key];
@@ -150,38 +147,43 @@
     }
   }
 
-  function scheduleNext() {
+  function scheduleNext(delayMs) {
     stopPolling();
     if (finished) return;
-    timer = window.setTimeout(tick, POLL_MS);
+    if (document.visibilityState === "hidden") return;
+    timer = window.setTimeout(tick, delayMs);
   }
 
   function tick() {
-    fetch(statusUrl, {
-      headers: { Accept: "application/json" },
-      credentials: "same-origin",
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
+    fetchJson(statusUrl)
       .then((payload) => {
+        errorStreak = 0;
         apply(payload);
-        scheduleNext();
+        scheduleNext(POLL_MS);
       })
       .catch(() => {
         if (pollStatus) {
           pollStatus.textContent = "Не удалось обновить статус — повтор…";
         }
-        // Keep trying while not finished.
         if (!finished) {
-          timer = window.setTimeout(tick, POLL_MS * 1.5);
+          const delay =
+            ERROR_BACKOFF[Math.min(errorStreak, ERROR_BACKOFF.length - 1)];
+          errorStreak += 1;
+          scheduleNext(delay);
         }
       });
   }
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !finished && timer == null) {
+      scheduleNext(0);
+    } else if (document.visibilityState === "hidden") {
+      stopPolling();
+    }
+  });
+
   // Initial paint may already be finished from SSR.
   if (!finished) {
-    timer = window.setTimeout(tick, POLL_MS);
+    scheduleNext(POLL_MS);
   }
 })();

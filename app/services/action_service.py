@@ -90,12 +90,6 @@ def _item_sort_key(item: SystemActionItem):
     return as_utc(item.when)
 
 
-def _normalize_page(page: int, per_page: int) -> tuple[int, int]:
-    page = max(1, int(page or 1))
-    per_page = max(1, min(int(per_page or 50), 200))
-    return page, per_page
-
-
 def list_system_actions(
     user,
     *,
@@ -112,9 +106,11 @@ def list_system_actions(
     """
     from flask import url_for
 
+    from app.utils import normalize_page
+
     if limit is not None:
         page, per_page = 1, max(1, int(limit))
-    page, per_page = _normalize_page(page, per_page)
+    page, per_page = normalize_page(page, per_page)
     query_text = (q or "").strip().lower()
     kind_code = (kind or "").strip().lower()
 

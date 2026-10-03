@@ -1,6 +1,6 @@
 """Справочник УЗ на конечных точках и карточка пользователя."""
 
-from flask import Blueprint, Response, render_template, request
+from flask import Blueprint, render_template, request
 from flask_login import current_user, login_required
 
 from app.services.account_service import (
@@ -9,23 +9,20 @@ from app.services.account_service import (
     get_visible_account_or_404,
     list_visible_accounts,
 )
-from app.services.export_service import export_accounts_csv
-from app.utils import parse_optional_int
+from app.services.export_service import csv_attachment, export_accounts_csv
+from app.utils import normalize_page, parse_optional_int
 
 bp = Blueprint("accounts", __name__, url_prefix="/accounts")
-
-
-def _page_args() -> tuple[int, int]:
-    page = parse_optional_int(request.args.get("page")) or 1
-    per_page = parse_optional_int(request.args.get("per_page")) or 50
-    return max(1, page), max(1, min(per_page, 200))
 
 
 @bp.get("/")
 @login_required
 def list_accounts():
     """Список УЗ, замеченных на доступных устройствах."""
-    page, per_page = _page_args()
+    page, per_page = normalize_page(
+        parse_optional_int(request.args.get("page")),
+        parse_optional_int(request.args.get("per_page")),
+    )
     query = (request.args.get("q") or "").strip()
     result = list_visible_accounts(
         current_user,
@@ -48,12 +45,7 @@ def list_accounts():
 def export_csv():
     """CSV видимых УЗ (те же ACL, что список)."""
     query = (request.args.get("q") or "").strip()
-    body = export_accounts_csv(current_user, query=query)
-    return Response(
-        body,
-        mimetype="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=accounts.csv"},
-    )
+    return csv_attachment(export_accounts_csv(current_user, q=query), "accounts.csv")
 
 
 @bp.get("/<int:account_id>")

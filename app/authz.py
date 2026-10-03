@@ -88,24 +88,6 @@ def user_can_run_diagnostics(user) -> bool:
     return True
 
 
-def user_can_bulk_ping(user) -> bool:
-    """Может ли пользователь запускать bulk ping (W2/W3).
-
-    Те же правила, что у diagnostics; каждое устройство всё равно
-    фильтруется через ``filter_accessible_devices``.
-    """
-    return user_can_run_diagnostics(user)
-
-
-def user_can_bulk_script(user) -> bool:
-    """Может ли пользователь запускать bulk script.
-
-    Обёртка над ``user_can_run_scripts``; конкретный скрипт проверяется
-    через ``user_can_run_script`` на маршруте.
-    """
-    return user_can_run_scripts(user)
-
-
 def filter_accessible_devices(user, device_ids) -> list[Device]:
     """Вернуть доступные устройства в порядке ``device_ids``.
 
@@ -124,10 +106,15 @@ def filter_accessible_devices(user, device_ids) -> list[Device]:
         for device in Device.query.filter(Device.id.in_(unique_ids)).all()
     }
 
+    if getattr(user, "is_admin", False):
+        return [devices_by_id[device_id] for device_id in ids if device_id in devices_by_id]
+
+    # Один ACL-запрос секторов на весь bulk, без N× accessible_sector_ids.
+    sector_ids = accessible_sector_ids(user)
     result: list[Device] = []
     for device_id in ids:
         device = devices_by_id.get(device_id)
-        if device is not None and user_can_access_device(user, device):
+        if device is not None and device.sector_id is not None and device.sector_id in sector_ids:
             result.append(device)
     return result
 

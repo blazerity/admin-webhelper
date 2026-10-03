@@ -7,8 +7,6 @@ from app.authz import (
     accessible_sectors,
     filter_accessible_devices,
     user_can_access_device,
-    user_can_bulk_ping,
-    user_can_bulk_script,
     user_can_run_diagnostics,
     user_can_run_script,
     user_can_run_scripts,
@@ -199,19 +197,6 @@ def test_viewer_cannot_diagnostics_sector_user_can(app, alice_id, viewer_id, ope
         assert user_can_run_diagnostics(viewer) is False
         assert user_can_run_diagnostics(oper) is True
         assert user_can_run_diagnostics(admin) is True
-        assert user_can_bulk_ping(viewer) is False
-        assert user_can_bulk_ping(alice) is True
-
-
-def test_user_can_bulk_script_wraps_run_scripts(app, admin_id, alice_id, operator_id):
-    with app.app_context():
-        admin = db.session.get(User, admin_id)
-        alice = db.session.get(User, alice_id)
-        oper = db.session.get(User, operator_id)
-        assert user_can_bulk_script(admin) is True
-        assert user_can_bulk_script(oper) is True
-        assert user_can_bulk_script(alice) is False
-        assert user_can_bulk_script(None) is False
 
 
 def test_filter_accessible_devices_order_and_skip(app, admin_id, alice_id):

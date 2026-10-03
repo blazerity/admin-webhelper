@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from app.services import notification_service
-from app.utils import parse_optional_int
+from app.utils import as_truthy, parse_optional_int
 
 bp = Blueprint("notifications", __name__)
 
@@ -17,11 +17,7 @@ def _parse_ids_payload() -> list[int] | None:
             return None
         if "ids" not in payload and "all" not in payload:
             return None
-        if payload.get("all") is True or str(payload.get("all", "")).lower() in {
-            "1",
-            "true",
-            "yes",
-        }:
+        if as_truthy(payload.get("all"), default=False):
             return None
         raw = payload.get("ids")
         if raw is None:
@@ -38,7 +34,7 @@ def _parse_ids_payload() -> list[int] | None:
                 continue
         return values
 
-    if request.form.get("all") in {"1", "true", "yes", "on"}:
+    if as_truthy(request.form.get("all"), default=False):
         return None
     raw_list = request.form.getlist("ids") or request.form.getlist("ids[]")
     if not raw_list:

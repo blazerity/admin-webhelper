@@ -143,10 +143,7 @@ def _session_hint(run: ScriptRun, state: str) -> str:
 
 
 def _scripts_for_user():
-    query = Script.query.order_by(Script.name)
-    if not getattr(current_user, "is_admin", False):
-        query = query.filter(Script.is_published.is_(True))
-    return query.all()
+    return script_service.scripts_visible_to_user(current_user)
 
 
 @bp.get("/")

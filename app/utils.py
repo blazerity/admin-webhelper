@@ -33,6 +33,18 @@ def parse_optional_int(raw: str | None) -> int | None:
         return None
 
 
+def normalize_page(
+    page: int | None = 1,
+    per_page: int | None = 50,
+    *,
+    max_per_page: int = 200,
+) -> tuple[int, int]:
+    """Общий clamp page/per_page для списков и экспорта."""
+    page_n = max(1, int(page or 1))
+    per_page_n = max(1, min(int(per_page or 50), max_per_page))
+    return page_n, per_page_n
+
+
 def as_truthy(value: object, default: bool = False) -> bool:
     """Строка «false» не должна стать True через обычный bool()."""
     if isinstance(value, bool):

@@ -91,6 +91,7 @@ def evaluate_watchlist_alerts(*, now: datetime | None = None) -> int:
     """После poll: создать deduped device_offline уведомления.
 
     Возвращает число созданных уведомлений.
+    Один batch-lookup существующих алертов вместо N+1 SELECT.
     """
     moment = as_utc(now or utcnow())
     rows = list(
@@ -100,7 +101,7 @@ def evaluate_watchlist_alerts(*, now: datetime | None = None) -> int:
             )
         ).all()
     )
-    created = 0
+    candidates: list[tuple[DeviceWatchlist, Device]] = []
     for entry in rows:
         device = entry.device
         if device is None:
@@ -110,11 +111,29 @@ def evaluate_watchlist_alerts(*, now: datetime | None = None) -> int:
             continue
         if duration < float(entry.offline_minutes or DEFAULT_OFFLINE_MINUTES):
             continue
-        if notification_service.has_offline_alert_for_episode(
-            entry.user_id,
-            device.id,
-            device.last_seen,
-        ):
+        candidates.append((entry, device))
+
+    if not candidates:
+        return 0
+
+    pairs = [
+        (entry.user_id, notification_service.device_offline_link(device.id))
+        for entry, device in candidates
+    ]
+    existing = notification_service.existing_offline_alerts(pairs)
+    created = 0
+    for entry, device in candidates:
+        link = notification_service.device_offline_link(device.id)
+        key = (entry.user_id, link)
+        created_times = existing.get(key, ())
+        last_seen = as_utc(device.last_seen) if device.last_seen is not None else None
+        if last_seen is None:
+            already = bool(created_times)
+        else:
+            already = any(
+                stamp is not None and stamp >= last_seen for stamp in created_times
+            )
+        if already:
             continue
         label = device.hostname or device.ip or f"#{device.id}"
         minutes = int(entry.offline_minutes or DEFAULT_OFFLINE_MINUTES)
@@ -123,9 +142,11 @@ def evaluate_watchlist_alerts(*, now: datetime | None = None) -> int:
             NotificationKind.DEVICE_OFFLINE,
             f"Устройство {label} offline",
             body=f"Не отвечает дольше {minutes} мин.",
-            link_url=notification_service.device_offline_link(device.id),
+            link_url=link,
             commit=False,
         )
+        # Не дублировать в том же проходе evaluate.
+        existing.setdefault(key, []).append(moment)
         created += 1
     if created:
         db.session.commit()

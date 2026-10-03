@@ -48,6 +48,7 @@ def test_map_template_smoke_device_cards_and_filters(client, app, admin_id):
     assert 'data-filter-group="status"' in html
     assert 'data-filter-group="type"' in html
     assert 'id="sector-map"' in html
+    assert "js/http.js" in html
     assert "js/map.js" in html
     assert 'data-status-url="' in html
 

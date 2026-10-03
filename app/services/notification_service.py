@@ -118,16 +118,45 @@ def has_offline_alert_for_episode(
 ) -> bool:
     """Уже есть device_offline за текущий offline-эпизод (после last_seen)."""
     link = device_offline_link(device_id)
-    stmt = (
-        select(Notification.id)
-        .where(Notification.user_id == user_id)
-        .where(Notification.kind == NotificationKind.DEVICE_OFFLINE)
-        .where(Notification.link_url == link)
+    existing = existing_offline_alerts(
+        [(user_id, link)],
     )
-    if last_seen is not None:
-        stmt = stmt.where(Notification.created_at >= as_utc(last_seen))
-    stmt = stmt.limit(1)
-    return db.session.scalar(stmt) is not None
+    created_times = existing.get((user_id, link), ())
+    if last_seen is None:
+        return bool(created_times)
+    threshold = as_utc(last_seen)
+    return any(created is not None and created >= threshold for created in created_times)
+
+
+def existing_offline_alerts(
+    pairs: list[tuple[int, str]],
+) -> dict[tuple[int, str], list]:
+    """Batch-lookup существующих device_offline по (user_id, link_url).
+
+    Возвращает map (user_id, link_url) → список created_at (UTC).
+    """
+    if not pairs:
+        return {}
+    user_ids = {user_id for user_id, _ in pairs}
+    links = {link for _, link in pairs}
+    rows = db.session.execute(
+        select(
+            Notification.user_id,
+            Notification.link_url,
+            Notification.created_at,
+        )
+        .where(Notification.kind == NotificationKind.DEVICE_OFFLINE)
+        .where(Notification.user_id.in_(user_ids))
+        .where(Notification.link_url.in_(links))
+    ).all()
+    result: dict[tuple[int, str], list] = {}
+    wanted = set(pairs)
+    for user_id, link_url, created_at in rows:
+        key = (int(user_id), link_url or "")
+        if key not in wanted:
+            continue
+        result.setdefault(key, []).append(as_utc(created_at) if created_at else None)
+    return result
 
 
 def notify_script_failed(run: ScriptRun) -> Notification | None:

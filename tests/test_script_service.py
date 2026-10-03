@@ -170,18 +170,33 @@ def test_command_route_forbidden_for_alice(client, alice_id):
     assert response.status_code == 403
 
 
-def test_start_run_hands_the_id_to_a_daemon_thread(app, admin_id):
+def test_start_run_enqueues_execute_run(app, admin_id):
     with app.app_context():
         device = _device("10.0.0.9")
         user = db.session.get(User, admin_id)
-        with patch("app.services.script_service.threading.Thread") as thread_cls:
+        with patch("app.services.script_service.enqueue_run") as enqueue:
             run = start_run(RunType.PING, user, device, "ping 10.0.0.9")
-        kwargs = thread_cls.call_args.kwargs
-        assert kwargs["daemon"] is True
-        assert kwargs["target"] is execute_run
-        assert kwargs["args"] == (app, run.id)
-        thread_cls.return_value.start.assert_called_once()
+        enqueue.assert_called_once_with(app, run.id)
         assert run.status == RunStatus.PENDING
+
+
+def test_start_ping_on_devices_one_commit_and_enqueue(app, admin_id):
+    from app.services.script_service import start_ping_on_devices
+
+    with app.app_context():
+        devices = [_device("10.0.0.11"), _device("10.0.0.12"), _device("10.0.0.13")]
+        user = db.session.get(User, admin_id)
+        with (
+            patch("app.services.script_service.enqueue_run") as enqueue,
+            patch.object(db.session, "commit", wraps=db.session.commit) as commit,
+        ):
+            batch_id, runs = start_ping_on_devices(user, devices)
+        assert batch_id
+        assert len(runs) == 3
+        assert len({run.batch_id for run in runs}) == 1
+        assert commit.call_count == 1
+        assert enqueue.call_count == 3
+        assert all(run.status == RunStatus.PENDING for run in runs)
 
 
 def test_remote_output_reaches_the_log_before_the_command_ends(app, admin_id):

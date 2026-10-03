@@ -44,6 +44,17 @@ def test_api_v1_notifications(client, admin_id):
     assert "unread" in data
 
 
+def test_api_v1_search_suggest_matches_legacy(client, admin_id):
+    """Thin alias: тот же JSON-массив, что /search/suggest."""
+    _login(client, admin_id)
+    legacy = client.get("/search/suggest?q=ab")
+    alias = client.get("/api/v1/search/suggest?q=ab")
+    assert legacy.status_code == 200
+    assert alias.status_code == 200
+    assert alias.get_json() == legacy.get_json()
+    assert isinstance(alias.get_json(), list)
+
+
 def test_accounts_csv(client, admin_id):
     _login(client, admin_id)
     response = client.get("/accounts/export.csv")

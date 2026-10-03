@@ -141,6 +141,9 @@
   }
 
   function fetchJson(url) {
+    if (window.BawhHttp && typeof window.BawhHttp.fetchJson === "function") {
+      return window.BawhHttp.fetchJson(url);
+    }
     return fetch(url, {
       headers: { Accept: "application/json" },
       credentials: "same-origin",

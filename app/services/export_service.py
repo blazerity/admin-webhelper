@@ -6,6 +6,8 @@ import csv
 import io
 from typing import Iterable
 
+from flask import Response
+
 from app.services.account_service import list_visible_accounts
 from app.services.action_service import list_system_actions
 from app.services.ping_service import load_recent_poll_runs
@@ -20,8 +22,17 @@ def _writerows(headers: list[str], rows: Iterable[list]) -> str:
     return buf.getvalue()
 
 
-def export_accounts_csv(user, *, query: str = "", limit: int = 5000) -> str:
-    payload = list_visible_accounts(user, q=query, page=1, per_page=limit)
+def csv_attachment(body: str, filename: str) -> Response:
+    """Общий Response для CSV-скачивания."""
+    return Response(
+        body,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+def export_accounts_csv(user, *, q: str = "", limit: int = 5000) -> str:
+    payload = list_visible_accounts(user, q=q, page=1, per_page=limit)
     rows = [
         [
             account.id,
