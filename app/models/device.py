@@ -4,8 +4,6 @@ devices — текущее состояние; device_history — каждая �
 Уникальность машины: serial_number (WMI service tag), иначе hostname.
 IP — только последний известный адрес, без unique.
 current_account_id — УЗ, которую последний опрос видел на машине.
-При росте истории — партиции PostgreSQL по месяцам (миграция 0001
-ещё одной таблицы).
 """
 
 from app.extensions import db

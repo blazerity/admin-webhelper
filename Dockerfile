@@ -1,11 +1,6 @@
-# Продакшен на Debian 12 запускается через systemd:
-# deploy/bawh-web.service и deploy/bawh-scheduler.service.
-# Этот образ необязателен. Он поднимает только веб.
-#
-# Опрос сети — вторая команда, отдельным контейнером:
+# Продакшен на Debian 12 — через systemd (deploy/*.service).
+# Образ необязателен: только веб. Опрос — отдельным процессом:
 #   docker run --env-file .env bawh python -m app.scheduler_worker
-# Один CMD на gunicorn и планировщик вместе запускать нельзя:
-# несколько воркеров веб-процесса начнут пинговать сеть параллельно.
 
 FROM python:3.11-slim-bookworm
 

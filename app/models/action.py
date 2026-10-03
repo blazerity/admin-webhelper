@@ -1,7 +1,7 @@
 """Справочник типов действий (коды и названия для UI / отчётов).
 
 События живут в script_runs и device_account_history.
-ACTION_KIND_SEED — единый источник для миграции и seed_action_kinds.
+ACTION_KIND_SEED — единый источник для seed_action_kinds.
 """
 
 from app.extensions import db
@@ -41,7 +41,7 @@ class ActionKind(db.Model):
 
 
 def seed_action_kinds(session=None) -> None:
-    """Идемпотентно заполняет справочник (тесты / create_all без миграции)."""
+    """Идемпотентно заполняет справочник."""
     from sqlalchemy import select
 
     from app.extensions import db as _db

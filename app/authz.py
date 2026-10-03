@@ -3,8 +3,8 @@
 Админ видит всё; остальные — по sector_access (username / LDAP-группа)
 и правилу для script_runs: автор или доступное устройство.
 
-Authz v2 (W3): additive роли viewer / operator / password_viewer поверх
-is_admin + sector_access. См. docs/adr/002-authz-v2.md.
+Роли viewer / operator / password_viewer — additive поверх
+is_admin + sector_access.
 """
 
 from functools import wraps

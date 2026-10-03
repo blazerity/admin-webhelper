@@ -12,7 +12,7 @@
 Не копируются и не перезаписываются: .env, .venv, logs, script_library,
 instance, backups, базы *.db. Это данные сервера, а не версия программы.
 
-Схема PostgreSQL при откате назад не откатывается: миграции только вперёд.
+При откате кода схема PostgreSQL не откатывается назад.
 """
 
 from __future__ import annotations
@@ -349,7 +349,7 @@ def perform_update(
         if old_req != new_req:
             progress("Устанавливаю зависимости")
             pip_install(root)
-        progress("Применяю миграции базы")
+        progress("Готовлю схему базы данных")
         db_upgrade(root)
         align_git_head(root, url, branch)
         _write_installed(root, commit, subject, version, branch, backup.name)
@@ -643,7 +643,7 @@ def db_upgrade(root: Path) -> None:
     )
     if result.returncode != 0:
         detail = _tail(result.stderr or result.stdout)
-        raise UpdateError(f"Не удалось применить миграции: {detail}")
+        raise UpdateError(f"Не удалось обновить схему базы: {detail}")
 
 
 def align_git_head(root: Path, url: str, branch: str) -> None:

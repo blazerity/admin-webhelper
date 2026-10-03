@@ -21,7 +21,7 @@ class User(UserMixin, db.Model):
     ldap_dn = db.Column(db.String(512), nullable=True)
     # Обновляется при каждом входе по членству в LDAP_ADMIN_GROUP.
     is_admin = db.Column(db.Boolean, nullable=False, default=False)
-    # Authz v2 (W3): additive роли из LDAP_*_GROUP; см. docs/adr/002-authz-v2.md.
+    # Роли из LDAP_*_GROUP (viewer / operator / password_viewer).
     is_viewer = db.Column(db.Boolean, nullable=False, default=False)
     is_operator = db.Column(db.Boolean, nullable=False, default=False)
     is_password_viewer = db.Column(db.Boolean, nullable=False, default=False)
