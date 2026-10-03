@@ -54,8 +54,7 @@ require_debian_12() {
 
 ensure_utf8_locale() {
   # Минимальные образы и curl|bash часто стартуют с LC_ALL=C (ASCII).
-  # Flask-Migrate/Alembic читают ini через encoding=locale — без UTF-8 падают
-  # на не-ASCII. На Debian 12 C.UTF-8 есть из коробки (glibc).
+  # На Debian 12 C.UTF-8 есть из коробки (glibc).
   export LANG=C.UTF-8
   export LC_ALL=C.UTF-8
 }
@@ -357,12 +356,12 @@ conn.cursor().execute("GRANT ALL ON SCHEMA public TO bawh")
 PY
 }
 
-run_migrations() {
+prepare_database() {
   log "Готовлю схему базы данных."
   mkdir -p "$INSTALL_DIR/logs"
   chown bawh:bawh "$INSTALL_DIR/logs"
   runuser -u bawh -- env LANG="${LANG}" LC_ALL="${LC_ALL}" \
-    bash -c "cd '$INSTALL_DIR' && exec .venv/bin/flask --app wsgi db upgrade"
+    bash -c "cd '$INSTALL_DIR' && exec .venv/bin/flask --app wsgi init-db"
 }
 
 install_systemd() {
@@ -486,7 +485,7 @@ main() {
   fi
   ensure_venv
   ensure_database
-  run_migrations
+  prepare_database
   install_systemd
   install_update_sudoers
   install_nginx

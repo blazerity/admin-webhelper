@@ -1,6 +1,6 @@
 """Фабрика Flask-приложения: расширения, модели, маршруты.
 
-Веб (Gunicorn), тесты и scheduler_worker вызывают create_app;
+Веб (Gunicorn) и scheduler_worker вызывают create_app;
 процесс опроса HTTP не обслуживает.
 """
 
@@ -9,7 +9,7 @@ import os
 from flask import Flask, render_template
 
 from app.config import CONFIGS
-from app.extensions import csrf, db, login_manager, migrate
+from app.extensions import csrf, db, login_manager
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -29,12 +29,11 @@ def create_app(config_name: str | None = None) -> Flask:
     configure_logging(app)
 
     db.init_app(app)
-    migrate.init_app(app, db)
     login_manager.init_app(app)
     csrf.init_app(app)
 
-    # Регистрирует таблицы в metadata SQLAlchemy.
     from app import models
+    from app.schema import ensure_schema
 
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Войдите, чтобы продолжить."
@@ -51,15 +50,20 @@ def create_app(config_name: str | None = None) -> Flask:
     _register_blueprints(app)
     _register_error_handlers(app)
 
-    # flask poll — в сервисе планировщика. APScheduler стартует только
-    # в scheduler_worker, иначе каждый воркер Gunicorn запустит свой опрос.
     from app.services.scheduler_service import register_commands
 
     register_commands(app)
 
+    @app.cli.command("init-db")
+    def init_db_command() -> None:
+        """Создать таблицы и заполнить справочники (то же, что при старте)."""
+        print("database ready")
+
+    with app.app_context():
+        ensure_schema()
+
     @app.get("/health")
     def health():
-        # Без авторизации — для systemd / Nginx probe.
         return {"status": "ok"}
 
     @app.template_filter("dt")

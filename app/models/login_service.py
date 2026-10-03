@@ -12,7 +12,7 @@ class LoginService(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(128), unique=True, nullable=False)
     address = db.Column(db.String(255), nullable=False)
-    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    sort_order = db.Column(db.Integer, nullable=False, default=0, index=True)
     is_enabled = db.Column(db.Boolean, nullable=False, default=True)
 
     def __repr__(self) -> str:

@@ -15,7 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY wsgi.py ./
 COPY app ./app
-COPY migrations ./migrations
 
 EXPOSE 8000
 

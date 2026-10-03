@@ -88,4 +88,4 @@ cp .env.example .env
 flask --app wsgi run --debug
 ```
 
-Планировщик отдельно: `python -m app.scheduler_worker`.
+Таблицы создаются при старте приложения (`create_all` + справочники). Планировщик отдельно: `python -m app.scheduler_worker`.
