@@ -11,7 +11,7 @@ import logging
 import re
 from datetime import timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -204,16 +204,31 @@ def apply_logged_on_user(
     return account
 
 
-def list_visible_accounts(user, query: str = "", limit: int = 100) -> list[EndpointAccount]:
-    """УЗ, которые встречались на доступных пользователю устройствах."""
-    text = (query or "").strip()
-    stmt = select(EndpointAccount).order_by(
-        EndpointAccount.domain, EndpointAccount.username
-    )
+def list_visible_accounts(
+    user,
+    query: str = "",
+    *,
+    q: str | None = None,
+    page: int = 1,
+    per_page: int = 50,
+    limit: int | None = None,
+) -> dict:
+    """УЗ на доступных устройствах. ``{items, total, page, per_page}``.
+
+    ``query`` / ``q`` — поиск; ``limit`` — совместимость (page=1, per_page=limit).
+    """
+    text = ((q if q is not None else query) or "").strip()
+    if limit is not None:
+        page, per_page = 1, max(1, int(limit))
+    page = max(1, int(page or 1))
+    per_page = max(1, min(int(per_page or 50), 200))
+
+    empty = {"items": [], "total": 0, "page": page, "per_page": per_page}
+    stmt = select(EndpointAccount)
     if not user.is_admin:
         sector_ids = accessible_sector_ids(user)
         if not sector_ids:
-            return []
+            return empty
         stmt = (
             stmt.join(DeviceAccountHistory, DeviceAccountHistory.account_id == EndpointAccount.id)
             .join(Device, Device.id == DeviceAccountHistory.device_id)
@@ -229,7 +244,23 @@ def list_visible_accounts(user, query: str = "", limit: int = 100) -> list[Endpo
                 EndpointAccount.display_name.ilike(pattern, escape="\\"),
             )
         )
-    return list(db.session.scalars(stmt.limit(limit)).all())
+
+    # distinct + count: считаем id после фильтрации.
+    count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
+    total = int(db.session.scalar(count_stmt) or 0)
+    rows = list(
+        db.session.scalars(
+            stmt.order_by(EndpointAccount.domain, EndpointAccount.username)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        ).all()
+    )
+    return {
+        "items": rows,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
 
 
 def get_visible_account_or_404(user, account_id: int) -> EndpointAccount:

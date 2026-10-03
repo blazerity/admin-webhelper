@@ -251,8 +251,8 @@ def test_list_visible_accounts_respects_sector_access(app, alice_id, carol_id):
 
         alice = db.session.get(User, alice_id)
         carol = db.session.get(User, carol_id)
-        assert list_visible_accounts(alice) == []
-        visible = list_visible_accounts(carol)
+        assert list_visible_accounts(alice)["items"] == []
+        visible = list_visible_accounts(carol)["items"]
         assert len(visible) == 1
         assert visible[0].username == "dave"
 
@@ -340,11 +340,11 @@ def test_list_system_actions_hides_foreign_orphaned_runs(app, alice_id, carol_id
         db.session.commit()
 
         with app.test_request_context("/"):
-            alice_items = list_system_actions(alice, limit=50)
+            alice_items = list_system_actions(alice, limit=50)["items"]
             assert all(
                 "secret-orphan-cmd" not in (item.title or "") for item in alice_items
             )
-            carol_items = list_system_actions(carol, limit=50)
+            carol_items = list_system_actions(carol, limit=50)["items"]
             assert any(
                 "secret-orphan-cmd" in (item.title or "") for item in carol_items
             )

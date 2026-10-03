@@ -42,6 +42,9 @@ class LdapIdentity:
     dn: str
     groups: list[str]  # только CN, без полного DN
     is_admin: bool
+    is_viewer: bool = False
+    is_operator: bool = False
+    is_password_viewer: bool = False
 
 
 def authenticate(username: str, password: str) -> LdapIdentity | None:
@@ -94,6 +97,9 @@ def upsert_local_user(identity: LdapIdentity) -> User:
     dn = (identity.dn or "").strip()
     user.ldap_dn = dn[:_DN_MAX] if dn else None
     user.is_admin = bool(identity.is_admin)
+    user.is_viewer = bool(identity.is_viewer)
+    user.is_operator = bool(identity.is_operator)
+    user.is_password_viewer = bool(identity.is_password_viewer)
     user.last_login_at = utcnow()
 
     user.ldap_groups.clear()
@@ -144,6 +150,9 @@ def _bind_and_search(username: str, password: str) -> LdapIdentity | None:
     service_password = str(cfg.get("LDAP_BIND_PASSWORD") or "")
     user_filter = str(cfg.get("LDAP_USER_FILTER") or "(sAMAccountName={username})")
     admin_group = str(cfg.get("LDAP_ADMIN_GROUP") or "")
+    viewer_group = str(cfg.get("LDAP_VIEWER_GROUP") or "")
+    operator_group = str(cfg.get("LDAP_OPERATOR_GROUP") or "")
+    password_viewer_group = str(cfg.get("LDAP_PASSWORD_VIEWER_GROUP") or "")
     domain = str(cfg.get("LDAP_DOMAIN") or "").strip()
 
     # escape_filter_chars — вторая линия после белого списка: шаблон фильтра
@@ -199,14 +208,37 @@ def _bind_and_search(username: str, password: str) -> LdapIdentity | None:
             )
             return None
         # sAMAccountName в домене один. Первой записи достаточно.
-        return _identity_from_entry(entries[0], username, admin_group)
+        return _identity_from_entry(
+            entries[0],
+            username,
+            admin_group=admin_group,
+            viewer_group=viewer_group,
+            operator_group=operator_group,
+            password_viewer_group=password_viewer_group,
+        )
     finally:
         if service_conn is not None:
             _unbind(service_conn)
         _unbind(user_conn)
 
 
-def _identity_from_entry(entry: object, typed_username: str, admin_group: str) -> LdapIdentity | None:
+def _cn_in_groups(groups: list[str], configured: str) -> bool:
+    """CN из memberOf совпадает с настроенной группой (без учёта регистра)."""
+    key = (configured or "").strip().casefold()
+    if not key:
+        return False
+    return any(group.casefold() == key for group in groups)
+
+
+def _identity_from_entry(
+    entry: object,
+    typed_username: str,
+    *,
+    admin_group: str,
+    viewer_group: str = "",
+    operator_group: str = "",
+    password_viewer_group: str = "",
+) -> LdapIdentity | None:
     dn = getattr(entry, "entry_dn", None)
     if not isinstance(dn, str) or not dn.strip():
         logger.warning(
@@ -223,16 +255,17 @@ def _identity_from_entry(entry: object, typed_username: str, admin_group: str) -
 
     display_name = _first(attrs, "displayname") or _first(attrs, "cn") or username
     groups = _group_names(attrs.get("memberof", []))
-    admin_key = admin_group.strip().casefold()
-    # Сравнение без регистра: в каталоге CN часто написан иначе, чем в LDAP_ADMIN_GROUP.
-    is_admin = bool(admin_key) and any(group.casefold() == admin_key for group in groups)
+    # Сравнение без регистра: в каталоге CN часто написан иначе, чем в LDAP_*_GROUP.
     return LdapIdentity(
         username=username,
         display_name=display_name,
         email=_first(attrs, "mail"),
         dn=dn.strip(),
         groups=groups,
-        is_admin=is_admin,
+        is_admin=_cn_in_groups(groups, admin_group),
+        is_viewer=_cn_in_groups(groups, viewer_group),
+        is_operator=_cn_in_groups(groups, operator_group),
+        is_password_viewer=_cn_in_groups(groups, password_viewer_group),
     )
 
 

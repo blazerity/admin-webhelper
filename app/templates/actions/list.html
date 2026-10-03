@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/pagination.html" import page_nav %}
 {% block title %}Действия{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -7,6 +8,7 @@
     <h1 class="page-title">Действия в системе</h1>
     <p class="page-subtitle">Справочник типов и недавние события на доступных устройствах</p>
   </div>
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('actions.export_csv', kind=kind_filter|default('')) }}">CSV</a>
 </div>
 
 <div class="panel content-card mb-3">
@@ -23,10 +25,35 @@
   </div>
 </div>
 
+<form class="panel content-card mb-3" method="get" action="{{ url_for('actions.list_actions') }}">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label" for="action-q">Поиск</label>
+      <input class="form-control" id="action-q" name="q" value="{{ search_query|default('') }}" autocomplete="off">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="action-kind">Тип</label>
+      <select class="form-select" id="action-kind" name="kind">
+        <option value="">Все</option>
+        {% for kind in action_kinds %}
+        <option value="{{ kind.code }}" {% if kind_filter|default('') == kind.code %}selected{% endif %}>{{ kind.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label" for="action-per-page">На странице</label>
+      <input class="form-control" id="action-per-page" name="per_page" type="number" min="1" max="200" value="{{ per_page|default(50) }}">
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-primary" type="submit">Показать</button>
+    </div>
+  </div>
+</form>
+
 <div class="panel content-card p-0 overflow-hidden">
   <div class="px-3 pt-3 pb-2">
     <h2 class="panel-title">Недавние события</h2>
-    <p class="panel-hint mb-0">Запуски на устройствах и обнаружения УЗ</p>
+    <p class="panel-hint mb-0">Всего: {{ total|default(actions|length) }} · страница {{ page|default(1) }}</p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
@@ -68,5 +95,12 @@
       </tbody>
     </table>
   </div>
+  {{ page_nav(
+       'actions.list_actions',
+       page|default(1),
+       per_page|default(50),
+       total|default(0),
+       {'q': search_query|default(''), 'kind': kind_filter|default('')}
+     ) }}
 </div>
 {% endblock %}

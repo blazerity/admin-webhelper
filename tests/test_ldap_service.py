@@ -40,6 +40,9 @@ def _configure_ldap(app, *, service_dn: str = "") -> None:
     app.config["LDAP_BIND_PASSWORD"] = "svc-secret" if service_dn else ""
     app.config["LDAP_USER_FILTER"] = "(sAMAccountName={username})"
     app.config["LDAP_ADMIN_GROUP"] = "bawh-admins"
+    app.config["LDAP_VIEWER_GROUP"] = "bawh-viewers"
+    app.config["LDAP_OPERATOR_GROUP"] = "bawh-operators"
+    app.config["LDAP_PASSWORD_VIEWER_GROUP"] = "bawh-password-viewers"
     app.config["LDAP_DOMAIN"] = "example.com"
 
 
@@ -278,6 +281,40 @@ def test_upsert_removes_old_group(app):
         assert fresh.ldap_dn == "CN=Carol,DC=example,DC=com"
         assert fresh.is_admin is False
         assert fresh.last_login_at is not None
+
+
+def test_role_groups_casefold_sync_on_login(app, monkeypatch):
+    """LDAP_*_GROUP → флаги User; CN сравнивается casefold как admin."""
+    _configure_ldap(app, service_dn="")
+    entry = _Entry(
+        "CN=Op,OU=Users,DC=example,DC=com",
+        {
+            "sAMAccountName": ["OpUser"],
+            "displayName": ["Оператор"],
+            "mail": ["op@example.com"],
+            "cn": ["Op"],
+            "memberOf": [
+                "CN=BAWH-Operators,OU=Groups,DC=example,DC=com",
+                "CN=BAWH-Viewers,OU=Groups,DC=example,DC=com",
+                "CN=BAWH-Password-Viewers,OU=Groups,DC=example,DC=com",
+            ],
+        },
+    )
+    directory = _Directory(entry)
+    _install_directory(monkeypatch, directory)
+
+    identity = authenticate("OpUser", "correct")
+    assert identity is not None
+    assert identity.is_admin is False
+    assert identity.is_operator is True
+    assert identity.is_viewer is True
+    assert identity.is_password_viewer is True
+
+    user = upsert_local_user(identity)
+    assert user.is_admin is False
+    assert user.is_operator is True
+    assert user.is_viewer is True
+    assert user.is_password_viewer is True
 
 
 def test_login_post_redirects_and_creates_user(client, app, monkeypatch):

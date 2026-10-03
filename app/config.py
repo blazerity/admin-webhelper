@@ -42,6 +42,10 @@ class Config:
     LDAP_BIND_PASSWORD = os.environ.get("LDAP_BIND_PASSWORD", "")
     LDAP_USER_FILTER = os.environ.get("LDAP_USER_FILTER", "(sAMAccountName={username})")
     LDAP_ADMIN_GROUP = os.environ.get("LDAP_ADMIN_GROUP", "bawh-admins")
+    # Authz v2: CN групп (casefold match как у LDAP_ADMIN_GROUP). Пусто — роль не выдаётся.
+    LDAP_VIEWER_GROUP = os.environ.get("LDAP_VIEWER_GROUP", "")
+    LDAP_OPERATOR_GROUP = os.environ.get("LDAP_OPERATOR_GROUP", "")
+    LDAP_PASSWORD_VIEWER_GROUP = os.environ.get("LDAP_PASSWORD_VIEWER_GROUP", "")
     LDAP_DOMAIN = os.environ.get("LDAP_DOMAIN", "")
 
     # SMTP для модуля уведомлений о сроке паролей AD (не дублирует LDAP_*).

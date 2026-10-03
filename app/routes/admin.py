@@ -24,10 +24,12 @@ Discovery: глобальная учётка WMI для опроса (серий
 
 import logging
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 
 from app.authz import admin_required
+from app.services import audit_service
+from app.services.export_service import export_poll_runs_csv
 from app.services.credential_service import (
     CredentialsNotConfigured,
     get_stored_credential,
@@ -93,6 +95,7 @@ def settings():
                     "Поля PsExec пустые. Команда запустится от имени вашего входа на сайт.",
                     "success",
                 )
+            audit_service.log(current_user, "update", "admin_settings", "psexec")
             return redirect(url_for("admin.settings"))
         if kind == "discovery":
             try:
@@ -112,6 +115,7 @@ def settings():
                     "(если не заданы DISCOVERY_* в .env).",
                     "success",
                 )
+            audit_service.log(current_user, "update", "admin_settings", "discovery")
             return redirect(url_for("admin.settings"))
         if kind == "poll":
             raw = (request.form.get("poll_interval") or "").strip()
@@ -125,6 +129,13 @@ def settings():
             except ValueError as exc:
                 flash(str(exc), "danger")
                 return redirect(url_for("admin.settings"))
+            audit_service.log(
+                current_user,
+                "update",
+                "admin_settings",
+                "poll",
+                detail=f"interval={value}",
+            )
             flash("Интервал опроса сохранён.", "success")
             return redirect(url_for("admin.settings"))
         if kind == "update":
@@ -150,6 +161,7 @@ def settings():
                     )
             else:
                 flash("Sudo-учётка очищена.", "success")
+            audit_service.log(current_user, "update", "admin_settings", "update_sudo")
             return redirect(url_for("admin.settings"))
         flash("Неизвестная форма.", "warning")
         return redirect(url_for("admin.settings"))
@@ -170,6 +182,18 @@ def settings():
         scheduler_health=get_scheduler_health(),
         update_sudo_user=update_sudo.username,
         update_sudo_password_set=update_sudo.password_set,
+    )
+
+
+@bp.get("/poll-runs/export.csv")
+@admin_required
+def export_poll_runs():
+    """CSV журнала прогонов опроса (admin)."""
+    body = export_poll_runs_csv(limit=200)
+    return Response(
+        body,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=poll_runs.csv"},
     )
 
 
@@ -205,9 +229,18 @@ def updates():
                 flash(check_for_updates(), "info")
             elif kind == "update":
                 begin_update()
+                audit_service.log(current_user, "update", "app", "git", detail="begin_update")
                 flash("Обновление запущено. Сначала создаётся резервная копия.", "info")
             elif kind == "rollback":
-                begin_rollback(request.form.get("backup_id", ""))
+                backup_id = request.form.get("backup_id", "")
+                begin_rollback(backup_id)
+                audit_service.log(
+                    current_user,
+                    "rollback",
+                    "app",
+                    backup_id or "backup",
+                    detail="begin_rollback",
+                )
                 flash("Откат запущен. Текущая версия тоже сохраняется в копию.", "info")
             else:
                 flash("Неизвестная форма.", "warning")
@@ -216,3 +249,11 @@ def updates():
         return redirect(url_for("admin.updates"))
 
     return render_template("admin/updates.html", status=build_page())
+
+
+@bp.get("/audit")
+@admin_required
+def audit_log():
+    """Простой список admin_audit_log (разметку может уточнить A2)."""
+    entries = audit_service.list_audit_entries(limit=200)
+    return render_template("admin/audit.html", entries=entries)

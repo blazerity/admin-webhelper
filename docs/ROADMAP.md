@@ -4,7 +4,10 @@
 Опирается на текущий стек (Flask SSR + сервисы + PostgreSQL + LDAP + PsExec + планировщик) и принцип **не ломать совместимость**.
 
 Связанные материалы: [README.md](../README.md), [ARCHITECTURE.md](ARCHITECTURE.md), [agents/](agents/README.md).  
-Волна **W1** закрыта в `0.3.0` (интеграция: PR агентов → `cursor/w1-implementation-2c6a`).
+Волна **W1** закрыта в `0.3.0` (интеграция: `cursor/w1-implementation-2c6a`).
+Волна **W2** закрыта в `0.4.0` (интеграция: `cursor/w2-implementation-85f5`).
+Волна **W3** закрыта в `0.5.0` (интеграция: `cursor/w3-implementation-85f5`).
+Волна **W4** закрыта в `0.6.0` (интеграция: `cursor/w4-implementation-85f5`).
 
 ---
 
@@ -278,36 +281,36 @@ bAWH уже умеет: карта сети, опрос/WMI, УЗ на ПК, д�
 
 | ID | Задача | Владелец | Помощь |
 | --- | --- | --- | --- |
-| W2-01 | Multi-select на карте + bulk bar UX | P2 | P3 |
-| W2-02 | Bulk ping / bulk script + batch status API | P3 | P4 |
-| W2-03 | Страница/панель прогресса batch | P2 | P3 |
-| W2-04 | Фильтры карты в query string | P2 | — |
-| W2-05 | Избранные устройства | P2 | P3 (если таблица) |
-| W2-06 | Authz на bulk для будущих operator | P4 | P3 |
-| W2-07 | Регресс W2, нагрузка на карту | P5 | — |
+| W2-01 | Multi-select на карте + bulk bar UX — **Done** | P2 | P3 |
+| W2-02 | Bulk ping / bulk script + batch status API — **Done** | P3 | P4 |
+| W2-03 | Страница/панель прогресса batch — **Done** | P2 | P3 |
+| W2-04 | Фильтры карты в query string — **Done** | P2 | — |
+| W2-05 | Избранные устройства (localStorage) — **Done** | P2 | P3 |
+| W2-06 | Authz на bulk для будущих operator — **Done** | P4 | P3 |
+| W2-07 | Регресс W2 — **Done**: [`docs/runbooks/w2-regression-checklist.md`](runbooks/w2-regression-checklist.md) | P5 | — |
 
 ### Волна W3
 
 | ID | Задача | Владелец | Помощь |
 | --- | --- | --- | --- |
-| W3-01 | Модель ролей + `.env`/LDAP mapping | P4 | P1 |
-| W3-02 | Operator: запуск опубликованных скриптов | P4 + P3 | P2 |
-| W3-03 | `admin_audit_log` + запись событий | P4 | P3 |
-| W3-04 | Watchlist + offline-алерты | P3 | P4, P2 |
-| W3-05 | In-app notification center | P2 | P3 |
-| W3-06 | Фильтры/пагинация actions & accounts | P4 + P2 | — |
-| W3-07 | Матрица прав в тестах + security review | P5 + P1 | P4 |
+| W3-01 | Модель ролей + `.env`/LDAP mapping — **Done** | P4 | P1 |
+| W3-02 | Operator: запуск опубликованных скриптов — **Done** | P4 + P3 | P2 |
+| W3-03 | `admin_audit_log` + запись событий — **Done** | P4 | P3 |
+| W3-04 | Watchlist + offline-алерты — **Done** | P3 | P4, P2 |
+| W3-05 | In-app notification center — **Done** | P2 | P3 |
+| W3-06 | Фильтры/пагинация actions & accounts — **Done** | P4 + P2 | — |
+| W3-07 | Матрица прав + чеклист — **Done**: [`docs/runbooks/w3-regression-checklist.md`](runbooks/w3-regression-checklist.md) | P5 + P1 | P4 |
 
 ### Волна W4
 
 | ID | Задача | Владелец | Помощь |
 | --- | --- | --- | --- |
-| W4-01 | `/api/v1/` aliases для существующих JSON | P3 | P1 |
-| W4-02 | Self-host CSS/JS/fonts или offline fallback | P2 + P5 | — |
-| W4-03 | CSV-экспорт УЗ / polls / actions | P3 | P2 |
-| W4-04 | Runbooks в `docs/runbooks/` | P5 | все |
-| W4-05 | Оценка Linux remote (spike, без merge в prod) | P3 | P1 |
-| W4-06 | Партиционирование/архив `device_history` (если объём давит) | P3 | P1 |
+| W4-01 | `/api/v1/` aliases для существующих JSON — **Done** | P3 | P1 |
+| W4-02 | Self-host Bootstrap + offline fonts — **Done**: [`offline-assets.md`](runbooks/offline-assets.md) | P2 + P5 | — |
+| W4-03 | CSV-экспорт УЗ / polls / actions — **Done** | P3 | P2 |
+| W4-04 | Runbooks — **Done** | P5 | все |
+| W4-05 | Оценка Linux remote (spike) — **Done**: [`docs/spikes/linux-remote.md`](spikes/linux-remote.md) | P3 | P1 |
+| W4-06 | Архив `device_history` (оценка) — **Done**: [`docs/spikes/device-history-archive.md`](spikes/device-history-archive.md) | P3 | P1 |
 
 ---
 

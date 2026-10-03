@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 from app.authz import accessible_sectors, admin_required, get_visible_sector_or_404
 from app.extensions import db
 from app.models import Sector, SectorRange
+from app.services import audit_service
 from app.services.net_utils import NetworkInputError
 from app.services.sector_service import SectorError
 from app.services.sector_service import delete_sector as remove_sector
@@ -104,6 +105,7 @@ def delete_sector(sector_id: int):
         db.session.rollback()
         flash(str(exc), "danger")
         return redirect(url_for("sectors.list_sectors"))
+    audit_service.log(current_user, "delete", "sector", sector_id, detail=name)
     flash(f"Сектор «{name}» удалён.", "success")
     return redirect(url_for("sectors.list_sectors"))
 
@@ -139,8 +141,10 @@ def _save_from_form(sector_id: int | None):
             access_groups=access_groups,
         )
     if sector_id is None:
+        audit_service.log(current_user, "create", "sector", sector.id, detail=sector.name)
         flash(f"Сектор «{sector.name}» создан.", "success")
     else:
+        audit_service.log(current_user, "update", "sector", sector.id, detail=sector.name)
         flash(f"Сектор «{sector.name}» сохранён.", "success")
     return redirect(url_for("sectors.detail", sector_id=sector.id))
 

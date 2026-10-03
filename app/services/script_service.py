@@ -66,6 +66,7 @@ def save_script(
     content: str,
     user_id: int | None,
     run_as: str = RunAs.PSEXEC,
+    is_published: bool = True,
     script: Script | None = None,
 ) -> Script:
     """Создаёт или обновляет скрипт. script=None — новая строка."""
@@ -76,6 +77,7 @@ def save_script(
     storage = (storage or "").strip().lower()
     run_as = (run_as or RunAs.PSEXEC).strip().lower()
     content = content if content is not None else ""
+    published = bool(is_published)
 
     if not name:
         raise ScriptError("Укажите название скрипта.")
@@ -119,6 +121,7 @@ def save_script(
     script.interpreter = interpreter
     script.storage = storage
     script.run_as = run_as
+    script.is_published = published
     if creating:
         script.created_by_id = user_id
 
@@ -314,6 +317,8 @@ def execute_run(app, run_id: int) -> None:
             run.status = status
             run.finished_at = utcnow()
             db.session.commit()
+            if status == RunStatus.FAILED:
+                _notify_script_failed(run_id)
         except Exception as exc:
             # Сообщение уже без пароля: psexec_service вычищает его до исключения.
             logger.exception("Запуск %s завершился ошибкой", run_id)
@@ -462,9 +467,27 @@ def _mark_failed(app, run_id: int, exc: BaseException, cancel_event: threading.E
         run.finished_at = utcnow()
         run.log_text = clip(merged, limit)
         db.session.commit()
+        if run.status == RunStatus.FAILED:
+            _notify_script_failed(run_id)
     except Exception:
         logger.exception("Не удалось записать ошибку запуска %s", run_id)
         db.session.rollback()
+
+
+def _notify_script_failed(run_id: int) -> None:
+    """Nice-to-have: уведомить автора скрипта о failed run."""
+    try:
+        from app.services import notification_service
+
+        run = db.session.get(ScriptRun, run_id)
+        if run is not None:
+            notification_service.notify_script_failed(run)
+    except Exception:
+        logger.exception("Не удалось создать уведомление script_failed для %s", run_id)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
 
 
 def library_root() -> Path:

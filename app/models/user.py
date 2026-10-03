@@ -21,6 +21,10 @@ class User(UserMixin, db.Model):
     ldap_dn = db.Column(db.String(512), nullable=True)
     # Обновляется при каждом входе по членству в LDAP_ADMIN_GROUP.
     is_admin = db.Column(db.Boolean, nullable=False, default=False)
+    # Authz v2 (W3): additive роли из LDAP_*_GROUP; см. docs/adr/002-authz-v2.md.
+    is_viewer = db.Column(db.Boolean, nullable=False, default=False)
+    is_operator = db.Column(db.Boolean, nullable=False, default=False)
+    is_password_viewer = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
@@ -31,7 +35,10 @@ class User(UserMixin, db.Model):
     )
 
     def __repr__(self) -> str:
-        return f"<User {self.username} admin={self.is_admin}>"
+        return (
+            f"<User {self.username} admin={self.is_admin} "
+            f"op={self.is_operator} view={self.is_viewer}>"
+        )
 
 
 class UserLdapGroup(db.Model):

@@ -25,6 +25,7 @@ from app.models import (
 from app.utils import as_utc
 
 _UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
+_MAX_FETCH = 1000
 
 
 @dataclass(frozen=True)
@@ -89,14 +90,33 @@ def _item_sort_key(item: SystemActionItem):
     return as_utc(item.when)
 
 
-def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
-    """Недавние действия: запуски на устройствах + появления УЗ.
+def _normalize_page(page: int, per_page: int) -> tuple[int, int]:
+    page = max(1, int(page or 1))
+    per_page = max(1, min(int(per_page or 50), 200))
+    return page, per_page
 
-    Из каждого журнала берём limit новейших (для двух источников этого
-    достаточно, чтобы top-N после merge был хронологически точен), затем
-    объединяем. Видимость запусков — как у scripts.run_detail.
+
+def list_system_actions(
+    user,
+    *,
+    page: int = 1,
+    per_page: int = 50,
+    q: str = "",
+    kind: str = "",
+    limit: int | None = None,
+) -> dict:
+    """Недавние действия с пагинацией и фильтрами.
+
+    Возвращает ``{items, total, page, per_page}``.
+    ``limit`` — совместимость со старыми вызовами (page=1, per_page=limit).
     """
     from flask import url_for
+
+    if limit is not None:
+        page, per_page = 1, max(1, int(limit))
+    page, per_page = _normalize_page(page, per_page)
+    query_text = (q or "").strip().lower()
+    kind_code = (kind or "").strip().lower()
 
     kinds = ensure_action_kinds()
     sector_ids = None if user.is_admin else accessible_sector_ids(user)
@@ -109,7 +129,7 @@ def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
             selectinload(ScriptRun.user),
         )
         .order_by(ScriptRun.started_at.desc(), ScriptRun.id.desc())
-        .limit(limit)
+        .limit(_MAX_FETCH)
     )
     if not user.is_admin:
         # Автор или устройство в доступном секторе — как user_can_see_script_run.
@@ -153,7 +173,7 @@ def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
                 selectinload(DeviceAccountHistory.device),
             )
             .order_by(DeviceAccountHistory.seen_at.desc(), DeviceAccountHistory.id.desc())
-            .limit(limit)
+            .limit(_MAX_FETCH)
         )
         if sector_ids is not None:
             sight_stmt = sight_stmt.join(
@@ -183,4 +203,25 @@ def list_system_actions(user, *, limit: int = 50) -> list[SystemActionItem]:
         )
 
     items.sort(key=_item_sort_key, reverse=True)
-    return items[:limit]
+
+    if kind_code:
+        items = [item for item in items if (item.kind_code or "").lower() == kind_code]
+    if query_text:
+        items = [
+            item
+            for item in items
+            if query_text in (item.title or "").lower()
+            or query_text in (item.device_label or "").lower()
+            or query_text in (item.actor or "").lower()
+            or query_text in (item.kind_title or "").lower()
+        ]
+
+    total = len(items)
+    start = (page - 1) * per_page
+    page_items = items[start : start + per_page]
+    return {
+        "items": page_items,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }

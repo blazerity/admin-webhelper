@@ -33,9 +33,9 @@ flowchart TB
     S_POLL["ping_service · discovery_service · scheduler_service"]
     S_ACC["account_service · action_service"]
     S_ID["ldap_service · credential_service · crypto_service"]
-    S_RUN["script_service · psexec_service"]
+    S_RUN["script_service · psexec_service · batch_service"]
     S_PWD["password_expiry_service · password_ad_client · password_mailer"]
-    S_OTH["sector_service · login_service_status · search_service · settings_service · update_service · log_archive_service · net_utils"]
+    S_OTH["sector_service · login_service_status · search_service · settings_service · update_service · log_archive_service · net_utils · network_summary_service · command_presets"]
   end
 
   subgraph data["models/ + PostgreSQL"]

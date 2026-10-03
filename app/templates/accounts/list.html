@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/pagination.html" import page_nav %}
 {% block title %}Учётные записи{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -7,6 +8,7 @@
     <h1 class="page-title">Учётные записи</h1>
     <p class="page-subtitle">Справочник УЗ, замеченных на устройствах сети</p>
   </div>
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('accounts.export_csv', q=search_query) }}">CSV</a>
 </div>
 
 <form class="panel content-card mb-3" method="get" action="{{ url_for('accounts.list_accounts') }}">
@@ -14,11 +16,16 @@
   <div class="d-flex flex-wrap gap-2">
     <input class="form-control" style="max-width: 22rem" id="account-q" name="q"
            value="{{ search_query }}" placeholder="логин, домен или ФИО" autocomplete="off">
+    <input class="form-control" style="max-width: 6rem" name="per_page" type="number" min="1" max="200"
+           value="{{ per_page|default(50) }}" title="На странице">
     <button class="btn btn-primary" type="submit">Найти</button>
   </div>
 </form>
 
 <div class="panel content-card p-0 overflow-hidden">
+  <div class="px-3 pt-3 pb-2">
+    <p class="panel-hint mb-0">Всего: {{ total|default(accounts|length) }} · страница {{ page|default(1) }}</p>
+  </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
       <thead>
@@ -45,5 +52,12 @@
       </tbody>
     </table>
   </div>
+  {{ page_nav(
+       'accounts.list_accounts',
+       page|default(1),
+       per_page|default(50),
+       total|default(0),
+       {'q': search_query|default('')}
+     ) }}
 </div>
 {% endblock %}
