@@ -70,7 +70,12 @@ def create_app(config_name: str | None = None) -> Flask:
 
     @app.context_processor
     def inject_globals():
-        return {"app_name": app.config["APP_NAME"]}
+        from app.authz import user_can_run_scripts
+
+        return {
+            "app_name": app.config["APP_NAME"],
+            "user_can_run_scripts": user_can_run_scripts,
+        }
 
     @app.shell_context_processor
     def shell_context():

@@ -61,7 +61,14 @@ def latest_successful_poll_run() -> NetworkPollRun | None:
     ).first()
 
 
-def _device_status_counts(user) -> dict[str, int]:
+def _visible_sector_ids(user) -> set[int] | None:
+    """None — админ видит все сектора; иначе set доступных id."""
+    if user.is_admin:
+        return None
+    return accessible_sector_ids(user)
+
+
+def _device_status_counts(sector_ids: set[int] | None) -> dict[str, int]:
     """Счётчики устройств по last_status в доступных секторах."""
     counts = {
         "devices_total": 0,
@@ -69,12 +76,8 @@ def _device_status_counts(user) -> dict[str, int]:
         "devices_offline": 0,
         "devices_unknown": 0,
     }
-    if user.is_admin:
-        sector_ids = None
-    else:
-        sector_ids = accessible_sector_ids(user)
-        if not sector_ids:
-            return counts
+    if sector_ids is not None and not sector_ids:
+        return counts
 
     stmt = select(Device.last_status, func.count()).group_by(Device.last_status)
     if sector_ids is not None:
@@ -92,8 +95,11 @@ def _device_status_counts(user) -> dict[str, int]:
     return counts
 
 
-def _failed_script_runs_24h(user) -> int:
+def _failed_script_runs_24h(sector_ids: set[int] | None) -> int:
     """Число failed script_runs за сутки с учётом видимости устройств."""
+    if sector_ids is not None and not sector_ids:
+        return 0
+
     since = utcnow() - timedelta(hours=24)
     stmt = (
         select(func.count())
@@ -101,10 +107,7 @@ def _failed_script_runs_24h(user) -> int:
         .where(ScriptRun.status == RunStatus.FAILED)
         .where(ScriptRun.started_at >= since)
     )
-    if not user.is_admin:
-        sector_ids = accessible_sector_ids(user)
-        if not sector_ids:
-            return 0
+    if sector_ids is not None:
         stmt = stmt.join(Device, Device.id == ScriptRun.device_id).where(
             Device.sector_id.in_(sector_ids)
         )
@@ -113,11 +116,11 @@ def _failed_script_runs_24h(user) -> int:
 
 def get_network_summary(user) -> dict:
     """Сводка для GET /api/network/summary."""
-    counts = _device_status_counts(user)
+    sector_ids = _visible_sector_ids(user)
     return {
-        **counts,
+        **_device_status_counts(sector_ids),
         "last_poll": poll_run_to_dict(latest_poll_run()),
-        "failed_script_runs_24h": _failed_script_runs_24h(user),
+        "failed_script_runs_24h": _failed_script_runs_24h(sector_ids),
     }
 
 

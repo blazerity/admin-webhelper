@@ -1,19 +1,13 @@
 {% if device is defined and device %}
-{% set presets = command_presets if command_presets is defined and command_presets else [
-  {"id": "whoami", "label": "whoami", "command": "whoami"},
-  {"id": "ipconfig", "label": "ipconfig /all", "command": "ipconfig /all"},
-  {"id": "hostname", "label": "hostname", "command": "hostname"},
-  {"id": "netstat", "label": "netstat -ano", "command": "netstat -ano"}
-] %}
-{% set available_scripts = scripts if scripts is defined and scripts else [] %}
+{% set presets = command_presets|default([]) %}
+{% set available_scripts = scripts|default([]) %}
 <div class="device-actions">
-  {% if current_user.is_authenticated and current_user.is_admin %}
+  {% if current_user.is_authenticated and user_can_run_scripts(current_user) %}
   <div class="device-actions-group">
     <p class="device-actions-label">Пресеты</p>
     <div
       class="command-presets"
       id="command-presets"
-      data-presets-url="/api/command-presets"
       role="group"
       aria-label="Пресеты команд"
     >
@@ -42,7 +36,7 @@
     <p class="device-actions-label">Скрипт из библиотеки</p>
     <form
       method="post"
-      action="/devices/{{ device.id }}/scripts/run"
+      action="{{ url_for('devices.run_script_on_device', device_id=device.id) }}"
       class="device-script-form"
       id="device-script-form"
     >
@@ -55,7 +49,7 @@
         <option value="{{ script.id }}">{{ script.name }}</option>
         {% endfor %}
         {% else %}
-        <option value="">Список скриптов пока недоступен</option>
+        <option value="">Нет доступных скриптов</option>
         {% endif %}
       </select>
       <button class="btn btn-primary w-100" type="submit" {% if not available_scripts %}disabled{% endif %}>Запустить скрипт</button>
@@ -65,8 +59,7 @@
       После запуска откроется страница выполнения.
       {% else %}
       Библиотека:
-      <a href="{{ url_for('scripts.list_scripts') }}">открыть список скриптов</a>
-      (селект появится, когда backend передаст список в карточку).
+      <a href="{{ url_for('scripts.list_scripts') }}">открыть список скриптов</a>.
       {% endif %}
     </p>
   </div>
@@ -74,51 +67,19 @@
   <p class="small text-muted mb-0">Удалённая команда и скрипты доступны только администратору.</p>
   {% endif %}
 </div>
-{% if current_user.is_authenticated and current_user.is_admin %}
+{% if current_user.is_authenticated and user_can_run_scripts(current_user) %}
 <script>
 (() => {
   const presetsRoot = document.getElementById("command-presets");
   const commandInput = document.getElementById("command");
   if (!presetsRoot || !commandInput) return;
 
-  function applyPreset(command) {
-    commandInput.value = command || "";
-    commandInput.focus();
-  }
-
   presetsRoot.querySelectorAll("[data-command]").forEach((btn) => {
-    btn.addEventListener("click", () => applyPreset(btn.dataset.command || ""));
-  });
-
-  const presetsUrl = presetsRoot.dataset.presetsUrl;
-  if (!presetsUrl) return;
-
-  fetch(presetsUrl, {
-    headers: { Accept: "application/json" },
-    credentials: "same-origin",
-  })
-    .then((response) => {
-      if (!response.ok) throw new Error("presets unavailable");
-      return response.json();
-    })
-    .then((payload) => {
-      const list = Array.isArray(payload?.presets) ? payload.presets : [];
-      if (!list.length) return;
-      presetsRoot.innerHTML = "";
-      list.forEach((preset) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "btn btn-sm btn-outline-primary command-preset-btn";
-        btn.dataset.presetId = preset.id || "";
-        btn.dataset.command = preset.command || "";
-        btn.textContent = preset.label || preset.command || preset.id || "preset";
-        btn.addEventListener("click", () => applyPreset(btn.dataset.command || ""));
-        presetsRoot.appendChild(btn);
-      });
-    })
-    .catch(() => {
-      /* SSR / data-атрибуты уже дают базовые пресеты */
+    btn.addEventListener("click", () => {
+      commandInput.value = btn.dataset.command || "";
+      commandInput.focus();
     });
+  });
 })();
 </script>
 {% endif %}

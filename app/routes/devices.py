@@ -134,6 +134,11 @@ def _detail_tab() -> str:
     return tab
 
 
+def _commands_redirect(device_id: int, message: str, category: str):
+    flash(message, category)
+    return redirect(url_for("devices.detail", device_id=device_id, tab="commands"))
+
+
 def _launch_history(
     device_id: int, run_types: tuple[str, ...], limit: int
 ) -> tuple[list[dict], bool]:
@@ -201,11 +206,11 @@ def detail(device_id: int):
         has_more = (not show_all) and len(rows) > limit
         account_rows = rows[:limit]
 
-    # Пресеты всегда в context; библиотека скриптов — через authz shim (W1: admin).
-    command_presets = list_command_presets()
+    on_commands = tab == "commands"
+    command_presets = list_command_presets() if on_commands else []
     scripts = (
         Script.query.order_by(Script.name).all()
-        if user_can_run_scripts(current_user)
+        if on_commands and user_can_run_scripts(current_user)
         else []
     )
 
@@ -231,26 +236,22 @@ def run_script_on_device(device_id: int):
     device = get_visible_device_or_404(device_id)
     script_id = parse_optional_int(request.form.get("script_id"))
     if script_id is None:
-        flash("Выберите скрипт.", "warning")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+        return _commands_redirect(device.id, "Выберите скрипт.", "warning")
 
     script = db.session.get(Script, script_id)
     if script is None:
-        flash("Скрипт не найден.", "danger")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+        return _commands_redirect(device.id, "Скрипт не найден.", "danger")
     if script.target_os == "linux" or script.interpreter == "bash":
-        flash(
+        return _commands_redirect(
+            device.id,
             "Удалённый Linux в v1 не реализован: PsExec работает только с Windows.",
             "danger",
         )
-        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
 
     try:
         runs = script_service.start_script_on_devices(script, current_user, [device])
     except script_service.ScriptError as exc:
-        flash(str(exc), "danger")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+        return _commands_redirect(device.id, str(exc), "danger")
     if not runs:
-        flash("Не удалось запустить скрипт.", "danger")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+        return _commands_redirect(device.id, "Не удалось запустить скрипт.", "danger")
     return redirect(url_for("scripts.run_detail", run_id=runs[0].id))

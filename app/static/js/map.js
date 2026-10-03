@@ -76,11 +76,14 @@
     summaryRoot.classList.toggle("is-empty", !isError);
   }
 
+  let summaryInFlight = false;
+
   async function refreshSummary() {
-    if (!summaryRoot) {
+    if (!summaryRoot || summaryInFlight) {
       return;
     }
     const url = summaryRoot.dataset.summaryUrl || "/api/network/summary";
+    summaryInFlight = true;
     try {
       const response = await fetch(url, {
         headers: { Accept: "application/json" },
@@ -89,22 +92,14 @@
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const payload = await response.json();
-      if (
-        payload == null ||
-        (payload.devices_total == null &&
-          payload.devices_online == null &&
-          !payload.last_poll)
-      ) {
-        renderSummaryEmpty("Сводка сети пока пуста.", false);
-        return;
-      }
-      renderSummary(payload);
+      renderSummary(await response.json());
     } catch (_err) {
       renderSummaryEmpty(
         "Сводка сети недоступна — карта работает без неё.",
         true
       );
+    } finally {
+      summaryInFlight = false;
     }
   }
 

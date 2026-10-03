@@ -1,4 +1,4 @@
-// Поиск на карте: /search/suggest с fallback на /search/api; фильтр секторов + autocomplete.
+// Поиск на карте: /search/suggest, фильтр секторов + autocomplete.
 (function () {
   const form = document.getElementById("map-search-form");
   const input = document.getElementById("map-search-q");
@@ -8,11 +8,10 @@
   if (!form || !input || !results) return;
 
   const suggestUrl = form.dataset.suggestUrl || "/search/suggest";
-  const fallbackUrl = form.dataset.apiUrl || "/search/api";
   let timer = null;
   let activeIndex = -1;
   let currentItems = [];
-  let preferSuggest = true;
+  let abortController = null;
 
   const STATUS_CLASS = {
     online: "text-bg-success",
@@ -133,38 +132,20 @@
     }
   }
 
-  function normalizeItems(payload) {
-    if (Array.isArray(payload)) return payload;
-    if (payload && Array.isArray(payload.items)) return payload.items;
-    if (payload && Array.isArray(payload.results)) return payload.results;
-    return [];
-  }
-
-  function fetchJson(url) {
-    return fetch(url, {
+  function fetchSuggestions(params) {
+    if (abortController) {
+      abortController.abort();
+    }
+    abortController = new AbortController();
+    return fetch(suggestUrl + "?" + params.toString(), {
       headers: { Accept: "application/json" },
       credentials: "same-origin",
+      signal: abortController.signal,
     }).then(function (response) {
       if (!response.ok) {
-        const error = new Error("HTTP " + response.status);
-        error.status = response.status;
-        throw error;
+        throw new Error("HTTP " + response.status);
       }
       return response.json();
-    });
-  }
-
-  function fetchSuggestions(params) {
-    const query = params.toString();
-    const primary = (preferSuggest ? suggestUrl : fallbackUrl) + "?" + query;
-    const secondary = fallbackUrl + "?" + query;
-
-    return fetchJson(primary).catch(function (err) {
-      if (preferSuggest && primary !== secondary) {
-        preferSuggest = false;
-        return fetchJson(secondary);
-      }
-      throw err;
     });
   }
 
@@ -178,6 +159,10 @@
     window.history.replaceState({}, "", nextUrl);
 
     if (value.length < 2) {
+      if (abortController) {
+        abortController.abort();
+        abortController = null;
+      }
       clearMapFilter();
       currentItems = [];
       hideSuggest();
@@ -191,7 +176,7 @@
 
     fetchSuggestions(params)
       .then(function (payload) {
-        const items = normalizeItems(payload);
+        const items = Array.isArray(payload) ? payload : [];
         renderItems(items);
         syncMapFilter(
           items.map(function (item) {
@@ -199,7 +184,8 @@
           })
         );
       })
-      .catch(function () {
+      .catch(function (err) {
+        if (err && err.name === "AbortError") return;
         clearMapFilter();
         currentItems = [];
         hideSuggest();

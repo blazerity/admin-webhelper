@@ -24,7 +24,7 @@ def search_page():
 
 
 def _search_json_payload():
-    """Общий JSON для /search/api и alias /search/suggest."""
+    """Общий JSON для /search/api и /search/suggest."""
     query = (request.args.get("q") or "").strip()
     sector_id = parse_optional_int(request.args.get("sector_id"))
     devices = search_devices(current_user, query, sector_id=sector_id)
@@ -53,5 +53,5 @@ def search_api():
 @bp.get("/search/suggest")
 @login_required
 def search_suggest():
-    """Alias /search/api для autocomplete на карте (A2)."""
+    """Autocomplete на карте (тот же payload, что /search/api)."""
     return jsonify(_search_json_payload())

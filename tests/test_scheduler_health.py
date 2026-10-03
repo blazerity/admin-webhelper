@@ -137,7 +137,9 @@ def test_admin_settings_passes_scheduler_health(client, app, admin_id):
         db.session.commit()
 
     _login(client, admin_id)
-    # Шаблон A2 ещё может не рендерить блок; важно, что route не падает
-    # и context собирается (render успешен).
     page = client.get("/admin/settings")
     assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert 'id="scheduler-health"' in html
+    assert "Состояние планировщика" in html
+    assert "актуален" in html

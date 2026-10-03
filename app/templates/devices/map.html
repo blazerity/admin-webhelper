@@ -21,7 +21,7 @@
 <div
   class="map-summary"
   id="map-summary"
-  data-summary-url="/api/network/summary"
+  data-summary-url="{{ url_for('devices.network_summary') }}"
   aria-live="polite"
 >
   <p class="map-summary-status" id="map-summary-status">Загрузка сводки сети…</p>
@@ -47,8 +47,7 @@
         id="map-search-form"
         method="get"
         action="{{ url_for('devices.map') }}"
-        data-suggest-url="/search/suggest"
-        data-api-url="{{ url_for('search.search_api') }}"
+        data-suggest-url="{{ url_for('search.search_suggest') }}"
       >
         <div class="map-search-field">
           <label class="visually-hidden" for="map-search-q">Запрос</label>

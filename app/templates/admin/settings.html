@@ -8,21 +8,15 @@
   </div>
 </div>
 
-{% set health = scheduler_health if scheduler_health is defined else none %}
-<div class="panel content-card mb-3 scheduler-health{% if health and health.stale %} is-stale{% endif %}" id="scheduler-health">
+<div class="panel content-card mb-3 scheduler-health{% if scheduler_health.stale %} is-stale{% endif %}" id="scheduler-health">
   <h2 class="h5 mb-1">Состояние планировщика</h2>
   <p class="panel-hint mb-3">Последний успешный опрос сети и признак устаревания</p>
-  {% if health %}
   <dl class="scheduler-health-grid">
     <div>
       <dt>Последний успех</dt>
       <dd>
-        {% if health.last_success_at %}
-          {% if health.last_success_at is string %}
-            <span class="font-monospace">{{ health.last_success_at }}</span>
-          {% else %}
-            {{ health.last_success_at|dt }}
-          {% endif %}
+        {% if scheduler_health.last_success_at %}
+          <span class="font-monospace">{{ scheduler_health.last_success_at }}</span>
         {% else %}
           <span class="text-muted">ещё не было</span>
         {% endif %}
@@ -31,7 +25,7 @@
     <div>
       <dt>Статус</dt>
       <dd>
-        {% if health.stale %}
+        {% if scheduler_health.stale %}
         <span class="badge text-bg-warning">устарел</span>
         {% else %}
         <span class="badge text-bg-success">актуален</span>
@@ -40,20 +34,19 @@
     </div>
     <div>
       <dt>Порог устаревания</dt>
-      <dd>{{ health.stale_after_seconds|default(600) }} с</dd>
+      <dd>{{ scheduler_health.stale_after_seconds }} с</dd>
     </div>
-    {% set last_run = health.last_run if health.last_run is defined else none %}
     <div>
       <dt>Последний прогон</dt>
       <dd>
-        {% if last_run %}
-          {{ last_run.mode|default('—') }}
-          · проверено {{ last_run.scanned|default(0) }}
-          · онлайн {{ last_run.online|default(0) }}
-          · офлайн {{ last_run.offline|default(0) }}
-          · ошибки {{ last_run.errors|default(0) }}
-          {% if last_run.error %}
-          <div class="text-danger small mt-1">{{ last_run.error }}</div>
+        {% if scheduler_health.last_run %}
+          {{ scheduler_health.last_run.mode }}
+          · проверено {{ scheduler_health.last_run.scanned }}
+          · онлайн {{ scheduler_health.last_run.online }}
+          · офлайн {{ scheduler_health.last_run.offline }}
+          · ошибки {{ scheduler_health.last_run.errors }}
+          {% if scheduler_health.last_run.error %}
+          <div class="text-danger small mt-1">{{ scheduler_health.last_run.error }}</div>
           {% endif %}
         {% else %}
           <span class="text-muted">нет данных</span>
@@ -61,9 +54,6 @@
       </dd>
     </div>
   </dl>
-  {% else %}
-  <p class="text-muted mb-0">Данные health пока не переданы backend-ом. После мержа A3 здесь появится статус `bawh-scheduler`.</p>
-  {% endif %}
 </div>
 
 <div class="panel content-card mb-3">

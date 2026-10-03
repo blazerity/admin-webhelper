@@ -90,6 +90,13 @@ def test_detail_context_has_presets_and_scripts_for_admin(client, app, admin_id)
     _login(client, admin_id)
     page = client.get(f"/devices/{device_id}?tab=commands")
     assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert 'class="btn btn-sm btn-outline-primary command-preset-btn"' in html
+    assert 'data-preset-id="whoami"' in html
+    assert "data-presets-url" not in html
+    assert f"/devices/{device_id}/scripts/run" in html
+    assert 'name="script_id"' in html
+    assert ">cleanup<" in html
 
 
 def test_run_script_from_device_admin_ok(client, app, admin_id):
