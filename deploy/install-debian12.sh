@@ -52,6 +52,14 @@ require_debian_12() {
   fi
 }
 
+ensure_utf8_locale() {
+  # Минимальные образы и curl|bash часто стартуют с LC_ALL=C (ASCII).
+  # Flask-Migrate/Alembic читают ini через encoding=locale — без UTF-8 падают
+  # на не-ASCII в файлах миграций. На Debian 12 C.UTF-8 есть из коробки (glibc).
+  export LANG=C.UTF-8
+  export LC_ALL=C.UTF-8
+}
+
 install_packages() {
   log "Ставлю пакеты Debian."
   export DEBIAN_FRONTEND=noninteractive
@@ -68,7 +76,8 @@ install_packages() {
     git \
     rsync \
     ca-certificates \
-    curl
+    curl \
+    sudo
 }
 
 ensure_user() {
@@ -352,7 +361,8 @@ run_migrations() {
   log "Применяю миграции."
   mkdir -p "$INSTALL_DIR/logs"
   chown bawh:bawh "$INSTALL_DIR/logs"
-  runuser -u bawh -- bash -c "cd '$INSTALL_DIR' && exec .venv/bin/flask --app wsgi db upgrade"
+  runuser -u bawh -- env LANG="${LANG}" LC_ALL="${LC_ALL}" \
+    bash -c "cd '$INSTALL_DIR' && exec .venv/bin/flask --app wsgi db upgrade"
 }
 
 install_systemd() {
@@ -370,7 +380,12 @@ install_update_sudoers() {
     log "Нет $src — правило для автоперезапуска после обновления не ставлю."
     return 0
   fi
+  if ! command -v visudo >/dev/null 2>&1; then
+    log "Нет visudo — правило для автоперезапуска после обновления не ставлю."
+    return 0
+  fi
   log "Ставлю passwordless sudo для перезапуска служб после обновления из UI."
+  mkdir -p /etc/sudoers.d
   cp "$src" "$dest"
   chmod 440 "$dest"
   if ! visudo -cf "$dest" >/dev/null; then
@@ -461,6 +476,8 @@ main() {
   cd /
   require_root
   require_debian_12
+  export DEBIAN_FRONTEND=noninteractive
+  ensure_utf8_locale
   install_packages
   ensure_user
   install_sources

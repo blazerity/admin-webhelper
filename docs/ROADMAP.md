@@ -8,6 +8,7 @@
 Волна **W2** закрыта в `0.4.0` (интеграция: `cursor/w2-implementation-85f5`).
 Волна **W3** закрыта в `0.5.0` (интеграция: `cursor/w3-implementation-85f5`).
 Волна **W4** закрыта в `0.6.0` (интеграция: `cursor/w4-implementation-85f5`).
+Упрощение горячих путей поверх `0.6.0` — [#32](https://github.com/blazerity/admin-webhelper/pull/32) (очередь запусков, shared JS, thin `/api/v1`, batch ACL/watchlist). Актуальная архитектура: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
