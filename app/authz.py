@@ -88,24 +88,6 @@ def user_can_run_diagnostics(user) -> bool:
     return True
 
 
-def user_can_bulk_ping(user) -> bool:
-    """Может ли пользователь запускать bulk ping (W2/W3).
-
-    Те же правила, что у diagnostics; каждое устройство всё равно
-    фильтруется через ``filter_accessible_devices``.
-    """
-    return user_can_run_diagnostics(user)
-
-
-def user_can_bulk_script(user) -> bool:
-    """Может ли пользователь запускать bulk script.
-
-    Обёртка над ``user_can_run_scripts``; конкретный скрипт проверяется
-    через ``user_can_run_script`` на маршруте.
-    """
-    return user_can_run_scripts(user)
-
-
 def filter_accessible_devices(user, device_ids) -> list[Device]:
     """Вернуть доступные устройства в порядке ``device_ids``.
 

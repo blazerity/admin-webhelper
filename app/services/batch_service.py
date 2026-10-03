@@ -1,18 +1,16 @@
 """Пачки запусков: bulk ping/script и агрегация статуса по batch_id.
 
 Маршруты только вызывают эти хелперы — без прямого ping/PsExec.
-Видимость runs фильтруется через user_can_see_script_run (authz).
+Видимость runs фильтруется через sector ACL / author (authz).
 """
 
 from __future__ import annotations
 
-import uuid
-
 from sqlalchemy.orm import selectinload
 
 from app.authz import accessible_sector_ids
-from app.models import Device, RunStatus, RunType, Script, ScriptRun
-from app.services.script_service import start_run, start_script_on_devices
+from app.models import Device, RunStatus, Script, ScriptRun
+from app.services.script_service import start_ping_on_devices, start_script_on_devices
 
 MAX_BULK_DEVICES = 100
 
@@ -97,22 +95,8 @@ def batch_status_payload(user, batch_id: str) -> dict | None:
 
 
 def start_bulk_ping(user, devices: list[Device]) -> tuple[str, list[ScriptRun]]:
-    """Один batch_id, Ping на каждое устройство через start_run."""
-    if not devices:
-        return "", []
-    batch_id = str(uuid.uuid4())
-    runs: list[ScriptRun] = []
-    for device in devices:
-        runs.append(
-            start_run(
-                RunType.PING,
-                user,
-                device,
-                f"ping {device.ip}",
-                batch_id=batch_id,
-            )
-        )
-    return batch_id, runs
+    """Один batch_id + один commit; воркеры — из очереди script_service."""
+    return start_ping_on_devices(user, devices)
 
 
 def start_bulk_script(

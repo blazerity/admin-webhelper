@@ -1,4 +1,8 @@
 (() => {
+  const http = window.BawhHttp || {};
+  const escapeHtml = http.escapeHtml || ((value) => String(value ?? ""));
+  const fetchJson = http.fetchJson;
+  const postJson = http.postJson;
   const REFRESH_MS = 15000;
   const FAV_KEY = "bawh.map.favorites";
   const STATUS_LABELS = {
@@ -27,7 +31,7 @@
     ? filtersRoot.querySelector("[data-filter-fav]")
     : null;
 
-  if (!mapRoot || !filtersRoot) {
+  if (!mapRoot || !filtersRoot || !fetchJson || !postJson) {
     return;
   }
 
@@ -439,14 +443,6 @@
     syncSelectUi(card);
   }
 
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
   function createDeviceCardElement(device) {
     const status = device.status || "unknown";
     const kind = device.kind || "other";
@@ -564,18 +560,11 @@
 
   async function refreshStatuses() {
     const url = mapRoot.dataset.statusUrl;
-    if (!url) {
+    if (!url || document.visibilityState === "hidden") {
       return;
     }
     try {
-      const response = await fetch(url, {
-        headers: { Accept: "application/json" },
-        credentials: "same-origin",
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const payload = await response.json();
+      const payload = await fetchJson(url);
       applyStatusPayload(payload);
     } catch (_err) {
       if (refreshStatus) {
@@ -586,28 +575,7 @@
 
   async function postBulk(url, body) {
     const csrf = mapRoot.dataset.csrfToken || "";
-    const response = await fetch(url, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-CSRFToken": csrf,
-      },
-      body: JSON.stringify({ ...body, csrf_token: csrf }),
-    });
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch (_err) {
-      payload = null;
-    }
-    if (!response.ok) {
-      const message =
-        (payload && payload.error) || `Ошибка ${response.status}`;
-      throw new Error(message);
-    }
-    return payload;
+    return postJson(url, body, csrf);
   }
 
   function selectedDeviceIds() {

@@ -1,6 +1,9 @@
 (() => {
+  const http = window.BawhHttp || {};
+  const fetchJson = http.fetchJson;
+  const postJson = http.postJson;
   const root = document.getElementById("app-notifications");
-  if (!root) return;
+  if (!root || !fetchJson || !postJson) return;
 
   const listUrl = root.dataset.listUrl || "/api/notifications";
   const readUrl = root.dataset.readUrl || "/api/notifications/read";
@@ -16,6 +19,7 @@
 
   let open = false;
   let items = [];
+  let pollTimer = null;
 
   function setBadge(unread) {
     if (!badge) return;
@@ -78,34 +82,30 @@
   }
 
   async function markRead(payload) {
-    const response = await fetch(readUrl, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-CSRFToken": csrf,
-      },
-      body: JSON.stringify({ ...payload, csrf_token: csrf }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
+    return postJson(readUrl, payload, csrf);
   }
 
   async function refresh() {
+    if (document.visibilityState === "hidden") return;
     try {
-      const response = await fetch(listUrl, {
-        headers: { Accept: "application/json" },
-        credentials: "same-origin",
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json();
+      const payload = await fetchJson(listUrl);
       items = Array.isArray(payload.items) ? payload.items : [];
       setBadge(payload.unread);
       if (open) renderList();
     } catch (_err) {
       /* keep last good state */
     }
+  }
+
+  function startPolling() {
+    if (pollMs <= 0 || pollTimer != null) return;
+    pollTimer = window.setInterval(refresh, pollMs);
+  }
+
+  function stopPolling() {
+    if (pollTimer == null) return;
+    window.clearInterval(pollTimer);
+    pollTimer = null;
   }
 
   function setOpen(next) {
@@ -164,8 +164,17 @@
     if (event.key === "Escape" && open) setOpen(false);
   });
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      refresh();
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  });
+
   refresh();
-  if (pollMs > 0) {
-    window.setInterval(refresh, pollMs);
+  if (document.visibilityState !== "hidden") {
+    startPolling();
   }
 })();

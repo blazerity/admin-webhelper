@@ -9,8 +9,7 @@ from app.authz import (
     admin_required,
     filter_accessible_devices,
     get_visible_device_or_404,
-    user_can_bulk_ping,
-    user_can_bulk_script,
+    user_can_run_diagnostics,
     user_can_run_script,
     user_can_run_scripts,
 )
@@ -218,7 +217,7 @@ def map_status():
 @login_required
 def bulk_ping():
     """Массовый Ping: один batch_id, start_run(PING) на каждое доступное устройство."""
-    if not user_can_bulk_ping(current_user):
+    if not user_can_run_diagnostics(current_user):
         abort(403)
     device_ids, error = _parse_bulk_device_ids_or_error()
     if error is not None:
@@ -236,8 +235,8 @@ def bulk_ping():
 @bp.post("/api/map/bulk/script")
 @login_required
 def bulk_script():
-    """Массовый запуск скрипта библиотеки (только user_can_bulk_script)."""
-    if not user_can_bulk_script(current_user):
+    """Массовый запуск скрипта библиотеки (user_can_run_scripts + ACL скрипта)."""
+    if not user_can_run_scripts(current_user):
         abort(403)
 
     device_ids, error = _parse_bulk_device_ids_or_error()
