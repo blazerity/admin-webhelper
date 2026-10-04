@@ -1,4 +1,4 @@
-"""Периодический опрос устройств и проверка срока паролей AD.
+"""Периодический опрос устройств и плановые отчёты.
 
 Этот модуль нельзя запускать внутри Gunicorn. У веб-сервера несколько
 процессов-воркеров, и каждый выполнил бы start_scheduler: сеть пинговали
@@ -23,10 +23,15 @@ from app.extensions import db
 from app.services.log_archive_service import archive_rotated_logs
 from app.services.password_expiry_service import run_password_expiry
 from app.services.password_expiry_settings import (
-    DEFAULT_SCHEDULE_CRON,
-    get_password_expiry_settings,
+    DEFAULT_SCHEDULE_CRON as DEFAULT_PASSWORD_SCHEDULE_CRON,
 )
+from app.services.password_expiry_settings import get_password_expiry_settings
 from app.services.ping_service import PollInProgressError, run_network_poll
+from app.services.sector_daily_report_service import run_sector_daily_report
+from app.services.sector_daily_report_settings import (
+    DEFAULT_SCHEDULE_CRON as DEFAULT_SECTOR_DAILY_CRON,
+)
+from app.services.sector_daily_report_settings import get_sector_daily_report_settings
 from app.services.settings_service import get_poll_interval_seconds
 
 logger = logging.getLogger(__name__)
@@ -37,10 +42,11 @@ _POLL_COMMAND_KEY = "bawh_poll_command"
 JOB_ID = "poll-devices"
 ARCHIVE_JOB_ID = "archive-logs"
 PASSWORD_EXPIRY_JOB_ID = "password-expiry"
+SECTOR_DAILY_JOB_ID = "sector-daily-report"
 
 
 def register_commands(app) -> None:
-    """Команды CLI: `flask poll`, `flask archive-logs`, `flask password-expiry`.
+    """Команды CLI: poll, archive-logs, password-expiry, sector-daily-report.
 
     Повторный вызов ничего не делает. Иначе Click упадёт
     с «command already registered», когда create_app вызовут дважды
@@ -97,6 +103,34 @@ def register_commands(app) -> None:
                     }
                 )
 
+    if "sector-daily-report" not in app.cli.commands:
+        import click
+
+        @app.cli.command("sector-daily-report")
+        @click.option(
+            "--dry-run",
+            is_flag=True,
+            help="Построить отчёт без SMTP.",
+        )
+        def sector_daily_report_cmd(dry_run: bool) -> None:
+            """Отчёт об активных устройствах за прошедший день по секторам."""
+            with app.app_context():
+                result = run_sector_daily_report(
+                    send_emails=not dry_run,
+                    mode="dry-run" if dry_run else "cli",
+                )
+                print(
+                    {
+                        "exit_code": result.exit_code,
+                        "report_date": result.report_date,
+                        "active": result.active_total,
+                        "known": result.known_total,
+                        "sectors": result.sectors_count,
+                        "sent": result.sent_count,
+                        "error": result.error,
+                    }
+                )
+
     app.extensions[_POLL_COMMAND_KEY] = True
 
 
@@ -118,7 +152,8 @@ def start_scheduler(app) -> BackgroundScheduler:
     Задача archive-logs — раз в сутки около 00:20 UTC: суточные хвосты
     завершённых месяцев пакуются в LOG_ARCHIVE_DIR.
 
-    Задача password-expiry — cron из app_settings (локальный TZ сервера).
+    Задачи password-expiry и sector-daily-report — cron из app_settings
+    (локальный TZ сервера).
 
     Запускать только из scheduler_worker, не из воркера Gunicorn.
     Иначе каждый веб-процесс начнёт пинговать сеть. Когда появится
@@ -132,6 +167,7 @@ def start_scheduler(app) -> BackgroundScheduler:
     # Сколько секунд сейчас стоит у задачи. Сравниваем с БД после прохода.
     scheduled_for = {"seconds": _read_interval(app)}
     password_cron_state = {"cron": "", "enabled": False, "func": None}
+    sector_daily_cron_state = {"cron": "", "enabled": False, "func": None}
 
     def poll_job() -> None:
         # У планировщика нет HTTP-запроса, который открыл бы контекст сам.
@@ -149,6 +185,7 @@ def start_scheduler(app) -> BackgroundScheduler:
                     db.session.rollback()
                     _apply_interval(scheduler, scheduled_for)
                     _apply_password_expiry_schedule(scheduler, password_cron_state)
+                    _apply_sector_daily_schedule(scheduler, sector_daily_cron_state)
                 except Exception:
                     logger.exception("Не удалось обновить интервал опроса")
                 finally:
@@ -180,7 +217,27 @@ def start_scheduler(app) -> BackgroundScheduler:
             finally:
                 db.session.remove()
 
+    def sector_daily_job() -> None:
+        with app.app_context():
+            try:
+                settings = get_sector_daily_report_settings()
+                if not settings.schedule_enabled:
+                    logger.info("Отчёт по секторам: расписание выключено, пропуск")
+                    return
+                result = run_sector_daily_report(send_emails=True, mode="scheduled")
+                logger.info(
+                    "Отчёт по секторам: scheduled exit=%s active=%s sent=%s",
+                    result.exit_code,
+                    result.active_total,
+                    result.sent_count,
+                )
+            except Exception:
+                logger.exception("Отчёт по секторам: сбой планового прогона")
+            finally:
+                db.session.remove()
+
     password_cron_state["func"] = password_expiry_job
+    sector_daily_cron_state["func"] = sector_daily_job
 
     scheduler.add_job(
         poll_job,
@@ -203,6 +260,7 @@ def start_scheduler(app) -> BackgroundScheduler:
     )
     with app.app_context():
         _apply_password_expiry_schedule(scheduler, password_cron_state, force=True)
+        _apply_sector_daily_schedule(scheduler, sector_daily_cron_state, force=True)
     scheduler.start()
     app.extensions[SCHEDULER_EXT_KEY] = scheduler
     logger.info("Планировщик опроса запущен, интервал %s с", scheduled_for["seconds"])
@@ -244,10 +302,10 @@ def _apply_interval(scheduler: BackgroundScheduler, scheduled_for: dict[str, int
     scheduled_for["seconds"] = seconds
 
 
-def _parse_cron_trigger(expr: str) -> CronTrigger:
-    parts = (expr or DEFAULT_SCHEDULE_CRON).split()
+def _parse_cron_trigger(expr: str, *, default: str) -> CronTrigger:
+    parts = (expr or default).split()
     if len(parts) != 5:
-        parts = DEFAULT_SCHEDULE_CRON.split()
+        parts = default.split()
     minute, hour, day, month, day_of_week = parts
     local_tz = datetime.now().astimezone().tzinfo
     return CronTrigger(
@@ -260,6 +318,55 @@ def _parse_cron_trigger(expr: str) -> CronTrigger:
     )
 
 
+def _apply_cron_job(
+    scheduler: BackgroundScheduler,
+    state: dict,
+    *,
+    job_id: str,
+    cron: str,
+    enabled: bool,
+    default_cron: str,
+    label: str,
+    force: bool = False,
+) -> None:
+    """Общий хелпер: вкл/выкл или переставить cron-задачу по state."""
+    if (
+        not force
+        and state.get("cron") == cron
+        and state.get("enabled") == enabled
+    ):
+        return
+
+    existing = scheduler.get_job(job_id)
+    if not enabled:
+        if existing is not None:
+            scheduler.remove_job(job_id)
+            logger.info("%s: расписание отключено", label)
+        state["cron"] = cron
+        state["enabled"] = False
+        return
+
+    job_func = state.get("func")
+    trigger = _parse_cron_trigger(cron, default=default_cron)
+    if existing is None:
+        if job_func is None:
+            logger.warning("%s: нет функции задачи для регистрации", label)
+            return
+        scheduler.add_job(
+            job_func,
+            trigger=trigger,
+            id=job_id,
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+    else:
+        scheduler.reschedule_job(job_id, trigger=trigger)
+    state["cron"] = cron
+    state["enabled"] = True
+    logger.info("%s: расписание cron=%s", label, cron)
+
+
 def _apply_password_expiry_schedule(
     scheduler: BackgroundScheduler,
     state: dict,
@@ -268,40 +375,33 @@ def _apply_password_expiry_schedule(
 ) -> None:
     """Включить/выключить или переставить cron проверки паролей."""
     settings = get_password_expiry_settings()
-    cron = settings.schedule_cron or DEFAULT_SCHEDULE_CRON
-    enabled = bool(settings.schedule_enabled)
-    if (
-        not force
-        and state.get("cron") == cron
-        and state.get("enabled") == enabled
-    ):
-        return
+    _apply_cron_job(
+        scheduler,
+        state,
+        job_id=PASSWORD_EXPIRY_JOB_ID,
+        cron=settings.schedule_cron or DEFAULT_PASSWORD_SCHEDULE_CRON,
+        enabled=bool(settings.schedule_enabled),
+        default_cron=DEFAULT_PASSWORD_SCHEDULE_CRON,
+        label="Пароли AD",
+        force=force,
+    )
 
-    existing = scheduler.get_job(PASSWORD_EXPIRY_JOB_ID)
-    if not enabled:
-        if existing is not None:
-            scheduler.remove_job(PASSWORD_EXPIRY_JOB_ID)
-            logger.info("Пароли AD: расписание отключено")
-        state["cron"] = cron
-        state["enabled"] = False
-        return
 
-    job_func = state.get("func")
-    trigger = _parse_cron_trigger(cron)
-    if existing is None:
-        if job_func is None:
-            logger.warning("Пароли AD: нет функции задачи для регистрации")
-            return
-        scheduler.add_job(
-            job_func,
-            trigger=trigger,
-            id=PASSWORD_EXPIRY_JOB_ID,
-            max_instances=1,
-            coalesce=True,
-            replace_existing=True,
-        )
-    else:
-        scheduler.reschedule_job(PASSWORD_EXPIRY_JOB_ID, trigger=trigger)
-    state["cron"] = cron
-    state["enabled"] = True
-    logger.info("Пароли AD: расписание cron=%s", cron)
+def _apply_sector_daily_schedule(
+    scheduler: BackgroundScheduler,
+    state: dict,
+    *,
+    force: bool = False,
+) -> None:
+    """Включить/выключить или переставить cron отчёта по секторам."""
+    settings = get_sector_daily_report_settings()
+    _apply_cron_job(
+        scheduler,
+        state,
+        job_id=SECTOR_DAILY_JOB_ID,
+        cron=settings.schedule_cron or DEFAULT_SECTOR_DAILY_CRON,
+        enabled=bool(settings.schedule_enabled),
+        default_cron=DEFAULT_SECTOR_DAILY_CRON,
+        label="Отчёт по секторам",
+        force=force,
+    )

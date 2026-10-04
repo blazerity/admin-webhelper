@@ -10,6 +10,7 @@
       <a class="settings-nav-link{% if ep.startswith('sectors.') %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Сектора</a>
       {% if current_user.is_admin %}
       <a class="settings-nav-link{% if ep == 'password_expiry.settings_page' %} active{% endif %}" href="{{ url_for('password_expiry.settings_page') }}">Пароли AD</a>
+      <a class="settings-nav-link{% if ep == 'sector_daily_report.settings_page' %} active{% endif %}" href="{{ url_for('sector_daily_report.settings_page') }}">Отчёт по секторам</a>
       <a class="settings-nav-link{% if ep.startswith('login_services.') %} active{% endif %}" href="{{ url_for('login_services.list_services') }}">Экран входа</a>
       <a class="settings-nav-link{% if ep == 'admin.settings' %} active{% endif %}" href="{{ url_for('admin.settings') }}">Параметры</a>
       <a class="settings-nav-link{% if ep == 'admin.updates' %} active{% endif %}" href="{{ url_for('admin.updates') }}">Обновления</a>

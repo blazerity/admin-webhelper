@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Активные устройства по секторам</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:Segoe UI,Arial,sans-serif;color:#222;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="background-color:#1f4e79;color:#ffffff;padding:22px 28px;">
+              <div style="font-size:22px;font-weight:700;">Активные устройства по секторам</div>
+              <div style="font-size:13px;opacity:0.9;padding-top:6px;">
+                Отчёт за {{ report_date }}{% if timezone %} · {{ timezone }}{% endif %}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 28px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="50%" valign="top" style="padding:0 6px 12px 0;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#e8f5e9;border-radius:8px;">
+                      <tr>
+                        <td style="padding:16px;text-align:center;">
+                          <div style="font-size:12px;color:#1e7a3a;">Активных устройств</div>
+                          <div style="font-size:32px;font-weight:700;color:#1e8449;">{{ active_total }}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td width="50%" valign="top" style="padding:0 0 12px 6px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7fbff;border-radius:8px;">
+                      <tr>
+                        <td style="padding:16px;text-align:center;">
+                          <div style="font-size:12px;color:#1f4e79;">Известных устройств</div>
+                          <div style="font-size:32px;font-weight:700;color:#1f4e79;">{{ known_total }}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <p style="font-size:13px;color:#666;margin:0 0 16px;">
+                Активное устройство — хотя бы один опрос со статусом online за отчётный день.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 28px 28px;">
+              {% if sectors %}
+              <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+                <tr style="background-color:#1f4e79;color:#fff;text-align:left;">
+                  <th>Сектор</th>
+                  <th style="text-align:right;">Активных</th>
+                  <th style="text-align:right;">Известных</th>
+                </tr>
+                {% for row in sectors %}
+                <tr style="background-color:{% if loop.index is odd %}#f7fbff{% else %}#ffffff{% endif %};">
+                  <td>{{ row.sector_name }}</td>
+                  <td style="text-align:right;">{{ row.active_count }}</td>
+                  <td style="text-align:right;">{{ row.known_count }}</td>
+                </tr>
+                {% endfor %}
+                <tr style="background-color:#eef2f7;font-weight:700;">
+                  <td>Итого</td>
+                  <td style="text-align:right;">{{ active_total }}</td>
+                  <td style="text-align:right;">{{ known_total }}</td>
+                </tr>
+              </table>
+              {% else %}
+              <p style="color:#888;font-size:13px;">Секторы не найдены.</p>
+              {% endif %}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

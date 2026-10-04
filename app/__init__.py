@@ -99,6 +99,7 @@ def _register_blueprints(app: Flask) -> None:
     from app.routes.scripts import bp as scripts_bp
     from app.routes.search import bp as search_bp
     from app.routes.sectors import bp as sectors_bp
+    from app.routes.sector_daily_report import bp as sector_daily_report_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(devices_bp)
@@ -110,6 +111,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(actions_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(password_expiry_bp)
+    app.register_blueprint(sector_daily_report_bp)
     app.register_blueprint(login_services_bp)
     app.register_blueprint(notifications_bp)
     app.register_blueprint(api_v1_bp)
