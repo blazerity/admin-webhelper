@@ -177,10 +177,13 @@
   <p class="text-muted small mt-3 mb-0">Прогонов ещё нет — дождитесь расписания или нажмите «Запустить опрос сейчас».</p>
   {% endif %}
 </div>
-<div class="panel content-card">
-  <h2 class="h5">Обновление из git</h2>
-  <p class="text-muted">Новая версия скачивается из публичного репозитория. Перед заменой кода всегда создаётся копия для отката. После замены службы перезапускаются от sudo-учётки ниже.</p>
-  <form method="post" class="mb-3" autocomplete="off">
+<div class="panel content-card mb-3 service-control-panel" id="service-control">
+  <h2 class="h5 mb-1">Управление службами</h2>
+  <p class="text-muted mb-3">
+    Linux-учётка для <code>systemctl</code>: запуск <code>bawh-scheduler</code> при включении
+    тумблеров отчётов и перезапуск служб после обновления из git.
+  </p>
+  <form method="post" class="mb-0" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form" value="update">
     <div class="row">
@@ -197,12 +200,26 @@
       </div>
     </div>
     <p class="text-muted small mb-0">
-      Linux-учётка с правом перезапускать службы (обычно <code>root</code>).
-      Пароль шифруется Fernet (ключ — <code>FERNET_KEY</code>) и при обновлении передаётся в <code>su</code> — отдельный sudoers не нужен.
-      Без пароля остаётся вариант <code>sudo -n</code> и файл <code>deploy/bawh-update.sudoers</code>.
+      Обычно <code>root</code>. Пароль шифруется Fernet (<code>FERNET_KEY</code>) и передаётся в
+      <code>su</code> — отдельный sudoers не нужен. Без пароля — <code>sudo -n</code> и
+      <code>deploy/bawh-update.sudoers</code> (restart / start / enable scheduler).
       Пустой логин очищает учётку.
     </p>
   </form>
-  <a class="btn btn-outline-primary" href="{{ url_for('admin.updates') }}">Открыть обновления</a>
 </div>
+
+<details class="panel content-card settings-submenu">
+  <summary class="settings-submenu-summary">
+    <span class="h5 mb-0">Обновление из git</span>
+    <span class="text-muted small">скачать релиз, откат, страница обновлений</span>
+  </summary>
+  <div class="settings-submenu-body">
+    <p class="text-muted">
+      Новая версия скачивается из публичного репозитория. Перед заменой кода всегда
+      создаётся копия для отката. После замены службы перезапускаются от учётки выше
+      («Управление службами»).
+    </p>
+    <a class="btn btn-outline-primary" href="{{ url_for('admin.updates') }}">Открыть обновления</a>
+  </div>
+</details>
 {% endblock %}

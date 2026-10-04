@@ -29,6 +29,8 @@ from app.services.password_expiry_settings import (
     set_smtp_settings,
 )
 from app.services.password_mailer import PasswordMailerError, test_smtp_connection
+from app.services.report_toggle_service import apply_report_toggle, scheduler_status
+from app.services.systemd_service import SystemdError, ensure_scheduler_running
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +80,28 @@ def dashboard():
         section=section,
         smtp=get_smtp_settings(),
         ldap=ldap,
+        scheduler=scheduler_status(),
+        can_toggle=bool(getattr(current_user, "is_admin", False)),
     )
+
+
+@bp.route("/toggle", methods=["POST"])
+@admin_required
+def toggle_schedule():
+    """Сверх-тумблер: включить рассылку отчётов и службу bawh-scheduler."""
+    enabled = request.form.get("schedule_enabled") == "1"
+
+    def _set(value: bool) -> None:
+        set_password_expiry_settings(schedule_enabled=value)
+
+    result = apply_report_toggle(
+        enabled=enabled,
+        set_enabled=_set,
+        label="Пароли AD",
+    )
+    category = "warning" if "не удалось" in result.message else "success"
+    flash(result.message, category)
+    return redirect(url_for("password_expiry.dashboard"))
 
 
 @bp.route("/settings", methods=["GET", "POST"])
@@ -87,6 +110,7 @@ def settings_page():
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
         if kind == "module":
+            want_enabled = request.form.get("schedule_enabled") == "1"
             try:
                 set_password_expiry_settings(
                     max_pwd_age_days=int(request.form.get("max_pwd_age_days") or 0),
@@ -97,7 +121,7 @@ def settings_page():
                     instructions_url=request.form.get("instructions_url", ""),
                     excluded_ou=request.form.get("excluded_ou", ""),
                     search_base=request.form.get("search_base", ""),
-                    schedule_enabled=request.form.get("schedule_enabled") == "1",
+                    schedule_enabled=want_enabled,
                     schedule_cron=request.form.get("schedule_cron", ""),
                     admin_recipients=request.form.get("admin_recipients", ""),
                 )
@@ -105,6 +129,13 @@ def settings_page():
                 flash(str(exc), "danger")
                 return redirect(url_for("password_expiry.settings_page"))
             flash("Настройки модуля сохранены.", "success")
+            if want_enabled:
+                try:
+                    ensure = ensure_scheduler_running()
+                    if ensure.started or ensure.enabled:
+                        flash(ensure.message, "info")
+                except SystemdError as exc:
+                    flash(str(exc), "warning")
             return redirect(url_for("password_expiry.settings_page"))
 
         if kind == "ldap_bind":

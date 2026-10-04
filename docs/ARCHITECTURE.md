@@ -54,7 +54,7 @@ HTTP / CLI / scheduler
 | Веб (prod) | `wsgi.py` → `create_app()` → Gunicorn `wsgi:app` | Только HTTP. Опрос здесь **запрещён**. |
 | Веб (dev) | `python wsgi.py` (:8000) или `flask --app wsgi run` | То же. |
 | Планировщик | `python -m app.scheduler_worker` | `create_app()` + `start_scheduler(app)`; HTTP не слушает. |
-| Flask CLI | `flask --app wsgi …` | `poll`, `archive-logs`, `password-expiry [--dry-run]`, `init-db`. |
+| Flask CLI | `flask --app wsgi …` | `poll`, `archive-logs`, `password-expiry [--dry-run]`, `sector-daily-report [--dry-run]`, `init-db`. |
 | Docker | `Dockerfile` | Опциональный web-only образ; scheduler — отдельно. |
 
 Фабрика: `app/__init__.py` → `create_app(config_name)`.
@@ -115,7 +115,7 @@ flowchart TB
   subgraph entry["Точки входа"]
     WSGI["wsgi.py<br/>Gunicorn"]
     SCHED["app.scheduler_worker<br/>bawh-scheduler"]
-    CLI["flask CLI<br/>poll · archive-logs · password-expiry · init-db"]
+    CLI["flask CLI<br/>poll · archive-logs · password-expiry · sector-daily-report · init-db"]
   end
 
   subgraph app_core["app/"]
@@ -132,7 +132,7 @@ flowchart TB
     R_SEC["sectors"]
     R_SCR["scripts"]
     R_ADM["admin · login_services"]
-    R_PWD["password_expiry"]
+    R_PWD["password_expiry · sector_daily_report"]
     R_NTF["notifications"]
     R_API["api_v1"]
   end
@@ -142,7 +142,7 @@ flowchart TB
     S_ACC["account · action · export · audit"]
     S_ID["ldap · credential · crypto · settings"]
     S_RUN["script · psexec · batch · command_presets"]
-    S_PWD["password_expiry* · password_ad · mailer"]
+    S_PWD["password_expiry* · password_ad · mailer<br/>sector_daily_report* · report_toggle"]
     S_OTH["sector · search · login_status · network_summary<br/>notification · update · log_archive · net_utils"]
   end
 
@@ -151,7 +151,7 @@ flowchart TB
     M_NET["sectors · sector_ranges · sector_access<br/>devices · device_history · network_poll_runs"]
     M_ACC["endpoint_accounts · device_account_history · action_kinds"]
     M_SCR["scripts · script_runs · app_settings · login_services"]
-    M_PWD["password_notifications · password_expiry_runs"]
+    M_PWD["password_notifications · password_expiry_runs<br/>sector_daily_report_runs"]
     M_NTF["admin_audit_log · device_watchlist · notifications"]
   end
 
@@ -210,6 +210,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | `Script`, `ScriptRun` | `scripts`, `script_runs` | `script.py` | Библиотека и журнал запусков. У скрипта: `run_as`, `is_published`. У run: `run_type`, `batch_id`, статус. |
 | `AppSetting`, `RemoteCredential` | `app_settings`, `remote_credentials` | `setting.py` | KV-настройки; per-user Fernet-шифротекст PsExec/пароля входа. |
 | `PasswordNotification`, `PasswordExpiryRun` | `password_notifications`, `password_expiry_runs` | `password_expiry.py` | Письма о сроке пароля + снимки прогонов. |
+| `SectorDailyReportRun` | `sector_daily_report_runs` | `sector_daily_report.py` | Снимки ежедневного отчёта активных устройств по секторам. |
 | `LoginService` | `login_services` | `login_service.py` | Сервисы для блока доступности на `/login`. |
 | `AdminAuditLog` | `admin_audit_log` | `audit.py` | Журнал админ-действий. |
 | `DeviceWatchlist` | `device_watchlist` | `watchlist.py` | Подписка пользователя на offline устройства. |
@@ -287,6 +288,15 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_settings.py` | настройки UI/DB + fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
+| `report_toggle_service.py` | тумблер расписания отчётов + ensure scheduler |
+| `systemd_service.py` | `systemctl` start/enable/restart через sudo-учётку |
+
+### Отчёт по секторам
+
+| Модуль | Роль |
+| --- | --- |
+| `sector_daily_report_service.py` | оркестрация: active/known за прошедший день |
+| `sector_daily_report_settings.py` | cron / recipients / schedule_enabled в `app_settings` |
 
 ### Прочее
 
@@ -371,7 +381,16 @@ List, `export.csv`, detail (только видимые по ACL).
 | Method | Path | Auth |
 | --- | --- | --- |
 | GET | `/` | `password_viewer` |
+| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-scheduler` |
 | GET/POST | `/settings`, POST `/run`, `/pause`, `/notify` | admin |
+
+### Sector daily report — prefix `/sector-daily-report`
+
+| Method | Path | Auth |
+| --- | --- | --- |
+| GET | `/` | admin — дашборд + тумблер сервиса |
+| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-scheduler` |
+| GET/POST | `/settings`, POST `/run` | admin |
 
 ### Login services — `login_services.py`
 
@@ -461,8 +480,11 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | `poll-devices` | Interval из `app_settings` / `POLL_INTERVAL_SECONDS` | `run_network_poll` |
 | `archive-logs` | daily ~00:20 UTC | `log_archive_service` |
 | `password-expiry` | cron из настроек модуля | `run_password_expiry` (если включено) |
+| `sector-daily-report` | cron из настроек модуля (default `0 7 * * *`) | `run_sector_daily_report` (если включено) |
 
-Интервал опроса и cron паролей подхватываются без перезапуска процесса.
+Интервал опроса и cron отчётов подхватываются без перезапуска процесса.
+Тумблер «Сервис отчётов» на UI включает job и при необходимости поднимает
+systemd-unit `bawh-scheduler` (sudo-учётка: Параметры → Управление службами).
 
 ### Внутри веб-процесса
 
@@ -528,6 +550,12 @@ ThreadPool `execute_run` → `psexec_service` или локальный ping/tra
 Scheduler cron / CLI / UI → `run_password_expiry` → LDAP fetch → classify →
 SMTP → `password_expiry_runs` + `password_notifications`.
 
+### D2. Sector daily report
+
+Scheduler cron / CLI / UI → `run_sector_daily_report` → distinct online
+`device_history` за прошедший локальный день по секторам → SMTP →
+`sector_daily_report_runs`.
+
 ### E. Self-update
 
 Admin UI → `update_service`: backup → git → pip → `flask init-db` →
@@ -550,9 +578,9 @@ Admin UI → `update_service`: backup → git → pip → `flask init-db` →
 ## 13. Frontend
 
 **Шаблоны** (`app/templates/`): каркас `base.html` (навигация: карта, действия, УЗ,
-скрипты, пароли AD, настройки). Домены: `accounts/`, `actions/`, `admin/`, `auth/`,
-`devices/`, `email/`, `errors/`, `layouts/`, `login_services/`, `macros/`,
-`password_expiry/`, `scripts/`, `sectors/`.
+скрипты, пароли AD, отчёт по секторам, настройки). Домены: `accounts/`, `actions/`,
+`admin/`, `auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
+`macros/`, `password_expiry/`, `scripts/`, `sector_daily_report/`, `sectors/`.
 
 **Static:**
 
@@ -600,7 +628,7 @@ Admin UI → `update_service`: backup → git → pip → `flask init-db` →
 | `deploy/bawh-web.service` | Gunicorn `127.0.0.1:8000`, `EnvironmentFile=/opt/bawh/.env` |
 | `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` |
 | `deploy/nginx-bawh.conf` | :80 → gunicorn |
-| `deploy/bawh-update.sudoers` | passwordless restart для self-update |
+| `deploy/bawh-update.sudoers` | passwordless restart + start/enable `bawh-scheduler` |
 | `deploy/logrotate-bawh` | logrotate |
 | `Dockerfile` | опционально, только web |
 
@@ -634,6 +662,7 @@ Admin UI → `update_service`: backup → git → pip → `flask init-db` →
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
+| Отчёт по секторам | `sector_daily_report_service` + settings, `routes/sector_daily_report.py` |
 | Уведомления / watchlist | `notification_service`, `watchlist_service`, `routes/notifications.py` |
 | Настройки / опрос вручную | `routes/admin.py`, `settings_service` |
 | Аудит админа | `audit_service`, `/admin/audit` |

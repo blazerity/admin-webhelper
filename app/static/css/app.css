@@ -1655,3 +1655,74 @@ code {
   border-radius: 8px;
   margin: 0 0.12rem;
 }
+
+/* Report service toggle (password expiry / sector daily) */
+.report-service-toggle {
+  border-left: 4px solid var(--line);
+}
+
+.report-service-toggle.is-on {
+  border-left-color: var(--ok);
+  background:
+    linear-gradient(90deg, rgba(21, 128, 61, 0.06), transparent 42%),
+    var(--surface);
+}
+
+.report-service-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.report-service-toggle-form .form-check-input {
+  width: 3rem;
+  height: 1.55rem;
+  cursor: pointer;
+}
+
+.report-service-toggle-form .form-check-label {
+  font-weight: 600;
+  margin-left: 0.35rem;
+}
+
+.service-control-panel {
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.04);
+}
+
+.settings-submenu {
+  padding: 0;
+}
+
+.settings-submenu-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 1rem 1.15rem;
+}
+
+.settings-submenu-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-submenu-summary::after {
+  content: "▸";
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.settings-submenu[open] > .settings-submenu-summary::after {
+  content: "▾";
+}
+
+.settings-submenu-body {
+  padding: 0 1.15rem 1.15rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}

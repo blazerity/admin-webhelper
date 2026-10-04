@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Отчёт по секторам{% endblock %}
+{% block body_class %}page-sector-daily-report{% endblock %}
+{% block main_class %}app-main-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Отчёт по секторам</h1>
+    <p class="page-subtitle">
+      {% if report %}
+        Активные устройства за {{ report.report_date }}
+        {% if report.timezone %} ({{ report.timezone }}){% endif %}
+        · обновлён {{ report.generated_at }} · источник {{ report.source }}
+      {% else %}
+        Отчёта ещё нет — запустите прогон или дождитесь расписания.
+      {% endif %}
+    </p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-secondary" href="{{ url_for('sector_daily_report.settings_page') }}">Настройки модуля</a>
+  </div>
+</div>
+
+<div class="panel content-card report-service-toggle mb-3{% if settings.schedule_enabled %} is-on{% endif %}">
+  <div class="report-service-toggle-row">
+    <div>
+      <h2 class="h5 mb-1">Сервис отчётов</h2>
+      <p class="text-muted mb-0">
+        {% if settings.schedule_enabled %}
+          Включён — отчёты будут приходить по расписанию
+          (<code>{{ settings.schedule_cron }}</code>).
+        {% else %}
+          Выключен — плановые письма не уходят. Ручной прогон доступен ниже.
+        {% endif %}
+      </p>
+      <p class="small mb-0 mt-2 {% if scheduler.active %}text-success{% elif not scheduler.available %}text-muted{% else %}text-warning{% endif %}">
+        Служба <code>bawh-scheduler</code>:
+        {% if not scheduler.available %}
+          недоступна в этой среде
+        {% elif scheduler.active %}
+          запущена ({{ scheduler.active_state }})
+        {% else %}
+          не запущена ({{ scheduler.active_state }}) — включение тумблера поднимет её
+        {% endif %}
+      </p>
+    </div>
+    {% if can_toggle %}
+    <form method="post" action="{{ url_for('sector_daily_report.toggle_schedule') }}" class="report-service-toggle-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="schedule_enabled" value="{{ '0' if settings.schedule_enabled else '1' }}">
+      <div class="form-check form-switch">
+        <input
+          class="form-check-input"
+          type="checkbox"
+          role="switch"
+          id="sector_report_service_enabled"
+          {% if settings.schedule_enabled %}checked{% endif %}
+          onchange="this.form.submit()"
+        >
+        <label class="form-check-label" for="sector_report_service_enabled">
+          {% if settings.schedule_enabled %}Вкл.{% else %}Выкл.{% endif %}
+        </label>
+      </div>
+    </form>
+    {% else %}
+    <div class="report-service-toggle-badge">
+      {% if settings.schedule_enabled %}
+        <span class="badge text-bg-success">Включён</span>
+      {% else %}
+        <span class="badge text-bg-secondary">Выключен</span>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="panel content-card h-100">
+      <div class="text-muted small">Активных устройств</div>
+      <div class="fs-3 fw-semibold">{{ report.active_total if report else "—" }}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="panel content-card h-100">
+      <div class="text-muted small">Известных устройств</div>
+      <div class="fs-3 fw-semibold">{{ report.known_total if report else "—" }}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="panel content-card h-100">
+      <div class="text-muted small">Секторов</div>
+      <div class="fs-3 fw-semibold">{{ report.sectors|length if report else "—" }}</div>
+    </div>
+  </div>
+</div>
+
+{% if run %}
+<p class="text-muted mb-3">
+  Последний прогон: {{ run.finished_at|dt if run.finished_at else "—" }} · код {{ run.exit_code }} ·
+  писем {{ run.sent_count }} · режим {{ run.mode }}
+  {% if run.error %} · <span class="text-danger">{{ run.error }}</span>{% endif %}
+</p>
+{% endif %}
+
+<div class="panel content-card mb-3">
+  <div class="d-flex gap-2 flex-wrap">
+    <form method="post" action="{{ url_for('sector_daily_report.run_now') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-primary" type="submit">Запустить сейчас</button>
+    </form>
+    <form method="post" action="{{ url_for('sector_daily_report.run_now') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="dry_run" value="1">
+      <button class="btn btn-outline-primary" type="submit">Тестовый прогон</button>
+    </form>
+  </div>
+  <p class="text-muted small mt-2 mb-0">
+    Отчёт за прошедший календарный день (локальный TZ сервера).
+    Активное устройство — хотя бы один опрос со статусом online за этот день.
+    SMTP: {% if smtp.configured %}{{ smtp.host }}:{{ smtp.port }}{% else %}не настроен{% endif %}
+    (настройки в <a href="{{ url_for('password_expiry.settings_page') }}">Пароли AD</a>).
+  </p>
+</div>
+
+<div class="panel content-card">
+  <h2 class="h5 mb-3">Активность по секторам</h2>
+  {% if report and report.sectors %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Сектор</th>
+          <th class="text-end">Активных</th>
+          <th class="text-end">Известных</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in report.sectors %}
+        <tr>
+          <td>{{ row.sector_name }}</td>
+          <td class="text-end">{{ row.active_count }}</td>
+          <td class="text-end">{{ row.known_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="fw-semibold">
+          <td>Итого</td>
+          <td class="text-end">{{ report.active_total }}</td>
+          <td class="text-end">{{ report.known_total }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted mb-0">Нет данных для отображения.</p>
+  {% endif %}
+</div>
+{% endblock %}
