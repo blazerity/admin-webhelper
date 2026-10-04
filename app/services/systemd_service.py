@@ -186,6 +186,16 @@ def restart_command(
     )
 
 
+def _looks_like_systemd_missing(state: str) -> bool:
+    text = (state or "").lower()
+    return (
+        "not been booted with systemd" in text
+        or "failed to connect" in text
+        or "system has not been booted" in text
+        or "cannot talk to" in text
+    )
+
+
 def _systemctl_query(systemctl: str, action: str, unit: str) -> str:
     """is-active / is-enabled: без привилегий обычно достаточно."""
     try:
