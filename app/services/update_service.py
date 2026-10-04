@@ -670,11 +670,17 @@ def align_git_head(root: Path, url: str, branch: str) -> None:
 
 def schedule_restart(root: Path, previous: str) -> str:
     """Перезапуск служб после ответа странице. На Windows службы systemd нет."""
-    systemctl = _systemctl_path()
+    from app.services.systemd_service import (
+        resolve_sudo_credentials,
+        run_service_restart,
+        systemctl_path,
+    )
+
+    systemctl = systemctl_path()
     if systemctl is None:
         return "Перезапустите процесс приложения, чтобы подхватить новую версию."
 
-    sudo_user, sudo_password = _resolve_sudo_credentials()
+    sudo_user, sudo_password = resolve_sudo_credentials()
 
     def _later() -> None:
         time.sleep(2)
@@ -690,7 +696,7 @@ def schedule_restart(root: Path, previous: str) -> str:
                 previous
                 + " Службы сами не перезапустились. "
                 + f"Выполните: {hint}. "
-                + "Проверьте sudo-учётку в Параметрах "
+                + "Проверьте sudo-учётку в Параметры → Управление службами "
                 + "(логин/пароль Linux или правило deploy/bawh-update.sudoers). "
                 + detail,
             )
@@ -700,28 +706,10 @@ def schedule_restart(root: Path, previous: str) -> str:
 
 
 def restart_command(systemctl: str, sudo_user: str = "", *, with_password: bool = False) -> list[str]:
-    """Команда перезапуска служб.
+    """Команда перезапуска служб — делегат в systemd_service."""
+    from app.services.systemd_service import restart_command as _restart_command
 
-    with_password — su -P (пароль передаётся в pty). Для не-root внутри
-    вызывается sudo -S с тем же паролем через BAWH_SU_PASS.
-    Иначе passwordless sudo -n [-u user].
-    """
-    if with_password:
-        user = (sudo_user or "root").strip() or "root"
-        if user == "root":
-            remote = f"{systemctl} restart bawh-scheduler bawh-web"
-        else:
-            remote = (
-                f"printf '%s\\n' \"$BAWH_SU_PASS\" | "
-                f"sudo -S -p '' {systemctl} restart bawh-scheduler bawh-web"
-            )
-        return ["su", "-P", "-w", "BAWH_SU_PASS", user, "-c", remote]
-    command = ["sudo", "-n"]
-    user = (sudo_user or "").strip()
-    if user:
-        command.extend(["-u", user])
-    command.extend([systemctl, "restart", "bawh-scheduler", "bawh-web"])
-    return command
+    return _restart_command(systemctl, sudo_user, with_password=with_password)
 
 
 def run_service_restart(
@@ -730,113 +718,9 @@ def run_service_restart(
     sudo_password: str = "",
 ) -> subprocess.CompletedProcess:
     """Перезапускает службы: с паролем через su -P, иначе sudo -n."""
-    password = sudo_password or ""
-    if password:
-        command = restart_command(systemctl, sudo_user, with_password=True)
-        return _run_su_with_password(command, password, timeout=90)
-    command = restart_command(systemctl, sudo_user)
-    return subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=90,
-        check=False,
-    )
+    from app.services.systemd_service import run_service_restart as _run
 
-
-def _run_su_with_password(
-    command: list[str],
-    password: str,
-    *,
-    timeout: int = 90,
-) -> subprocess.CompletedProcess:
-    """Запускает su -P … и вводит пароль на запросе в pty."""
-    import pty
-    import select
-
-    env = os.environ.copy()
-    env["BAWH_SU_PASS"] = password
-
-    master, slave = pty.openpty()
-    try:
-        proc = subprocess.Popen(
-            command,
-            stdin=slave,
-            stdout=slave,
-            stderr=slave,
-            close_fds=True,
-            env=env,
-        )
-    finally:
-        os.close(slave)
-
-    output = bytearray()
-    password_sent = False
-    deadline = time.monotonic() + timeout
-    try:
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                proc.kill()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    pass
-                return subprocess.CompletedProcess(
-                    command,
-                    124,
-                    output.decode("utf-8", "replace"),
-                    "timeout waiting for su",
-                )
-
-            if proc.poll() is not None:
-                while select.select([master], [], [], 0.05)[0]:
-                    try:
-                        chunk = os.read(master, 4096)
-                    except OSError:
-                        chunk = b""
-                    if not chunk:
-                        break
-                    output.extend(chunk)
-                break
-
-            ready, _, _ = select.select([master], [], [], min(0.5, remaining))
-            if not ready:
-                continue
-            try:
-                chunk = os.read(master, 4096)
-            except OSError:
-                break
-            if not chunk:
-                break
-            output.extend(chunk)
-            lowered = output.decode("utf-8", "replace").lower()
-            if not password_sent and ("password" in lowered or "пароль" in lowered):
-                os.write(master, (password + "\n").encode())
-                password_sent = True
-
-        returncode = proc.wait(timeout=5)
-    finally:
-        try:
-            os.close(master)
-        except OSError:
-            pass
-
-    text = output.decode("utf-8", "replace")
-    if returncode != 0 and not password_sent:
-        text = (text + "\nне дождались запроса пароля su").strip()
-    return subprocess.CompletedProcess(command, returncode, text, "")
-
-
-def _resolve_sudo_credentials() -> tuple[str, str]:
-    """Sudo-учётка из Параметров (логин + пароль)."""
-    try:
-        from app.services.settings_service import get_update_sudo_credentials
-
-        creds = get_update_sudo_credentials()
-        return creds.username, creds.password
-    except Exception:  # noqa: BLE001 — поток перезапуска не должен падать из‑за БД
-        return str(current_app.config.get("UPDATE_SUDO_USER") or "").strip(), ""
+    return _run(systemctl, sudo_user, sudo_password)
 
 
 def iter_managed(root: Path):
@@ -1022,13 +906,6 @@ def _run(args: list[str], *, cwd: Path, timeout: int) -> subprocess.CompletedPro
         raise UpdateError("Команда превысила время ожидания.") from exc
     except FileNotFoundError as exc:
         raise UpdateError(f"Не найдена команда {args[0]}.") from exc
-
-
-def _systemctl_path() -> str | None:
-    for candidate in ("/usr/bin/systemctl", "/bin/systemctl"):
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return None
 
 
 def _clear_pycache(root: Path) -> None:

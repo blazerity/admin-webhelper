@@ -1,4 +1,4 @@
-# Перезапуск служб после кнопки «Обновить» в веб-интерфейсе.
+# Перезапуск и управление службами из веб-интерфейса.
 # Копировать в /etc/sudoers.d/ от root (install-debian12.sh делает это сам):
 #   sudo cp /opt/bawh/deploy/bawh-update.sudoers /etc/sudoers.d/bawh-update
 #   sudo chmod 440 /etc/sudoers.d/bawh-update
@@ -6,5 +6,12 @@
 #
 # Путь systemctl должен совпасть с тем, что вызывает приложение: /usr/bin/systemctl.
 # Первый столбец — пользователь службы bawh-web (обычно bawh).
-# В скобках — цель sudo -u (Параметры → Sudo-пользователь; пусто или root → root).
+# В скобках — цель sudo -u (Параметры → Управление службами; пусто или root → root).
+#
+# Нужно для:
+#   - перезапуска после «Обновить из git»
+#   - start/enable bawh-scheduler при включении тумблеров отчётов
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl restart bawh-scheduler bawh-web
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl start bawh-scheduler
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable bawh-scheduler
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now bawh-scheduler

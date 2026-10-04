@@ -140,9 +140,16 @@
         <input class="form-control" id="admin_recipients" name="admin_recipients" value="{{ settings.admin_recipients|join(', ') }}">
       </div>
       <div class="col-md-12">
-        <div class="form-check">
+        <div class="form-check form-switch">
           <input class="form-check-input" type="checkbox" value="1" id="schedule_enabled" name="schedule_enabled" {% if settings.schedule_enabled %}checked{% endif %}>
-          <label class="form-check-label" for="schedule_enabled">Включить расписание в процессе опроса</label>
+          <label class="form-check-label" for="schedule_enabled">
+            Сервис отчётов включён (расписание + служба <code>bawh-scheduler</code>)
+          </label>
+        </div>
+        <div class="form-text">
+          Тот же тумблер, что сверху на странице отчёта. При включении поднимается
+          <code>bawh-scheduler</code> через sudo-учётку из
+          <a href="{{ url_for('admin.settings') }}#service-control">Параметры → Управление службами</a>.
         </div>
       </div>
     </div>

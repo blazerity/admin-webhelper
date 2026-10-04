@@ -150,7 +150,8 @@ def settings():
             if saved.username:
                 if saved.password_set:
                     flash(
-                        f"Sudo-учётка сохранена ({saved.username}, пароль задан).",
+                        f"Учётка управления службами сохранена "
+                        f"({saved.username}, пароль задан).",
                         "success",
                     )
                 else:
@@ -160,9 +161,9 @@ def settings():
                         "success",
                     )
             else:
-                flash("Sudo-учётка очищена.", "success")
+                flash("Учётка управления службами очищена.", "success")
             audit_service.log(current_user, "update", "admin_settings", "update_sudo")
-            return redirect(url_for("admin.settings"))
+            return redirect(url_for("admin.settings") + "#service-control")
         flash("Неизвестная форма.", "warning")
         return redirect(url_for("admin.settings"))
 
