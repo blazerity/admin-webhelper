@@ -287,6 +287,8 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_settings.py` | настройки UI/DB + fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
+| `report_toggle_service.py` | тумблер расписания отчётов + ensure scheduler |
+| `systemd_service.py` | `systemctl` start/enable/restart через sudo-учётку |
 
 ### Прочее
 
@@ -371,6 +373,7 @@ List, `export.csv`, detail (только видимые по ACL).
 | Method | Path | Auth |
 | --- | --- | --- |
 | GET | `/` | `password_viewer` |
+| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-scheduler` |
 | GET/POST | `/settings`, POST `/run`, `/pause`, `/notify` | admin |
 
 ### Login services — `login_services.py`
@@ -463,6 +466,8 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | `password-expiry` | cron из настроек модуля | `run_password_expiry` (если включено) |
 
 Интервал опроса и cron паролей подхватываются без перезапуска процесса.
+Тумблер «Сервис отчётов» на UI включает job и при необходимости поднимает
+systemd-unit `bawh-scheduler` (sudo-учётка: Параметры → Управление службами).
 
 ### Внутри веб-процесса
 
@@ -600,7 +605,7 @@ Admin UI → `update_service`: backup → git → pip → `flask init-db` →
 | `deploy/bawh-web.service` | Gunicorn `127.0.0.1:8000`, `EnvironmentFile=/opt/bawh/.env` |
 | `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` |
 | `deploy/nginx-bawh.conf` | :80 → gunicorn |
-| `deploy/bawh-update.sudoers` | passwordless restart для self-update |
+| `deploy/bawh-update.sudoers` | passwordless restart + start/enable `bawh-scheduler` |
 | `deploy/logrotate-bawh` | logrotate |
 | `Dockerfile` | опционально, только web |
 
