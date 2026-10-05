@@ -20,7 +20,8 @@
   возвращаем пустой инвентарь; идентичность без серийника — только
   заглушка по текущему IP, не по PTR-имени. MAC — только из ARP.
 * Железо по WMI (lookup_wmi_hardware) — отдельный ежедневный опрос,
-  не ICMP: Win32_Processor, TotalPhysicalMemory, Win32_DiskDrive,
+  не ICMP: Win32_Processor, сумма Win32_PhysicalMemory.Capacity
+  (запасной — TotalPhysicalMemory), Win32_DiskDrive,
   Win32_OperatingSystem + DisplayVersion из реестра (StdRegProv).
 
 Scapy здесь не используем. Ему нужен захват пакетов и дополнительные
@@ -117,7 +118,7 @@ class WmiInventory:
 
 @dataclass(frozen=True)
 class WmiHardware:
-    """Сырой ответ WMI для ежедневного опроса железа (ещё не ГиБ / 25H2)."""
+    """Сырой ответ WMI для ежедневного опроса железа (байты / Caption, ещё не ГБ)."""
 
     cpu_name: str | None = None
     ram_bytes: int | None = None
@@ -553,7 +554,35 @@ def _wmi_query_cpu(services) -> str | None:
 
 
 def _wmi_query_ram(services) -> int | None:
-    """TotalPhysicalMemory из Win32_ComputerSystem, байты."""
+    """Установленная ОЗУ в байтах: сумма Capacity планок.
+
+    Win32_PhysicalMemory.Capacity — фактический объём модулей.
+    TotalPhysicalMemory занижает на резерв BIOS/устройства (16 ГБ → ~15).
+    """
+    installed = _wmi_sum_physical_memory(services)
+    if installed:
+        return installed
+    return _wmi_query_total_physical_memory(services)
+
+
+def _wmi_sum_physical_memory(services) -> int | None:
+    enum_obj = services.ExecQuery("SELECT Capacity FROM Win32_PhysicalMemory")
+    total = 0
+    found = False
+    try:
+        for props in _wmi_enum_properties(enum_obj):
+            value = _wmi_prop_int(props, "Capacity")
+            if value is None or value <= 0:
+                continue
+            total += value
+            found = True
+    finally:
+        _wmi_release(enum_obj)
+    return total if found else None
+
+
+def _wmi_query_total_physical_memory(services) -> int | None:
+    """Запасной вариант: usable RAM из Win32_ComputerSystem."""
     enum_obj = services.ExecQuery("SELECT TotalPhysicalMemory FROM Win32_ComputerSystem")
     try:
         for props in _wmi_enum_properties(enum_obj):

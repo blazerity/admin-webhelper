@@ -56,18 +56,30 @@ def _device(
 
 
 class HardwareInfoTests(unittest.TestCase):
-    def test_bytes_to_gb_rounds_16gib(self) -> None:
-        self.assertEqual(bytes_to_gb(16 * 1024**3), 16)
-        self.assertEqual(bytes_to_gb(17179869184), 16)
-        self.assertEqual(bytes_to_gb(512 * 1024**2), 1)
-        self.assertEqual(bytes_to_gb(0), 0)
+    def test_bytes_to_gb_ram_nominal(self) -> None:
+        # Точные планки и «рваный» TotalPhysicalMemory (резерв BIOS).
+        self.assertEqual(bytes_to_gb(16 * 1024**3, kind="ram"), 16)
+        self.assertEqual(bytes_to_gb(17179869184, kind="ram"), 16)
+        self.assertEqual(bytes_to_gb(int(15.2 * 1024**3), kind="ram"), 16)
+        self.assertEqual(bytes_to_gb(15 * 1024**3, kind="ram"), 16)
+        self.assertEqual(bytes_to_gb(0, kind="ram"), 0)
+        self.assertIsNone(bytes_to_gb(None, kind="ram"))
+
+    def test_bytes_to_gb_disk_label(self) -> None:
+        # Этикетка SSD: Size ≈ N·1000³, не N·1024³ (иначе 238/244 вместо 256).
+        self.assertEqual(bytes_to_gb(256 * 1000**3, kind="disk"), 256)
+        self.assertEqual(bytes_to_gb(256060514304, kind="disk"), 256)
+        self.assertEqual(bytes_to_gb(262144000000, kind="disk"), 256)
+        self.assertEqual(bytes_to_gb(512 * 1000**3, kind="disk"), 512)
+        self.assertEqual(bytes_to_gb(512 * 1024**2, kind="disk"), 1)
+        self.assertEqual(bytes_to_gb(0, kind="disk"), 0)
         self.assertIsNone(bytes_to_gb(None))
 
     def test_parse_windows_11_pro_25h2(self) -> None:
         snap = build_hardware_snapshot(
             cpu_name="  Intel(R)  Core(TM) i7-10700  CPU @ 2.90GHz ",
             ram_bytes=16 * 1024**3,
-            disk_bytes=512 * 1024**3,
+            disk_bytes=512 * 1000**3,
             os_caption="Microsoft Windows 11 Pro",
             os_version="10.0.26100",
             os_build="26100",
