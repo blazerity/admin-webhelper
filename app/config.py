@@ -84,6 +84,8 @@ class Config:
     UPDATE_SUDO_USER = os.environ.get("UPDATE_SUDO_USER", "").strip()
 
     SCRIPT_LIBRARY_DIR = os.environ.get("SCRIPT_LIBRARY_DIR", "script_library")
+    # Удаление SCCM / gpupdate могут идти дольше трёх минут.
+    SCRIPT_TIMEOUT_SECONDS = int(os.environ.get("SCRIPT_TIMEOUT_SECONDS", "600"))
     MAX_LOG_CHARS = 200_000
     MAX_REMOTE_COMMAND_CHARS = 4_000
 

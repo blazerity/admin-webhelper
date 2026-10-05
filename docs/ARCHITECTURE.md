@@ -283,7 +283,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Модуль | Роль |
 | --- | --- |
-| `psexec_service.py` | pypsexec-сессии, cancel/close; CLIXML PowerShell из журнала вырезается |
+| `psexec_service.py` | pypsexec-сессии, cancel/close. PowerShell: файл в `ADMIN$\Temp` + `cmd.exe` (не `-EncodedCommand`, иначе `STATUS_PIPE_BROKEN`); CLIXML из журнала вырезается |
 | `script_service.py` | CRUD/тело скриптов; enqueue на ThreadPoolExecutor в веб-процессе |
 | `batch_service.py` | bulk ping/script + статус batch |
 | `command_presets.py` | статические пресеты команд |
@@ -632,7 +632,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | SMTP | `SMTP_HOST/PORT/USE_STARTTLS/FROM/USER/PASSWORD` (UI модуля паролей может переопределить) |
 | Poll | `POLL_INTERVAL_SECONDS`, `MIN_CIDR_PREFIX`, `MAX_HOSTS_PER_POLL`, `DISCOVERY_USERNAME/PASSWORD/DOMAIN` |
 | Crypto | `FERNET_KEY` |
-| Scripts | `SCRIPT_LIBRARY_DIR` |
+| Scripts | `SCRIPT_LIBRARY_DIR`, `SCRIPT_TIMEOUT_SECONDS` |
 | Updates | `GIT_REMOTE_URL`, `GIT_BRANCH`, `UPDATE_BACKUP_KEEP`, `UPDATE_RESTART`, `UPDATE_SUDO_USER` |
 | Cookies | `SESSION_COOKIE_SECURE` |
 
