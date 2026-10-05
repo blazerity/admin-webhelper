@@ -378,14 +378,7 @@
     }
     const url = summaryRoot.dataset.summaryUrl || "/api/network/summary";
     try {
-      const response = await fetch(url, {
-        headers: { Accept: "application/json" },
-        credentials: "same-origin",
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const payload = await response.json();
+      const payload = await fetchJson(url);
       if (
         payload == null ||
         (payload.devices_total == null &&

@@ -174,6 +174,20 @@ def lookup_mac(ip: str) -> str | None:
     return _mac_from_command(["arp", "-a", ip], ip)
 
 
+def _wmi_timed_call(worker, ip: str, creds: DiscoveryCredentials, timeout_s: float, empty):
+    """Один поток + таймаут вокруг DCOM. Пустой результат при таймауте/сбое."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(worker, ip, creds)
+        try:
+            return future.result(timeout=timeout_s)
+        except FuturesTimeout:
+            logger.debug("WMI: таймаут для %s", ip)
+            return empty
+        except Exception:
+            logger.exception("WMI: сбой для %s", ip)
+            return empty
+
+
 def lookup_wmi_inventory(
     ip: str,
     creds: DiscoveryCredentials | None = None,
@@ -190,16 +204,9 @@ def lookup_wmi_inventory(
         creds = discovery_credentials()
     if creds is None:
         return WmiInventory()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(_wmi_inventory, ip, creds)
-        try:
-            return future.result(timeout=_WMI_TIMEOUT_S)
-        except FuturesTimeout:
-            logger.debug("WMI inventory: таймаут для %s", ip)
-            return WmiInventory()
-        except Exception:
-            logger.exception("WMI inventory: сбой для %s", ip)
-            return WmiInventory()
+    return _wmi_timed_call(
+        _wmi_inventory, ip, creds, _WMI_TIMEOUT_S, WmiInventory()
+    )
 
 
 def lookup_serial(ip: str) -> str | None:
@@ -220,16 +227,9 @@ def lookup_wmi_hardware(
         creds = discovery_credentials()
     if creds is None:
         return WmiHardware()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(_wmi_hardware, ip, creds)
-        try:
-            return future.result(timeout=_WMI_HARDWARE_TIMEOUT_S)
-        except FuturesTimeout:
-            logger.debug("WMI hardware: таймаут для %s", ip)
-            return WmiHardware()
-        except Exception:
-            logger.exception("WMI hardware: сбой для %s", ip)
-            return WmiHardware()
+    return _wmi_timed_call(
+        _wmi_hardware, ip, creds, _WMI_HARDWARE_TIMEOUT_S, WmiHardware()
+    )
 
 
 def discovery_credentials() -> DiscoveryCredentials | None:
@@ -355,11 +355,14 @@ def _wmi_hardware(ip: str, creds: DiscoveryCredentials) -> WmiHardware:
         ram_bytes = _wmi_query_ram(services)
         disk_bytes = _wmi_query_disk(services)
         caption, version, build = _wmi_query_os(services)
-        # StdRegProv живёт в root/default, не в cimv2 — отдельный IWbemServices.
-        display = _wmi_reg_string(dcom, _WINNT_CURRENT_VERSION, "DisplayVersion")
-        edition_id = _wmi_reg_string(dcom, _WINNT_CURRENT_VERSION, "EditionID")
+        # StdRegProv — root/default; один login на все ключи реестра.
+        display, edition_id, reg_build = _wmi_reg_strings(
+            dcom,
+            _WINNT_CURRENT_VERSION,
+            ("DisplayVersion", "EditionID", "CurrentBuild"),
+        )
         if not build:
-            build = _wmi_reg_string(dcom, _WINNT_CURRENT_VERSION, "CurrentBuild")
+            build = reg_build
         return WmiHardware(
             cpu_name=cpu_name,
             ram_bytes=ram_bytes,
@@ -642,35 +645,48 @@ def _wmi_namespace_services(dcom, namespace: str):
     return services
 
 
-def _wmi_reg_string(dcom, subkey: str, value_name: str) -> str | None:
-    """HKLM строка через StdRegProv.GetStringValue (root/default + SpawnInstance)."""
+def _wmi_reg_result_text(result) -> str | None:
+    """sValue из ответа Impacket GetStringValue."""
+    if result is None:
+        return None
+    direct = getattr(result, "sValue", None)
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    props = result.getProperties() if hasattr(result, "getProperties") else None
+    if props:
+        return _wmi_prop_text(props, "sValue")
+    return None
+
+
+def _wmi_reg_strings(
+    dcom, subkey: str, value_names: tuple[str, ...]
+) -> tuple[str | None, ...]:
+    """Несколько HKLM-строк одним StdRegProv (root/default + SpawnInstance)."""
     services = None
     class_obj = None
     instance = None
-    result = None
+    values: list[str | None] = [None] * len(value_names)
     try:
         services = _wmi_namespace_services(dcom, "root/default")
         class_obj, _ = services.GetObject("StdRegProv")
         instance = class_obj.SpawnInstance()
         getter = getattr(instance, "GetStringValue", None)
         if getter is None:
-            return None
-        result = getter(_HKLM, subkey, value_name)
-        if result is None:
-            return None
-        # Impacket отдаёт либо объект с .sValue, либо getProperties()-dict.
-        direct = getattr(result, "sValue", None)
-        if isinstance(direct, str) and direct.strip():
-            return direct.strip()
-        props = result.getProperties() if hasattr(result, "getProperties") else None
-        if props:
-            return _wmi_prop_text(props, "sValue")
-        return None
+            return tuple(values)
+        for index, value_name in enumerate(value_names):
+            result = None
+            try:
+                result = getter(_HKLM, subkey, value_name)
+                values[index] = _wmi_reg_result_text(result)
+            except Exception as exc:
+                logger.debug("WMI registry %s\\%s: %s", subkey, value_name, exc)
+            finally:
+                _wmi_release(result)
+        return tuple(values)
     except Exception as exc:
-        logger.debug("WMI registry %s\\%s: %s", subkey, value_name, exc)
-        return None
+        logger.debug("WMI registry open %s: %s", subkey, exc)
+        return tuple(values)
     finally:
-        _wmi_release(result)
         _wmi_release(instance)
         _wmi_release(class_obj)
         if services is not None:

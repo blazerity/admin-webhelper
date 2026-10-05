@@ -61,3 +61,9 @@ class DeviceHardwareHistory(db.Model):
     os_build = db.Column(db.String(32), nullable=True)
 
     device = db.relationship("Device", back_populates="hardware_history")
+
+    @property
+    def os_label(self) -> str:
+        from app.services.hardware_info import format_os_label
+
+        return format_os_label(self.os_family, self.os_edition, self.os_display_version)

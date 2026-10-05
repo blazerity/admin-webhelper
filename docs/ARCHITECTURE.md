@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.4.0)
+# Архитектура bAWH (актуально для v1.5.0)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -10,7 +10,7 @@
 LDAP-вход, отчёт по сроку паролей AD, watchlist и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.4.0` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.5.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -81,7 +81,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.3.0)
+  VERSION                      # semver (1.5.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -628,13 +628,12 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 | Путь | Назначение |
 | --- | --- |
-| `static/css/app.css` | Стили |
+| `static/css/app.css` | стили; `.entity-link` — единый вид ссылок на устройство / УЗ |
 | `static/js/http.js` | общий fetch/CSRF helper |
 | `static/js/map.js` | карта сети; автообновление опционально (localStorage) |
 | `static/js/device_check.js` | быстрая проверка статуса на карточке устройства |
 | `static/js/search.js` | живой фильтр карты (без suggest-dropdown) |
 | `static/js/live_search.js` | живой поиск списков Действия / Учётные записи |
-| `static/css/app.css` | стили; `.entity-link` — единый вид ссылок на устройство / УЗ |
 | `static/js/batch.js` | bulk операции |
 | `static/js/notifications.js` | колокольчик |
 | `static/js/run_log.js` | поллинг лога запуска |

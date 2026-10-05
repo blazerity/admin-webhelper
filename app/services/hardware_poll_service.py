@@ -111,19 +111,6 @@ def is_windows_hardware_target(device: Device) -> bool:
     return (device.fingerprint_kind or "").strip().lower() == "windows"
 
 
-def snapshot_from_wmi(raw: discovery_service.WmiHardware) -> HardwareSnapshot:
-    return build_hardware_snapshot(
-        cpu_name=raw.cpu_name,
-        ram_bytes=raw.ram_bytes,
-        disk_bytes=raw.disk_bytes,
-        os_caption=raw.os_caption,
-        os_version=raw.os_version,
-        os_build=raw.os_build,
-        os_display_version=raw.os_display_version,
-        os_edition_id=raw.os_edition_id,
-    )
-
-
 def apply_hardware_snapshot(
     device: Device,
     snapshot: HardwareSnapshot,
@@ -334,14 +321,30 @@ def _poll_targets(
         )
         pending.append((target.device_id, snapshot, change))
 
+    device_ids = [item[0] for item in pending]
+    devices = {}
+    if device_ids:
+        devices = {
+            device.id: device
+            for device in db.session.scalars(
+                select(Device).where(Device.id.in_(device_ids))
+            )
+        }
+
     if result.dry_run:
         result.collected = len(pending)
-        result.changed = len(pending)
-        result.changes = [item[2] for item in pending[:_MAX_STORED_CHANGES]]
+        for device_id, snapshot, change in pending:
+            device = devices.get(device_id)
+            if device is None:
+                continue
+            if device.hardware_identity != snapshot.identity or device.hardware_checked_at is None:
+                result.changed += 1
+                if len(result.changes) < _MAX_STORED_CHANGES:
+                    result.changes.append(change)
         return
 
     for device_id, snapshot, change in pending:
-        device = db.session.get(Device, device_id)
+        device = devices.get(device_id)
         if device is None:
             result.skipped += 1
             continue
@@ -401,11 +404,21 @@ def _probe_one(
         if ping.status != DeviceStatus.ONLINE:
             return _Probe(device_id=target.device_id, ip=target.ip, online=False)
         raw = discovery_service.lookup_wmi_hardware(target.ip, creds=creds)
+        snapshot = build_hardware_snapshot(
+            cpu_name=raw.cpu_name,
+            ram_bytes=raw.ram_bytes,
+            disk_bytes=raw.disk_bytes,
+            os_caption=raw.os_caption,
+            os_version=raw.os_version,
+            os_build=raw.os_build,
+            os_display_version=raw.os_display_version,
+            os_edition_id=raw.os_edition_id,
+        )
         return _Probe(
             device_id=target.device_id,
             ip=target.ip,
             online=True,
-            snapshot=snapshot_from_wmi(raw),
+            snapshot=snapshot,
         )
     except Exception as exc:
         logger.debug("hardware poll: %s — %s", target.ip, exc)

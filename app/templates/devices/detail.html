@@ -362,7 +362,7 @@
           {% for row in hardware_rows %}
             <tr>
               <td class="text-nowrap">{{ row.collected_at|dt }}</td>
-              <td>{{ row.os_family }}{% if row.os_edition %} {{ row.os_edition }}{% endif %}{% if row.os_display_version %} {{ row.os_display_version }}{% endif %}{% if not row.os_family %}{{ row.os_caption or '—' }}{% endif %}</td>
+              <td>{{ row.os_label or row.os_caption or '—' }}</td>
               <td>{{ row.cpu_name or '—' }}</td>
               <td>{% if row.ram_gb is not none %}{{ row.ram_gb }} ГБ{% else %}—{% endif %}</td>
               <td>{% if row.disk_gb is not none %}{{ row.disk_gb }} ГБ{% else %}—{% endif %}</td>
