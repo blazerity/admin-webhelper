@@ -17,6 +17,7 @@ from app.services.device_kind import (
     kind_shows_commands,
     kind_shows_hardware,
     kind_shows_mac,
+    kind_shows_serial,
 )
 from app.utils import utcnow
 
@@ -115,22 +116,27 @@ class Device(TimestampMixin, db.Model):
 
     @property
     def shows_accounts(self) -> bool:
-        """УЗ на карточке — только ноутбуки и СБ."""
+        """УЗ на карточке — ноутбуки, СБ и «Прочее»."""
         return kind_shows_accounts(self.kind)
 
     @property
     def shows_mac(self) -> bool:
-        """MAC — ноут/СБ и периферия (камера, МФУ, MikroTik)."""
+        """MAC — ноут/СБ/прочее и периферия (камера, МФУ, MikroTik)."""
         return kind_shows_mac(self.kind)
 
     @property
+    def shows_serial(self) -> bool:
+        """Серийный номер — только ноутбуки и СБ."""
+        return kind_shows_serial(self.kind)
+
+    @property
     def shows_hardware(self) -> bool:
-        """Вкладка/блок оборудования — ноутбуки, СБ и серверы."""
+        """Вкладка/блок оборудования — ноутбуки, СБ, серверы и «Прочее»."""
         return kind_shows_hardware(self.kind)
 
     @property
     def shows_commands(self) -> bool:
-        """Команды и скрипты — ноутбуки, СБ и серверы."""
+        """Команды и скрипты — ноутбуки, СБ, серверы и «Прочее»."""
         return kind_shows_commands(self.kind)
 
     @property

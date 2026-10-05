@@ -288,31 +288,45 @@ def kind_short_label(kind: str) -> str:
 
 
 # Карточка устройства: какие разделы/поля показывать по типу.
-_KINDS_WITH_ACCOUNTS = frozenset({KIND_NOTEBOOK, KIND_DESKTOP})
+# «Прочее» ≈ ещё не классифицированные ноутбуки — те же вкладки, что у ноутбука.
+_KINDS_WITH_ACCOUNTS = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_OTHER})
 _KINDS_WITH_MAC = frozenset(
-    {KIND_NOTEBOOK, KIND_DESKTOP, KIND_CAMERA, KIND_PRINTER, KIND_ROUTER}
+    {
+        KIND_NOTEBOOK,
+        KIND_DESKTOP,
+        KIND_OTHER,
+        KIND_CAMERA,
+        KIND_PRINTER,
+        KIND_ROUTER,
+    }
 )
-_KINDS_WITH_HARDWARE = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER})
-_KINDS_WITH_COMMANDS = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER})
+_KINDS_WITH_HARDWARE = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER, KIND_OTHER})
+_KINDS_WITH_COMMANDS = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER, KIND_OTHER})
+_KINDS_WITH_SERIAL = frozenset({KIND_NOTEBOOK, KIND_DESKTOP})
 
 
 def kind_shows_accounts(kind: str) -> bool:
-    """УЗ на карточке — только ноутбуки и СБ."""
+    """УЗ на карточке — ноутбуки, СБ и «Прочее»."""
     return kind in _KINDS_WITH_ACCOUNTS
 
 
 def kind_shows_mac(kind: str) -> bool:
-    """MAC — ноутбуки/СБ и периферия (камера, МФУ, MikroTik), если опрашивается."""
+    """MAC — ноут/СБ/прочее и периферия (камера, МФУ, MikroTik)."""
     return kind in _KINDS_WITH_MAC
 
 
+def kind_shows_serial(kind: str) -> bool:
+    """Серийный номер — только ноутбуки и СБ."""
+    return kind in _KINDS_WITH_SERIAL
+
+
 def kind_shows_hardware(kind: str) -> bool:
-    """Конфигурация железа — ноутбуки, СБ и серверы."""
+    """Конфигурация железа — ноутбуки, СБ, серверы и «Прочее»."""
     return kind in _KINDS_WITH_HARDWARE
 
 
 def kind_shows_commands(kind: str) -> bool:
-    """Командная строка и скрипты — ноутбуки, СБ и серверы."""
+    """Командная строка и скрипты — ноутбуки, СБ, серверы и «Прочее»."""
     return kind in _KINDS_WITH_COMMANDS
 
 
