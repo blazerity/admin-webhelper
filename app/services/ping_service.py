@@ -12,9 +12,10 @@
    пустой адрес на карте не нужен.
 4. Снова главный поток:
    * офлайн по уже известному IP → статус и device_history;
-   * онлайн → serial+MAC+УЗ (WMI) / hostname / IP как ключ идентичности,
-     обновление или создание одной машины, история сохраняется
-     при смене адреса и сектора. MAC сначала из ARP, иначе из WMI.
+   * онлайн → serial+MAC+УЗ (WMI) / hostname (PTR, иначе WMI) / IP
+     как ключ идентичности, обновление или создание одной машины,
+     история сохраняется при смене адреса и сектора. MAC сначала из ARP,
+     иначе из WMI. Имя: reverse DNS, если PTR нет — Win32_ComputerSystem.
      Текущая УЗ пишется в endpoint_accounts / device_account_history.
 
 Позже ту же функцию run_network_poll / poll_all_sectors вызовет задача Celery.
@@ -482,7 +483,7 @@ def _probe_all(ips: list[str], stats: dict[str, int]) -> list[_Probe]:
     wmi_creds = discovery_service.discovery_credentials()
     if wmi_creds is None:
         logger.warning(
-            "Учётка WMI не задана: серийник и MAC по WMI не запрашиваются "
+            "Учётка WMI не задана: серийник, имя и MAC по WMI не запрашиваются "
             "(Параметры → Учётка WMI или DISCOVERY_* в .env)."
         )
     else:
@@ -528,6 +529,9 @@ def _probe(
         logged_on_user = inventory.logged_on_user
         if not mac and inventory.mac:
             mac = inventory.mac
+        # Без PTR (Unknown host) имя всё равно можно взять с самой машины.
+        if not hostname and inventory.hostname:
+            hostname = inventory.hostname
     return _Probe(
         ip=ip,
         result=result,

@@ -2,19 +2,22 @@
 
 Четыре разные проверки, их легко перепутать:
 
-* Имя (lookup_hostname) — вопрос к DNS: «какой PTR у этого IP?».
+* Имя из DNS (lookup_hostname) — вопрос к DNS: «какой PTR у этого IP?».
   Сервер и устройство могут быть в разных подсетях, DNS всё равно ответит,
-  если запись заведена.
+  если запись заведена. Без PTR (socket.herror Unknown host) имени нет.
+* Имя из WMI — Win32_ComputerSystem.DNSHostName / Name в том же DCOM,
+  что серийник и УЗ. Опрос подставляет его, если PTR пустой.
 * MAC из ARP (lookup_mac) — адрес канального уровня. Его видно только когда
   этот сервер и устройство сидят в одном L2-сегменте: коммутатор
   доставил кадр, и ядро записало соседа в таблицу ARP (Windows)
   или neighbor (Linux). Через маршрутизатор MAC чужой сети не приходит.
-* Серийник, MAC и текущая УЗ по WMI (lookup_wmi_inventory) — один DCOM
+* Серийник, MAC, имя и текущая УЗ по WMI (lookup_wmi_inventory) — один DCOM
   после ping: Win32_BIOS.SerialNumber, MAC адаптера с нашим IP
-  (Win32_NetworkAdapterConfiguration) и Win32_ComputerSystem.UserName.
-  Учётка: сначала из Параметров (шифротекст в app_settings), иначе
-  DISCOVERY_* в .env. Без неё возвращаем пустой инвентарь,
-  идентичность строится по hostname, MAC — только из ARP.
+  (Win32_NetworkAdapterConfiguration) и Win32_ComputerSystem
+  (Name / DNSHostName / UserName). Учётка: сначала из Параметров
+  (шифротекст в app_settings), иначе DISCOVERY_* в .env. Без неё
+  возвращаем пустой инвентарь, идентичность строится по PTR-hostname,
+  MAC — только из ARP.
 
 Scapy здесь не используем. Ему нужен захват пакетов и дополнительные
 права (raw socket / Npcap). Для первой версии достаточно прочитать
@@ -96,6 +99,8 @@ class WmiInventory:
 
     serial_number: str | None = None
     mac: str | None = None
+    # Win32_ComputerSystem.DNSHostName или Name, если DNS-имя пустое.
+    hostname: str | None = None
     # Win32_ComputerSystem.UserName: DOMAIN\user или пусто.
     logged_on_user: str | None = None
 
@@ -115,17 +120,12 @@ def lookup_hostname(ip: str) -> str | None:
         socket.setdefaulttimeout(1.0)
         try:
             hostname, _aliases, _addresses = socket.gethostbyaddr(ip)
-        except OSError:
+        except OSError as exc:
+            logger.debug("PTR lookup: %s — %s", ip, exc)
             return None
         finally:
             socket.setdefaulttimeout(previous)
-    if not hostname:
-        return None
-    # Некоторые резолверы отдают FQDN с точкой на конце: "pc.example."
-    hostname = hostname.strip().rstrip(".")
-    if not hostname:
-        return None
-    return hostname[:255]
+    return _normalize_hostname(hostname)
 
 
 def lookup_mac(ip: str) -> str | None:
@@ -154,11 +154,11 @@ def lookup_wmi_inventory(
     ip: str,
     creds: DiscoveryCredentials | None = None,
 ) -> WmiInventory:
-    """Серийник и MAC одним WMI-заходом после успешного ping.
+    """Серийник, имя, MAC и УЗ одним WMI-заходом после успешного ping.
 
     creds лучше передать с главного потока опроса: в ThreadPoolExecutor
     нет Flask app context, и читать app_settings/current_app оттуда нельзя.
-    Без учётки — пустой инвентарь; идентичность тогда по hostname,
+    Без учётки — пустой инвентарь; идентичность тогда по PTR-hostname,
     MAC — только из ARP, если сегмент общий.
     """
     ip = assert_public_ipv4(ip)
@@ -256,7 +256,7 @@ def hostnames_match(left: str | None, right: str | None) -> bool:
 
 
 def _wmi_inventory(ip: str, creds: DiscoveryCredentials) -> WmiInventory:
-    """Один DCOM к машине: BIOS serial, MAC адаптера и текущая УЗ.
+    """Один DCOM к машине: BIOS serial, MAC, имя и текущая УЗ.
 
     Импорт Impacket — внутри, чтобы тесты без сети и без пакета
     не падали на загрузке модуля.
@@ -289,12 +289,13 @@ def _wmi_inventory(ip: str, creds: DiscoveryCredentials) -> WmiInventory:
         login.RemRelease()
         serial_raw = _wmi_query_serial(services)
         mac = _wmi_query_mac(services, ip)
-        # После успешного WMI всегда строка: "" = никто не залогинен.
+        # После успешного WMI UserName всегда строка: "" = никто не залогинен.
         # None оставляем только когда WMI не вызывали / сессия упала.
-        logged_raw = _wmi_query_logged_on_user(services)
+        cs_hostname, logged_raw = _wmi_query_computer_system(services)
         return WmiInventory(
             serial_number=normalize_serial(serial_raw),
             mac=mac,
+            hostname=cs_hostname,
             logged_on_user=logged_raw if logged_raw is not None else "",
         )
     except Exception as exc:
@@ -329,27 +330,65 @@ def _wmi_query_serial(services) -> str | None:
     return None
 
 
-def _wmi_query_logged_on_user(services) -> str | None:
-    """SELECT UserName FROM Win32_ComputerSystem — интерактивная УЗ.
+def _wmi_query_computer_system(services) -> tuple[str | None, str | None]:
+    """Имя машины и интерактивная УЗ из Win32_ComputerSystem.
 
-    None — пусто/нет консольной сессии. Вызывающий (_wmi_inventory)
-    превращает это в "" (успешный WMI, никто не залогинен).
+    Один WQL: DNSHostName / Name и UserName. user=None — в строке нет
+    консольной сессии; вызывающий (_wmi_inventory) превращает это в "".
     """
-    enum_obj = services.ExecQuery("SELECT UserName FROM Win32_ComputerSystem")
+    enum_obj = services.ExecQuery(
+        "SELECT Name, DNSHostName, Domain, UserName FROM Win32_ComputerSystem"
+    )
+    hostname = None
+    user = None
     try:
         for props in _wmi_enum_properties(enum_obj):
-            raw = props.get("UserName", {}).get("value")
-            if raw is None:
-                continue
-            text = str(raw).strip()
-            if text:
-                return text[:255]
+            if hostname is None:
+                hostname = _hostname_from_wmi_props(props)
+            if user is None:
+                text = _wmi_prop_text(props, "UserName")
+                if text:
+                    user = text[:255]
+            if hostname and user:
+                break
     finally:
         try:
             enum_obj.RemRelease()
         except Exception:
             pass
-    return None
+    return hostname, user
+
+
+def _hostname_from_wmi_props(props: dict) -> str | None:
+    """DNSHostName, иначе Name. К короткому DNS-имени дописываем Domain."""
+    dns = _normalize_hostname(_wmi_prop_text(props, "DNSHostName"))
+    short = _normalize_hostname(_wmi_prop_text(props, "Name"))
+    domain = (_wmi_prop_text(props, "Domain") or "").strip().rstrip(".")
+    if dns:
+        if "." in dns:
+            return dns
+        if domain and "." in domain:
+            return f"{dns}.{domain}"[:255]
+        return dns
+    return short
+
+
+def _wmi_prop_text(props: dict, key: str) -> str | None:
+    raw = props.get(key, {}).get("value")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
+def _normalize_hostname(value: str | None) -> str | None:
+    """Обрезка пробелов и завершающей точки DNS. None — пустое имя."""
+    if not value:
+        return None
+    hostname = value.strip().rstrip(".")
+    if not hostname:
+        return None
+    return hostname[:255]
 
 
 def _wmi_query_mac(services, ip: str) -> str | None:
