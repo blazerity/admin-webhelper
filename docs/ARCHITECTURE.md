@@ -276,7 +276,6 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `crypto_service.py` | Fernet `encrypt` / `decrypt` |
 | `credential_service.py` | `get_remote_admin_credentials`, `save_remote_admin_credentials`, `remember_login_password` |
 | `settings_service.py` | интервал опроса, WMI creds, update-sudo в `app_settings` |
-| `password_expiry_settings.py` | SMTP (общий, UI в Параметрах), bind LDAP модуля, пороги паролей |
 
 ### УЗ, действия, экспорт
 
@@ -303,7 +302,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_service.py` | оркестрация прогона |
 | `password_ad_client.py` | LDAP: пользователи и days-left |
 | `password_mailer.py` | SMTP |
-| `password_expiry_settings.py` | настройки UI/DB + fallback на `.env` |
+| `password_expiry_settings.py` | SMTP общий (UI: Параметры → Почта), bind LDAP модуля, пороги; fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure scheduler |
