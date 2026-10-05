@@ -26,11 +26,8 @@ from app.services.password_expiry_settings import (
     get_smtp_settings,
     set_ldap_bind_settings,
     set_password_expiry_settings,
-    set_smtp_settings,
 )
-from app.services.password_mailer import PasswordMailerError, test_smtp_connection
 from app.services.report_toggle_service import apply_report_toggle, scheduler_status
-from app.services.systemd_service import SystemdError, ensure_scheduler_running
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +107,6 @@ def settings_page():
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
         if kind == "module":
-            want_enabled = request.form.get("schedule_enabled") == "1"
             try:
                 set_password_expiry_settings(
                     max_pwd_age_days=int(request.form.get("max_pwd_age_days") or 0),
@@ -121,7 +117,6 @@ def settings_page():
                     instructions_url=request.form.get("instructions_url", ""),
                     excluded_ou=request.form.get("excluded_ou", ""),
                     search_base=request.form.get("search_base", ""),
-                    schedule_enabled=want_enabled,
                     schedule_cron=request.form.get("schedule_cron", ""),
                     admin_recipients=request.form.get("admin_recipients", ""),
                 )
@@ -129,13 +124,6 @@ def settings_page():
                 flash(str(exc), "danger")
                 return redirect(url_for("password_expiry.settings_page"))
             flash("Настройки модуля сохранены.", "success")
-            if want_enabled:
-                try:
-                    ensure = ensure_scheduler_running()
-                    if ensure.started or ensure.enabled:
-                        flash(ensure.message, "info")
-                except SystemdError as exc:
-                    flash(str(exc), "warning")
             return redirect(url_for("password_expiry.settings_page"))
 
         if kind == "ldap_bind":
@@ -150,35 +138,10 @@ def settings_page():
             flash("Учётка LDAP для модуля сохранена.", "success")
             return redirect(url_for("password_expiry.settings_page"))
 
-        if kind == "smtp":
-            try:
-                set_smtp_settings(
-                    host=request.form.get("smtp_host", ""),
-                    port=request.form.get("smtp_port", ""),
-                    use_starttls=request.form.get("smtp_use_starttls") == "1",
-                    from_address=request.form.get("smtp_from", ""),
-                    username=request.form.get("smtp_user", ""),
-                    password=request.form.get("smtp_password"),
-                )
-            except ValueError as exc:
-                flash(str(exc), "danger")
-                return redirect(url_for("password_expiry.settings_page"))
-            flash("Настройки SMTP сохранены.", "success")
-            return redirect(url_for("password_expiry.settings_page"))
-
         if kind == "test_ldap":
             try:
                 message = verify_password_directory_access()
             except PasswordAdError as exc:
-                flash(str(exc), "danger")
-            else:
-                flash(message, "success")
-            return redirect(url_for("password_expiry.settings_page"))
-
-        if kind == "test_smtp":
-            try:
-                message = test_smtp_connection()
-            except PasswordMailerError as exc:
                 flash(str(exc), "danger")
             else:
                 flash(message, "success")

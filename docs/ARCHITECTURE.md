@@ -276,6 +276,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `crypto_service.py` | Fernet `encrypt` / `decrypt` |
 | `credential_service.py` | `get_remote_admin_credentials`, `save_remote_admin_credentials`, `remember_login_password` |
 | `settings_service.py` | интервал опроса, WMI creds, update-sudo в `app_settings` |
+| `password_expiry_settings.py` | SMTP (общий, UI в Параметрах), bind LDAP модуля, пороги паролей |
 
 ### УЗ, действия, экспорт
 

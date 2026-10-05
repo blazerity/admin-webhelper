@@ -291,10 +291,11 @@
 </figure>
 {%- endmacro %}
 
-{% macro device_card(device) -%}
+{% macro device_card(device, interactive=true) -%}
 <div class="device-card-shell">
   <article class="device-card {{ device.last_status }}">
     <div class="device-card-head">
+      {% if interactive %}
       <button
         type="button"
         class="device-select-hit"
@@ -305,11 +306,13 @@
       >
         <span class="device-select-box" aria-hidden="true"></span>
       </button>
+      {% endif %}
       <span class="device-card-kind">
         {{ device_type_icon(device.kind) }}
         <span class="device-card-kind-label">{{ device_kind_short(device.kind) }}</span>
       </span>
       <span class="device-card-head-actions">
+        {% if interactive %}
         <button
           type="button"
           class="device-fav-btn"
@@ -322,6 +325,7 @@
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
           </svg>
         </button>
+        {% endif %}
         <span class="device-card-status" title="{{ device_status_short(device.last_status) }}">
           {{ status_dot(device.last_status) }}
           <span class="device-card-status-label" data-status-label>{{ device_status_short(device.last_status) }}</span>

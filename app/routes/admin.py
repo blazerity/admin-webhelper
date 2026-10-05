@@ -68,6 +68,8 @@ from app.services.settings_service import (
     save_update_sudo_credentials,
     set_poll_interval_seconds,
 )
+from app.services.password_expiry_settings import get_smtp_settings, set_smtp_settings
+from app.services.password_mailer import PasswordMailerError, test_smtp_connection
 from app.services.update_service import UpdateError, begin_rollback, begin_update, build_page, check_for_updates
 
 logger = logging.getLogger(__name__)
@@ -173,6 +175,30 @@ def settings():
             )
             flash("Расписание опроса железа сохранено.", "success")
             return redirect(url_for("admin.settings") + "#hardware-poll")
+        if kind == "smtp":
+            try:
+                set_smtp_settings(
+                    host=request.form.get("smtp_host", ""),
+                    port=request.form.get("smtp_port", ""),
+                    use_starttls=request.form.get("smtp_use_starttls") == "1",
+                    from_address=request.form.get("smtp_from", ""),
+                    username=request.form.get("smtp_user", ""),
+                    password=request.form.get("smtp_password"),
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.settings") + "#smtp")
+            audit_service.log(current_user, "update", "admin_settings", "smtp")
+            flash("Настройки SMTP сохранены.", "success")
+            return redirect(url_for("admin.settings") + "#smtp")
+        if kind == "test_smtp":
+            try:
+                message = test_smtp_connection()
+            except PasswordMailerError as exc:
+                flash(str(exc), "danger")
+            else:
+                flash(message, "success")
+            return redirect(url_for("admin.settings") + "#smtp")
         if kind == "update":
             try:
                 saved = save_update_sudo_credentials(
@@ -218,6 +244,7 @@ def settings():
         hardware_poll_settings=get_hardware_poll_settings(),
         hardware_poll_runs=load_recent_hardware_poll_runs(),
         scheduler_health=get_scheduler_health(),
+        smtp=get_smtp_settings(),
         update_sudo_user=update_sudo.username,
         update_sudo_password_set=update_sudo.password_set,
     )

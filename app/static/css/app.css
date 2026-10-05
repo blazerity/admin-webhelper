@@ -37,7 +37,7 @@ body {
   font-family: var(--font);
   background:
     radial-gradient(1200px 500px at 10% -10%, rgba(15, 118, 110, 0.16), transparent 55%),
-    radial-gradient(900px 420px at 100% 0%, rgba(37, 99, 235, 0.08), transparent 50%),
+    radial-gradient(900px 420px at 100% 0%, rgba(15, 118, 110, 0.08), transparent 50%),
     linear-gradient(180deg, #eef3f6 0%, #e7eef2 48%, #e9eef1 100%);
   background-attachment: fixed;
 }
@@ -1801,6 +1801,12 @@ code {
   outline: none;
 }
 
+.terminal-form input:focus,
+.terminal-form input:focus-visible {
+  border-bottom-color: #6ee7d0;
+  box-shadow: 0 1px 0 0 rgba(110, 231, 208, 0.45);
+}
+
 .terminal-form input:disabled {
   opacity: 0.45;
 }
@@ -1815,7 +1821,7 @@ code {
 .account-object {
   padding: 1.25rem 1.4rem;
   margin-bottom: 1rem;
-  border-left: 5px solid var(--accent);
+  border-left: 5px solid var(--entity-account);
 }
 
 .account-object-body {

@@ -22,7 +22,6 @@ from app.services.sector_daily_report_settings import (
     get_sector_daily_report_settings,
     set_sector_daily_report_settings,
 )
-from app.services.systemd_service import SystemdError, ensure_scheduler_running
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +68,8 @@ def toggle_schedule():
 @admin_required
 def settings_page():
     if request.method == "POST":
-        want_enabled = request.form.get("schedule_enabled") == "1"
         try:
             set_sector_daily_report_settings(
-                schedule_enabled=want_enabled,
                 schedule_cron=request.form.get("schedule_cron", ""),
                 recipients=request.form.get("recipients", ""),
             )
@@ -80,13 +77,6 @@ def settings_page():
             flash(str(exc), "danger")
             return redirect(url_for("sector_daily_report.settings_page"))
         flash("Настройки отчёта сохранены.", "success")
-        if want_enabled:
-            try:
-                ensure = ensure_scheduler_running()
-                if ensure.started or ensure.enabled:
-                    flash(ensure.message, "info")
-            except SystemdError as exc:
-                flash(str(exc), "warning")
         return redirect(url_for("sector_daily_report.settings_page"))
 
     return render_template(

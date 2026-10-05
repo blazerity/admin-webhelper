@@ -42,6 +42,8 @@
         {% else %}
           не запущена ({{ scheduler.active_state }}) — включение тумблера поднимет её
         {% endif %}
+        · управление в
+        <a href="{{ url_for('admin.settings') }}#service-control">Параметры</a>
       </p>
     </div>
     {% if can_toggle %}
@@ -119,7 +121,7 @@
     Отчёт за прошедший календарный день (локальный TZ сервера).
     Активное устройство — хотя бы один опрос со статусом online за этот день.
     SMTP: {% if smtp.configured %}{{ smtp.host }}:{{ smtp.port }}{% else %}не настроен{% endif %}
-    (настройки в <a href="{{ url_for('password_expiry.settings_page') }}">Пароли AD</a>).
+    (<a href="{{ url_for('admin.settings') }}#smtp">Параметры → Почта</a>).
   </p>
 </div>
 

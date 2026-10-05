@@ -4,8 +4,15 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <h1 class="page-title">{% if script %}Изменить скрипт{% else %}Новый скрипт{% endif %}</h1>
-    <p class="page-subtitle">Текст, интерпретатор и запуск на машинах</p>
+    <h1 class="page-title">
+      {% if not script %}Новый скрипт
+      {% elif can_manage_scripts|default(false) %}Изменить скрипт
+      {% else %}Запуск скрипта{% endif %}
+    </h1>
+    <p class="page-subtitle">
+      {% if can_manage_scripts|default(false) or not script %}Текст, интерпретатор и запуск на машинах
+      {% else %}{{ script.name }} — запуск на доступных устройствах{% endif %}
+    </p>
   </div>
 </div>
 {% if can_manage_scripts|default(false) %}

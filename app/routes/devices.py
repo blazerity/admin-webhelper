@@ -222,6 +222,7 @@ def map():
         search_query=query,
         search_sector_id=sector_id,
         map_scripts=map_scripts,
+        can_run_diagnostics=user_can_run_diagnostics(current_user),
     )
 
 
