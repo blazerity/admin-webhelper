@@ -130,7 +130,7 @@ def _bulk_response(batch_id: str, runs: list[ScriptRun], skipped: int):
 
 
 def map_status_payload() -> dict:
-    """JSON-контракт /map/status и /api/v1/map/status."""
+    """JSON-контракт /map/status."""
     sectors_payload = []
     for sector in _load_visible_sectors():
         devices = [

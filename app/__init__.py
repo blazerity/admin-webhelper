@@ -89,7 +89,6 @@ def _register_blueprints(app: Flask) -> None:
     from app.routes.accounts import bp as accounts_bp
     from app.routes.actions import bp as actions_bp
     from app.routes.admin import bp as admin_bp
-    from app.routes.api_v1 import bp as api_v1_bp
     from app.routes.password_expiry import bp as password_expiry_bp
     from app.routes.auth import bp as auth_bp
     from app.routes.devices import bp as devices_bp
@@ -116,7 +115,6 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(sector_daily_report_legacy_bp)
     app.register_blueprint(login_services_bp)
     app.register_blueprint(notifications_bp)
-    app.register_blueprint(api_v1_bp)
 
 
 def _register_error_handlers(app: Flask) -> None:

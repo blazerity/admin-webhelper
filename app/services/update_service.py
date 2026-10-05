@@ -10,7 +10,9 @@
 есть ли новая сборка.
 
 Не копируются и не перезаписываются: .env, .venv, logs, script_library,
-instance, backups, базы *.db. Это данные сервера, а не версия программы.
+instance, backups, базы *.db, а также локальные scratch-каталоги агентов
+(.cursor, .claude, scripts, tools, tmp). Это данные сервера / черновики,
+а не версия программы.
 
 При откате кода схема PostgreSQL не откатывается назад.
 """
@@ -58,6 +60,13 @@ _SKIP_DIRS = {
     ".mypy_cache",
     ".idea",
     ".vscode",
+    ".cursor",
+    ".claude",
+    ".scratch",
+    "scripts",
+    "tools",
+    "tmp",
+    "temp",
 }
 _REASON_LABELS = {
     "before-update": "перед обновлением",
