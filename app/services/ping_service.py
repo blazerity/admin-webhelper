@@ -14,10 +14,11 @@
    отпечаток — не отдельный проход по всей сети.
 4. Снова главный поток:
    * офлайн по уже известному IP → статус и device_history;
-   * онлайн → serial+MAC+УЗ (WMI) / hostname (PTR, иначе WMI) / IP
+   * онлайн → serial+MAC+УЗ (WMI) / hostname (WMI, иначе PTR) / IP
      как ключ идентичности, обновление или создание одной машины,
      история сохраняется при смене адреса и сектора. MAC сначала из ARP,
-     иначе из WMI. Имя: reverse DNS, если PTR нет — Win32_ComputerSystem.
+     иначе из WMI. Имя: Win32_ComputerSystem, PTR только если WMI молчит
+     и у строки ещё нет имени (PTR не затирает уже записанное OS-имя).
      Текущая УЗ пишется в endpoint_accounts / device_account_history.
 
 Позже ту же функцию run_network_poll / poll_all_sectors вызовет задача Celery.
@@ -90,6 +91,7 @@ class _Probe:
     mac: str | None
     serial_number: str | None
     logged_on_user: str | None = None
+    hostname_from_wmi: bool = False
     fingerprint_kind: str | None = None
     fingerprint_detail: str | None = None
 
@@ -523,12 +525,13 @@ def _probe(
     mac = None
     serial_number = None
     logged_on_user = None
+    hostname_from_wmi = False
     fingerprint_kind = None
     fingerprint_detail = None
     if result.status == DeviceStatus.ONLINE:
         # Ищем атрибут на модуле в момент вызова, а не копией функции:
         # так подмена в тестах (и будущий кэш DNS) видна без правки этого файла.
-        hostname = discovery_service.lookup_hostname(ip)
+        ptr = discovery_service.lookup_hostname(ip)
         # ARP — только свой L2. Через маршрутизатор MAC доберём из WMI.
         mac = discovery_service.lookup_mac(ip)
         inventory = discovery_service.lookup_wmi_inventory(ip, creds=wmi_creds)
@@ -536,9 +539,11 @@ def _probe(
         logged_on_user = inventory.logged_on_user
         if not mac and inventory.mac:
             mac = inventory.mac
-        # Без PTR (Unknown host) имя всё равно можно взять с самой машины.
-        if not hostname and inventory.hostname:
-            hostname = inventory.hostname
+        hostname_from_wmi = bool(inventory.hostname)
+        hostname = discovery_service.preferred_hostname(
+            os_hostname=inventory.hostname,
+            ptr=ptr,
+        )
         if needs_fingerprint(hostname, serial_number):
             try:
                 fingerprint = fingerprint_service.fingerprint_host(ip)
@@ -553,6 +558,7 @@ def _probe(
         mac=mac,
         serial_number=serial_number,
         logged_on_user=logged_on_user,
+        hostname_from_wmi=hostname_from_wmi,
         fingerprint_kind=fingerprint_kind,
         fingerprint_detail=fingerprint_detail,
     )
@@ -574,7 +580,9 @@ def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
     device.last_response_time_ms = probe.result.response_time_ms
     device.last_seen = utcnow()
     if probe.hostname:
-        device.hostname = probe.hostname
+        # PTR не затирает уже известное имя с машины.
+        if probe.hostname_from_wmi or not device.hostname:
+            device.hostname = probe.hostname
     if probe.mac:
         device.mac = probe.mac
     if probe.serial_number:

@@ -25,6 +25,7 @@ class Device(TimestampMixin, db.Model):
     # IPv4 строкой; IPv6 сознательно отложен. Не unique: машина может сменить адрес.
     ip = db.Column(db.String(45), nullable=False, index=True)
     hostname = db.Column(db.String(255), nullable=True, index=True)
+    # Имя с машины (WMI), не PTR. PTR — запасной, пока WMI не ответил.
     # Service tag / серийник (Win32_BIOS). Главный ключ идентичности.
     serial_number = db.Column(db.String(64), nullable=True, unique=True, index=True)
     # Нормализованный AA:BB:CC:DD:EE:FF; пусто, если ARP не видел.

@@ -93,3 +93,12 @@ flask --app wsgi run --debug
 Таблицы и недостающие колонки подтягиваются при старте (`ensure_schema` + справочники).
 Переустановка кода без очистки Postgres безопасна: новые колонки (например роли
 `is_viewer` / `is_operator`) добавятся сами. Планировщик отдельно: `python -m app.scheduler_worker`.
+
+Имена на карте — с самой машины (WMI), не reverse DNS. Если карточки показывают общее PTR-имя, на сервере с доступом в LAN:
+
+```bash
+flask --app wsgi refresh-hostnames --dry-run
+flask --app wsgi refresh-hostnames
+```
+
+Строки с разными серийниками не сливаются: меняется только поле hostname.

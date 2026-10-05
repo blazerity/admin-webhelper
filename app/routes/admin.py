@@ -3,6 +3,7 @@
 Эндпоинты:
 - settings      GET/POST /admin/settings
 - poll-run      POST /admin/poll-run — принудительный опрос сети
+- refresh-hostnames POST /admin/refresh-hostnames — WMI-имена на известных машинах
 - updates       GET/POST /admin/updates
 
 Формы на странице настроек различаются скрытым полем form:
@@ -37,6 +38,10 @@ from app.services.credential_service import (
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
 from app.services.network_summary_service import get_scheduler_health
+from app.services.hostname_sweep_service import (
+    HostnameSweepError,
+    run_hostname_sweep,
+)
 from app.services.ping_service import (
     PollInProgressError,
     load_recent_poll_runs,
@@ -210,6 +215,40 @@ def poll_run():
     flash(
         "Опрос завершён: проверено {scanned}, онлайн {online}, "
         "офлайн {offline}, ошибок {errors}.".format(**stats),
+        "success",
+    )
+    return redirect(url_for("admin.settings"))
+
+
+@bp.route("/refresh-hostnames", methods=["POST"])
+@admin_required
+def refresh_hostnames():
+    """Перечитать hostname с машин по WMI. Строки не сливает."""
+    try:
+        result = run_hostname_sweep()
+    except HostnameSweepError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("admin.settings"))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Сбой обновления имён устройств")
+        flash(f"Ошибка обновления имён: {exc}", "danger")
+        return redirect(url_for("admin.settings"))
+
+    audit_service.log(
+        current_user,
+        "update",
+        "devices",
+        "hostname-sweep",
+        detail=(
+            f"scanned={result.scanned} updated={result.updated} "
+            f"offline={result.offline} no_wmi={result.no_wmi} "
+            f"errors={result.errors}"
+        ),
+    )
+    flash(
+        "Имена с машин: проверено {scanned}, изменено {updated}, "
+        "без изменений {unchanged}, офлайн {offline}, "
+        "без WMI {no_wmi}, ошибок {errors}.".format(**result.as_dict()),
         "success",
     )
     return redirect(url_for("admin.settings"))

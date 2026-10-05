@@ -129,6 +129,16 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn btn-outline-primary" type="submit">Запустить опрос сейчас</button>
   </form>
+  <form method="post" action="{{ url_for('admin.refresh_hostnames') }}" class="mt-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-secondary" type="submit">Обновить имена с машин (WMI)</button>
+  </form>
+  <p class="text-muted small mt-2 mb-0">
+    Кнопка перечитывает <code>Win32_ComputerSystem</code> у уже известных устройств
+    и пишет это имя в карту. PTR не используется. Строки с разными серийниками
+    не сливаются. На большой сети надёжнее CLI:
+    <code>flask --app wsgi refresh-hostnames --dry-run</code>.
+  </p>
   <p class="mt-3 mb-0">
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.export_poll_runs') }}">Скачать журнал опросов (CSV)</a>
   </p>

@@ -6,7 +6,8 @@
   Сервер и устройство могут быть в разных подсетях, DNS всё равно ответит,
   если запись заведена. Без PTR (socket.herror Unknown host) имени нет.
 * Имя из WMI — Win32_ComputerSystem.DNSHostName / Name в том же DCOM,
-  что серийник и УЗ. Опрос подставляет его, если PTR пустой.
+  что серийник и УЗ. Это имя машины, его пишем в devices.hostname.
+  PTR — запасной, только если WMI имя не отдал.
 * MAC из ARP (lookup_mac) — адрес канального уровня. Его видно только когда
   этот сервер и устройство сидят в одном L2-сегменте: коммутатор
   доставил кадр, и ядро записало соседа в таблицу ARP (Windows)
@@ -253,6 +254,19 @@ def hostnames_match(left: str | None, right: str | None) -> bool:
     a = hostname_key(left)
     b = hostname_key(right)
     return bool(a and b and a == b)
+
+
+def preferred_hostname(
+    *,
+    os_hostname: str | None = None,
+    ptr: str | None = None,
+) -> str | None:
+    """Имя для карточки: WMI/OS важнее PTR.
+
+    PTR бывает общим на несколько адресов (устаревший reverse DNS).
+    Win32_ComputerSystem — фактическое имя компьютера.
+    """
+    return os_hostname or ptr
 
 
 def _wmi_inventory(ip: str, creds: DiscoveryCredentials) -> WmiInventory:

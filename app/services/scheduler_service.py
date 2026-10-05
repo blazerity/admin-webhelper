@@ -46,7 +46,8 @@ SECTOR_DAILY_JOB_ID = "sector-daily-report"
 
 
 def register_commands(app) -> None:
-    """Команды CLI: poll, archive-logs, password-expiry, sector-daily-report.
+    """Команды CLI: poll, archive-logs, password-expiry, sector-daily-report,
+    refresh-hostnames.
 
     Повторный вызов ничего не делает. Иначе Click упадёт
     с «command already registered», когда create_app вызовут дважды
@@ -130,6 +131,52 @@ def register_commands(app) -> None:
                         "error": result.error,
                     }
                 )
+
+    if "refresh-hostnames" not in app.cli.commands:
+        import click
+
+        @app.cli.command("refresh-hostnames")
+        @click.option(
+            "--dry-run",
+            is_flag=True,
+            help="Спросить имена, не писать в БД.",
+        )
+        @click.option(
+            "--limit",
+            type=int,
+            default=None,
+            help="Максимум устройств (для проверки).",
+        )
+        @click.option(
+            "--device-id",
+            "device_ids",
+            type=int,
+            multiple=True,
+            help="Только эти id (можно повторять).",
+        )
+        def refresh_hostnames_cmd(
+            dry_run: bool, limit: int | None, device_ids: tuple[int, ...]
+        ) -> None:
+            """Записать в карту hostname с самой машины (WMI), не PTR."""
+            from app.services.hostname_sweep_service import (
+                HostnameSweepError,
+                format_change_lines,
+                run_hostname_sweep,
+            )
+
+            with app.app_context():
+                try:
+                    result = run_hostname_sweep(
+                        dry_run=dry_run,
+                        limit=limit,
+                        device_ids=device_ids or None,
+                    )
+                except HostnameSweepError as exc:
+                    print({"error": str(exc)})
+                    raise SystemExit(1) from exc
+                print(result.as_dict())
+                for line in format_change_lines(result):
+                    print(line)
 
     app.extensions[_POLL_COMMAND_KEY] = True
 
