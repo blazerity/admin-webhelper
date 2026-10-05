@@ -39,6 +39,25 @@ _DEFAULT_LIST_LIMIT = 5
 _ALL_LIST_LIMIT = 50
 
 
+def _allowed_detail_tabs(device) -> frozenset[str]:
+    """Вкладки карточки зависят от типа устройства."""
+    tabs = {"overview", "polls"}
+    if device.shows_accounts:
+        tabs.add("accounts")
+    if device.shows_commands:
+        tabs.add("commands")
+    if device.shows_hardware:
+        tabs.add("hardware")
+    return frozenset(tabs)
+
+
+def _detail_tab_for(device) -> str:
+    tab = (request.args.get("tab") or "overview").strip().lower()
+    if tab not in _DETAIL_TABS or tab not in _allowed_detail_tabs(device):
+        return "overview"
+    return tab
+
+
 def _request_json_dict() -> dict:
     """JSON body as dict; non-JSON requests → {}."""
     if request.is_json:
@@ -325,13 +344,6 @@ def _list_limit() -> tuple[int, bool]:
     return (_ALL_LIST_LIMIT if show_all else _DEFAULT_LIST_LIMIT, show_all)
 
 
-def _detail_tab() -> str:
-    tab = (request.args.get("tab") or "overview").strip().lower()
-    if tab not in _DETAIL_TABS:
-        return "overview"
-    return tab
-
-
 def _launch_history(
     device_id: int, run_types: tuple[str, ...], limit: int
 ) -> tuple[list[dict], bool]:
@@ -366,12 +378,12 @@ def _launch_history(
 @bp.get("/devices/<int:device_id>")
 @login_required
 def detail(device_id: int):
-    """Карточка устройства: вкладки overview / accounts / commands / polls."""
+    """Карточка устройства: вкладки зависят от типа (ноутбук/СБ/сервер/…)."""
     device = get_visible_device_or_404(device_id)
     if device.sector is None:
         abort(404)
 
-    tab = _detail_tab()
+    tab = _detail_tab_for(device)
     limit, show_all = _list_limit()
 
     history = []
@@ -388,27 +400,27 @@ def detail(device_id: int):
         )
         has_more = (not show_all) and len(rows) > limit
         history = rows[:limit]
-    elif tab == "commands":
+    elif tab == "commands" and device.shows_commands:
         launches, more = _launch_history(
             device.id,
             (RunType.COMMAND, RunType.SCRIPT),
             limit,
         )
         has_more = (not show_all) and more
-    elif tab == "accounts":
+    elif tab == "accounts" and device.shows_accounts:
         rows = device_account_sightings(device.id, limit=limit + 1)
         has_more = (not show_all) and len(rows) > limit
         account_rows = rows[:limit]
-    elif tab == "hardware":
+    elif tab == "hardware" and device.shows_hardware:
         rows = load_device_hardware_history(device.id, limit=limit + 1)
         has_more = (not show_all) and len(rows) > limit
         hardware_rows = rows[:limit]
 
-    # Пресеты всегда в context; библиотека — admin/operator (operator: published).
-    command_presets = list_command_presets()
+    # Пресеты/скрипты только если вкладка команд доступна этому типу.
+    command_presets = list_command_presets() if device.shows_commands else []
     scripts = (
         script_service.scripts_visible_to_user(current_user)
-        if user_can_run_scripts(current_user)
+        if device.shows_commands and user_can_run_scripts(current_user)
         else []
     )
 
@@ -467,6 +479,8 @@ def unwatch_device(device_id: int):
 def poll_device_hardware(device_id: int):
     """Разовый WMI-опрос железа этой машины (admin)."""
     device = get_visible_device_or_404(device_id)
+    if not device.shows_hardware:
+        abort(404)
     try:
         result = poll_one_device(device)
     except HardwarePollInProgressError as exc:
@@ -505,6 +519,8 @@ def poll_device_hardware(device_id: int):
 def run_script_on_device(device_id: int):
     """Быстрый запуск скрипта с карточки устройства → detail первого run."""
     device = get_visible_device_or_404(device_id)
+    if not device.shows_commands:
+        abort(404)
     script_id = parse_optional_int(request.form.get("script_id"))
     if script_id is None:
         flash("Выберите скрипт.", "warning")

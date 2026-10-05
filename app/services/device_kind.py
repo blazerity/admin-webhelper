@@ -287,6 +287,27 @@ def kind_short_label(kind: str) -> str:
     return KIND_SHORT_LABELS.get(kind, KIND_SHORT_LABELS[KIND_OTHER])
 
 
+# Карточка устройства: какие разделы/поля показывать по типу.
+_KINDS_WITH_ACCOUNTS = frozenset({KIND_NOTEBOOK, KIND_DESKTOP})
+_KINDS_WITH_HARDWARE = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER})
+_KINDS_WITH_COMMANDS = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER})
+
+
+def kind_shows_accounts(kind: str) -> bool:
+    """УЗ и MAC — только ноутбуки и СБ."""
+    return kind in _KINDS_WITH_ACCOUNTS
+
+
+def kind_shows_hardware(kind: str) -> bool:
+    """Конфигурация железа — ноутбуки, СБ и серверы."""
+    return kind in _KINDS_WITH_HARDWARE
+
+
+def kind_shows_commands(kind: str) -> bool:
+    """Командная строка и скрипты — ноутбуки, СБ и серверы."""
+    return kind in _KINDS_WITH_COMMANDS
+
+
 def kind_counts(devices) -> list[tuple[str, str, int]]:
     """Ненулевые (kind, short_label, count) в стабильном порядке."""
     counts = Counter(getattr(device, "kind", KIND_OTHER) for device in devices)

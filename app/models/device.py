@@ -10,7 +10,13 @@ current_account_id — УЗ, которую последний опрос вид
 
 from app.extensions import db
 from app.models.base import TimestampMixin
-from app.services.device_kind import classify_device_kind, kind_label
+from app.services.device_kind import (
+    classify_device_kind,
+    kind_label,
+    kind_shows_accounts,
+    kind_shows_commands,
+    kind_shows_hardware,
+)
 from app.utils import utcnow
 
 
@@ -105,6 +111,21 @@ class Device(TimestampMixin, db.Model):
     @property
     def kind_label(self) -> str:
         return kind_label(self.kind)
+
+    @property
+    def shows_accounts(self) -> bool:
+        """УЗ и MAC на карточке — только ноутбуки и СБ."""
+        return kind_shows_accounts(self.kind)
+
+    @property
+    def shows_hardware(self) -> bool:
+        """Вкладка/блок оборудования — ноутбуки, СБ и серверы."""
+        return kind_shows_hardware(self.kind)
+
+    @property
+    def shows_commands(self) -> bool:
+        """Команды и скрипты — ноутбуки, СБ и серверы."""
+        return kind_shows_commands(self.kind)
 
     @property
     def os_label(self) -> str:

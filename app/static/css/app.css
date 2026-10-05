@@ -1583,6 +1583,10 @@ code {
   box-shadow: inset -3px 0 0 var(--accent);
 }
 
+.device-settings-sidebar .settings-nav {
+  gap: 0.2rem;
+}
+
 .device-actions-panel {
   position: sticky;
   top: calc(var(--topbar-h) + 1rem);
