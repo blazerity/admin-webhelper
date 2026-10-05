@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/status.html" import device_card, status_badge %}
+{% from "macros/status.html" import device_card, device_type_icon %}
 {% block title %}Карта сети{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -48,8 +48,6 @@
         id="map-search-form"
         method="get"
         action="{{ url_for('devices.map') }}"
-        data-suggest-url="/search/suggest"
-        data-api-url="{{ url_for('search.search_api') }}"
       >
         <div class="map-search-field">
           <label class="visually-hidden" for="map-search-q">Запрос</label>
@@ -60,48 +58,20 @@
             value="{{ search_query }}"
             placeholder="Например NBOOK или 10.0.0"
             autocomplete="off"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-controls="map-search-suggest"
-            aria-expanded="false"
           >
-          <div
-            class="map-search-suggest d-none"
-            id="map-search-suggest"
-            role="listbox"
-            aria-label="Подсказки поиска"
-          ></div>
         </div>
-        <label class="visually-hidden" for="map-search-sector">Сектор</label>
-        <select class="form-select" id="map-search-sector" name="sector_id">
-          <option value="">Все секторы</option>
-          {% for sector in search_sectors %}
-          <option value="{{ sector.id }}" {% if search_sector_id == sector.id %}selected{% endif %}>{{ sector.name }}</option>
-          {% endfor %}
-        </select>
-      </form>
-      <div class="map-search-results" id="map-search-results"{% if search_query|length >= 2 %} data-initial-ids="{% for d in search_results %}{{ d.id }}{% if not loop.last %},{% endif %}{% endfor %}"{% endif %}>
-        {% if search_query %}
-          {% if search_query|length < 2 %}
-          <p class="text-muted small mb-0">Введите ещё символ для поиска.</p>
-          {% else %}
-            {% for device in search_results %}
-            <a class="search-result" href="{{ url_for('devices.detail', device_id=device.id) }}">
-              <span class="search-result-top">
-                <span class="search-result-name">{{ device.hostname or 'без имени' }}</span>
-                {{ status_badge(device.last_status) }}
-              </span>
-              <span class="search-result-meta font-monospace">{{ device.ip }}{% if device.mac %} · {{ device.mac }}{% endif %}</span>
-              <span class="search-result-sector">{{ device.sector.name }}</span>
-            </a>
-            {% else %}
-            <p class="text-muted small mb-0">Ничего не найдено.</p>
+        <div class="map-search-sector">
+          <label class="visually-hidden" for="map-search-sector">Сектор</label>
+          <select class="form-select" id="map-search-sector" name="sector_id">
+            <option value="">Все секторы</option>
+            {% for sector in search_sectors %}
+            <option value="{{ sector.id }}" {% if search_sector_id == sector.id %}selected{% endif %}>{{ sector.name }}</option>
             {% endfor %}
-          {% endif %}
-        {% else %}
-        <p class="text-muted small mb-0" id="map-search-hint">Начните вводить запрос — на карте останутся подходящие машины.</p>
-        {% endif %}
-      </div>
+          </select>
+        </div>
+        <button type="button" class="btn btn-sm btn-link map-search-reset" id="map-search-reset">Сбросить</button>
+      </form>
+      <p class="text-muted small mb-0" id="map-search-hint">Начните вводить запрос — на карте останутся подходящие машины.</p>
     </div>
   </div>
 
@@ -120,6 +90,9 @@
         <div class="btn-group btn-group-sm" role="group">
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="notebook" aria-pressed="false">Ноутбуки</button>
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="desktop" aria-pressed="false">СБ</button>
+          <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="vds" aria-pressed="false">VDS</button>
+          <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="server" aria-pressed="false">Серверы</button>
+          <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="firewall" aria-pressed="false">Firewall</button>
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="other" aria-pressed="false">Прочие</button>
         </div>
       </div>
@@ -148,25 +121,38 @@
       {% set panel_id = 'sector-panel-' ~ sector.id %}
       <section class="sector-panel" data-sector-id="{{ sector.id }}">
         <button
-          class="sector-toggle"
+          class="sector-toggle collapsed"
           type="button"
           data-bs-toggle="collapse"
           data-bs-target="#{{ panel_id }}"
-          aria-expanded="true"
+          aria-expanded="false"
           aria-controls="{{ panel_id }}"
         >
           <span class="sector-toggle-main">
-            <span class="sector-toggle-name">{{ sector.name }}</span>
-            <span class="sector-toggle-meta">
-              <span class="sector-stat sector-stat-online"><strong data-sector-online>{{ online_count }}</strong> онлайн</span>
-              <span class="sector-stat sector-stat-offline"><span data-sector-offline>{{ offline_count }}</span> офлайн</span>
-              <span class="sector-stat sector-stat-unknown"><span data-sector-unknown>{{ unknown_count }}</span> неизв.</span>
-              <span class="sector-stat"><span data-sector-total>{{ total_count }}</span> всего</span>
+            <span class="sector-toggle-title-row">
+              <span class="sector-toggle-name">{{ sector.name }}</span>
+              <span class="sector-toggle-meta">
+                <span class="sector-stat sector-stat-online"><strong data-sector-online>{{ online_count }}</strong> онлайн</span>
+                <span class="sector-stat sector-stat-offline"><span data-sector-offline>{{ offline_count }}</span> офлайн</span>
+                <span class="sector-stat sector-stat-unknown"><span data-sector-unknown>{{ unknown_count }}</span> неизв.</span>
+                <span class="sector-stat"><span data-sector-total>{{ total_count }}</span> всего</span>
+              </span>
+            </span>
+            <span class="sector-toggle-extra">
+              <span class="sector-toggle-subnets font-monospace" data-sector-subnets{% if not sector.subnet_labels|default([]) %} hidden{% endif %}>{% for label in sector.subnet_labels|default([]) %}{{ label }}{% if not loop.last %} · {% endif %}{% endfor %}</span>
+              <span class="sector-toggle-kinds" data-sector-kinds>
+                {% for kind, label, count in sector.kind_stats|default([]) %}
+                <span class="sector-kind-stat" title="{{ label }}">
+                  {{ device_type_icon(kind) }}
+                  <span>{{ count }}</span>
+                </span>
+                {% endfor %}
+              </span>
             </span>
           </span>
           <span class="sector-toggle-chevron" aria-hidden="true"></span>
         </button>
-        <div class="collapse show" id="{{ panel_id }}">
+        <div class="collapse" id="{{ panel_id }}">
           <div class="sector-devices">
             <div class="device-card-grid" data-sector-devices>
               {% for device in sector.visible_devices %}
@@ -175,6 +161,10 @@
                 data-device-id="{{ device.id }}"
                 data-status="{{ device.last_status }}"
                 data-type="{{ device.kind }}"
+                data-hostname="{{ device.hostname or '' }}"
+                data-ip="{{ device.ip }}"
+                data-mac="{{ device.mac or '' }}"
+                data-serial="{{ device.serial_number or '' }}"
               >{{ device_card(device) }}</div>
               {% endfor %}
             </div>

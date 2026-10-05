@@ -8,6 +8,7 @@ current_account_id — УЗ, которую последний опрос вид
 
 from app.extensions import db
 from app.models.base import TimestampMixin
+from app.services.device_kind import classify_device_kind, kind_label
 from app.utils import utcnow
 
 
@@ -71,21 +72,12 @@ class Device(TimestampMixin, db.Model):
 
     @property
     def kind(self) -> str:
-        """Тип по префиксу hostname: notebook (N…), desktop/СБ (W…), иначе other."""
-        name = (self.hostname or "").lower()
-        if name.startswith("n"):
-            return "notebook"
-        if name.startswith("w"):
-            return "desktop"
-        return "other"
+        """Тип по hostname: n/w/v + 3|5 цифр, ktn/spb/kgl, ngfw, иначе other."""
+        return classify_device_kind(self.hostname)
 
     @property
     def kind_label(self) -> str:
-        return {
-            "notebook": "Ноутбук",
-            "desktop": "Системный блок",
-            "other": "Устройство",
-        }.get(self.kind, "Устройство")
+        return kind_label(self.kind)
 
     def __repr__(self) -> str:
         return f"<Device {self.ip} {self.last_status}>"

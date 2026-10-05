@@ -12,7 +12,7 @@
   <div class="device-settings-content">
     <div class="page-header">
       <div>
-        <p class="mb-1"><a href="{{ url_for('devices.map') }}">← К карте</a></p>
+        <p class="mb-1"><a href="{{ url_for('devices.map') }}" id="device-back-to-map">← К карте</a></p>
         <h1 class="page-title">Карточка устройства</h1>
         <p class="page-subtitle">
           {% if tab == 'overview' %}Обзор объекта в инвентаре сети
@@ -240,4 +240,24 @@
   </aside>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const VIEW_KEY = "bawh.map.view";
+  const RESTORE_KEY = "bawh.map.restore";
+  const link = document.getElementById("device-back-to-map");
+  try {
+    const raw = sessionStorage.getItem(VIEW_KEY);
+    const state = raw ? JSON.parse(raw) : null;
+    if (link && state && typeof state.url === "string" && state.url.startsWith("/") && !state.url.startsWith("//")) {
+      link.setAttribute("href", state.url);
+    }
+    sessionStorage.setItem(RESTORE_KEY, "1");
+  } catch (_err) {
+    /* ignore quota / private mode */
+  }
+})();
+</script>
 {% endblock %}
