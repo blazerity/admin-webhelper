@@ -10,6 +10,21 @@
     offline: "недоступен",
     unknown: "неизвестно",
   };
+  const STATUS_SHORT = {
+    online: "Онлайн",
+    offline: "Офлайн",
+    unknown: "Неизв.",
+  };
+  const KIND_LABELS = {
+    notebook: "Ноутбук",
+    desktop: "СБ",
+    other: "Прочее",
+  };
+  const TYPE_ICONS = {
+    notebook: `<span class="device-type-icon" title="Ноутбук" aria-label="Ноутбук"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M2 20h20"></path><path d="M8 20h8"></path></svg></span>`,
+    desktop: `<span class="device-type-icon" title="СБ" aria-label="СБ"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="1.5"></rect><path d="M8 20h8"></path><path d="M12 16v4"></path></svg></span>`,
+    other: `<span class="device-type-icon muted" title="Прочее" aria-label="Прочее"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5"></path><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"></circle></svg></span>`,
+  };
   const FILTER_PARAM_KEYS = ["status", "type", "fav"];
 
   const mapRoot = document.getElementById("sector-map");
@@ -333,8 +348,8 @@
     }
   }
 
-  function updateStatusDot(cardLink, status) {
-    const dot = cardLink.querySelector(".status-dot");
+  function updateStatusDot(root, status) {
+    const dot = root.querySelector(".status-dot");
     if (!dot) {
       return;
     }
@@ -342,6 +357,32 @@
     const label = STATUS_LABELS[status] || STATUS_LABELS.unknown;
     dot.title = label;
     dot.setAttribute("aria-label", label);
+  }
+
+  function updateStatusChip(card, status) {
+    const article = card.querySelector(".device-card");
+    if (article) {
+      setStatusClasses(article, status);
+    }
+    updateStatusDot(card, status);
+    const short = STATUS_SHORT[status] || STATUS_SHORT.unknown;
+    const chip = card.querySelector(".device-card-status");
+    if (chip) {
+      chip.title = short;
+    }
+    const labelEl = card.querySelector("[data-status-label]");
+    if (labelEl) {
+      labelEl.textContent = short;
+    }
+  }
+
+  function syncKindUi(card, kind) {
+    const resolved = KIND_LABELS[kind] ? kind : "other";
+    const kindWrap = card.querySelector(".device-card-kind");
+    if (!kindWrap) {
+      return;
+    }
+    kindWrap.innerHTML = `${TYPE_ICONS[resolved] || TYPE_ICONS.other}<span class="device-card-kind-label">${escapeHtml(KIND_LABELS[resolved] || KIND_LABELS.other)}</span>`;
   }
 
   function syncFavoriteUi(card) {
@@ -445,34 +486,45 @@
 
   function createDeviceCardElement(device) {
     const status = device.status || "unknown";
-    const kind = device.kind || "other";
+    const kind = KIND_LABELS[device.kind] ? device.kind : "other";
     const href = device.url || `/devices/${device.id}`;
     const hostname = device.hostname || "без имени";
+    const hasName = Boolean(device.hostname);
     const ip = device.ip || "";
+    const statusShort = STATUS_SHORT[status] || STATUS_SHORT.unknown;
     const col = document.createElement("div");
-    col.className = "col-6 col-sm-4 col-md-3 col-xl-2";
     col.dataset.deviceCard = "";
     col.dataset.deviceId = String(device.id);
     col.dataset.status = status;
     col.dataset.type = kind;
     col.innerHTML = `
       <div class="device-card-shell">
-        <button type="button" class="device-select-hit" data-device-select aria-pressed="false" aria-label="Выбрать устройство" title="Выбрать">
-          <span class="device-select-box" aria-hidden="true"></span>
-        </button>
-        <button type="button" class="device-fav-btn" data-device-fav aria-pressed="false" aria-label="В избранное" title="Избранное">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
-          </svg>
-        </button>
-        <a class="device-card ${escapeHtml(status)} text-decoration-none" href="${escapeHtml(href)}" data-device-link>
-          <div class="device-card-top">
-            <span class="device-type-icon muted" title="Тип" aria-hidden="true"></span>
-            <span class="status-dot ${escapeHtml(status)}" title="${escapeHtml(STATUS_LABELS[status] || STATUS_LABELS.unknown)}" aria-label="${escapeHtml(STATUS_LABELS[status] || STATUS_LABELS.unknown)}"></span>
+        <article class="device-card ${escapeHtml(status)}">
+          <div class="device-card-head">
+            <button type="button" class="device-select-hit" data-device-select aria-pressed="false" aria-label="Выбрать устройство" title="Выбрать">
+              <span class="device-select-box" aria-hidden="true"></span>
+            </button>
+            <span class="device-card-kind">
+              ${TYPE_ICONS[kind] || TYPE_ICONS.other}
+              <span class="device-card-kind-label">${escapeHtml(KIND_LABELS[kind] || KIND_LABELS.other)}</span>
+            </span>
+            <span class="device-card-head-actions">
+              <button type="button" class="device-fav-btn" data-device-fav aria-pressed="false" aria-label="В избранное" title="Избранное">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                </svg>
+              </button>
+              <span class="device-card-status" title="${escapeHtml(statusShort)}">
+                <span class="status-dot ${escapeHtml(status)}" title="${escapeHtml(STATUS_LABELS[status] || STATUS_LABELS.unknown)}" aria-label="${escapeHtml(STATUS_LABELS[status] || STATUS_LABELS.unknown)}"></span>
+                <span class="device-card-status-label" data-status-label>${escapeHtml(statusShort)}</span>
+              </span>
+            </span>
           </div>
-          <div class="device-card-name" title="${escapeHtml(hostname)}">${escapeHtml(hostname)}</div>
-          <div class="device-card-ip font-monospace">${escapeHtml(ip)}</div>
-        </a>
+          <a class="device-card-body text-decoration-none" href="${escapeHtml(href)}" data-device-link>
+            <div class="device-card-name${hasName ? "" : " is-empty"}" title="${escapeHtml(hostname)}">${escapeHtml(hostname)}</div>
+            <div class="device-card-ip font-monospace">${escapeHtml(ip)}</div>
+          </a>
+        </article>
       </div>
     `;
     bindCardControls(col);
@@ -485,7 +537,7 @@
     const devicesWrap = panel.querySelector(".sector-devices");
     if (!devicesWrap) return null;
     row = document.createElement("div");
-    row.className = "row g-2";
+    row.className = "device-card-grid";
     row.dataset.sectorDevices = "";
     devicesWrap.prepend(row);
     return row;
@@ -501,9 +553,17 @@
       }
 
       const onlineEl = panel.querySelector("[data-sector-online]");
+      const offlineEl = panel.querySelector("[data-sector-offline]");
+      const unknownEl = panel.querySelector("[data-sector-unknown]");
       const totalEl = panel.querySelector("[data-sector-total]");
       if (onlineEl) {
         onlineEl.textContent = String(sector.online);
+      }
+      if (offlineEl && sector.offline != null) {
+        offlineEl.textContent = String(sector.offline);
+      }
+      if (unknownEl && sector.unknown != null) {
+        unknownEl.textContent = String(sector.unknown);
       }
       if (totalEl) {
         totalEl.textContent = String(sector.total);
@@ -519,19 +579,25 @@
           card = createDeviceCardElement(device);
           row.appendChild(card);
         }
+        const nextKind = device.kind || "other";
+        const kindChanged = card.dataset.type !== nextKind;
         card.dataset.status = device.status;
-        card.dataset.type = device.kind;
+        card.dataset.type = nextKind;
+        updateStatusChip(card, device.status);
+        if (kindChanged) {
+          syncKindUi(card, nextKind);
+        }
         const link = card.querySelector("[data-device-link]");
         if (link) {
-          setStatusClasses(link, device.status);
-          updateStatusDot(link, device.status);
           if (device.url && link.getAttribute("href") !== device.url) {
             link.setAttribute("href", device.url);
           }
           const nameEl = link.querySelector(".device-card-name");
-          if (nameEl && device.hostname) {
-            nameEl.textContent = device.hostname;
-            nameEl.title = device.hostname;
+          if (nameEl) {
+            const hostname = device.hostname || "без имени";
+            nameEl.textContent = hostname;
+            nameEl.title = hostname;
+            nameEl.classList.toggle("is-empty", !device.hostname);
           }
           const ipEl = link.querySelector(".device-card-ip");
           if (ipEl && device.ip) {
