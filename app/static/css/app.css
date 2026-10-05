@@ -932,10 +932,6 @@ code {
   .device-card-grid {
     grid-template-columns: 1fr;
   }
-
-  .device-card-kind-label {
-    display: none;
-  }
 }
 
 .map-search {
