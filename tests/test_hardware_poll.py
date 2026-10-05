@@ -21,6 +21,7 @@ from app.services.hardware_info import (
     build_hardware_snapshot,
     format_os_label,
     map_build_to_display,
+    normalize_stored_capacity_gb,
     parse_windows_caption,
 )
 from app.services.hardware_poll_service import (
@@ -56,18 +57,40 @@ def _device(
 
 
 class HardwareInfoTests(unittest.TestCase):
-    def test_bytes_to_gb_rounds_16gib(self) -> None:
-        self.assertEqual(bytes_to_gb(16 * 1024**3), 16)
-        self.assertEqual(bytes_to_gb(17179869184), 16)
-        self.assertEqual(bytes_to_gb(512 * 1024**2), 1)
-        self.assertEqual(bytes_to_gb(0), 0)
+    def test_bytes_to_gb_ram_nominal(self) -> None:
+        # Точные планки и «рваный» TotalPhysicalMemory (резерв BIOS).
+        self.assertEqual(bytes_to_gb(16 * 1024**3, kind="ram"), 16)
+        self.assertEqual(bytes_to_gb(17179869184, kind="ram"), 16)
+        self.assertEqual(bytes_to_gb(int(15.2 * 1024**3), kind="ram"), 16)
+        self.assertEqual(bytes_to_gb(15 * 1024**3, kind="ram"), 16)
+        self.assertEqual(bytes_to_gb(0, kind="ram"), 0)
+        self.assertIsNone(bytes_to_gb(None, kind="ram"))
+
+    def test_bytes_to_gb_disk_label(self) -> None:
+        # Этикетка SSD: Size ≈ N·1000³, не N·1024³ (иначе 238/244 вместо 256).
+        self.assertEqual(bytes_to_gb(256 * 1000**3, kind="disk"), 256)
+        self.assertEqual(bytes_to_gb(256060514304, kind="disk"), 256)
+        self.assertEqual(bytes_to_gb(262144000000, kind="disk"), 256)
+        self.assertEqual(bytes_to_gb(512 * 1000**3, kind="disk"), 512)
+        self.assertEqual(bytes_to_gb(512 * 1024**2, kind="disk"), 1)
+        self.assertEqual(bytes_to_gb(0, kind="disk"), 0)
         self.assertIsNone(bytes_to_gb(None))
+
+    def test_normalize_stored_capacity_from_v150(self) -> None:
+        # То, что уже лежит в БД после опроса на round(ГиБ).
+        self.assertEqual(normalize_stored_capacity_gb(15, kind="ram"), 16)
+        self.assertEqual(normalize_stored_capacity_gb(16, kind="ram"), 16)
+        self.assertEqual(normalize_stored_capacity_gb(238, kind="disk"), 256)
+        self.assertEqual(normalize_stored_capacity_gb(244, kind="disk"), 256)
+        self.assertEqual(normalize_stored_capacity_gb(476, kind="disk"), 512)
+        self.assertEqual(normalize_stored_capacity_gb(465, kind="disk"), 500)
+        self.assertIsNone(normalize_stored_capacity_gb(None, kind="disk"))
 
     def test_parse_windows_11_pro_25h2(self) -> None:
         snap = build_hardware_snapshot(
             cpu_name="  Intel(R)  Core(TM) i7-10700  CPU @ 2.90GHz ",
             ram_bytes=16 * 1024**3,
-            disk_bytes=512 * 1024**3,
+            disk_bytes=512 * 1000**3,
             os_caption="Microsoft Windows 11 Pro",
             os_version="10.0.26100",
             os_build="26100",
@@ -146,6 +169,52 @@ class HardwarePollServiceTests(unittest.TestCase):
         self.assertTrue(
             {"cpu_name", "ram_gb", "disk_gb", "os_family", "os_edition", "os_display_version"}.issubset(cols)
         )
+
+    def test_ensure_schema_migrates_stored_ram_disk_nominals(self) -> None:
+        from app.models import AppSetting
+        from app.schema import HARDWARE_GB_NOMINAL_FIX_KEY
+        from app.utils import utcnow
+
+        device = _device(self.sector.id, "10.0.0.40", hostname="n179", serial="SNMIG")
+        device.ram_gb = 15
+        device.disk_gb = 244
+        db.session.add(device)
+        db.session.flush()
+        history = DeviceHardwareHistory(
+            device_id=device.id,
+            collected_at=utcnow(),
+            cpu_name="Intel Core i5",
+            ram_gb=15,
+            disk_gb=238,
+            os_family="Windows 11",
+            os_edition="Pro",
+            os_display_version="25H2",
+            os_build="26100",
+        )
+        db.session.add(history)
+        marker = db.session.get(AppSetting, HARDWARE_GB_NOMINAL_FIX_KEY)
+        if marker is not None:
+            db.session.delete(marker)
+        db.session.commit()
+
+        ensure_schema()
+        db.session.refresh(device)
+        db.session.refresh(history)
+        self.assertEqual(device.ram_gb, 16)
+        self.assertEqual(device.disk_gb, 256)
+        self.assertEqual(history.ram_gb, 16)
+        self.assertEqual(history.disk_gb, 256)
+        self.assertEqual(
+            db.session.get(AppSetting, HARDWARE_GB_NOMINAL_FIX_KEY).value,
+            "1",
+        )
+
+        # Повторный старт не трогает уже прогнанную БД.
+        device.ram_gb = 15
+        db.session.commit()
+        ensure_schema()
+        db.session.refresh(device)
+        self.assertEqual(device.ram_gb, 15)
 
     def test_windows_targets_serial_and_naming_not_cameras(self) -> None:
         notebook = _device(self.sector.id, "10.0.0.1", hostname="n179", serial="ABC123")

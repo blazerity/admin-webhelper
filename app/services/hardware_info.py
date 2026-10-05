@@ -7,10 +7,68 @@ WMI отдаёт сырые Caption/байты; здесь — семейств�
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
+# ОЗУ — двоичные ГиБ (планки всегда кратны 1024³).
 _GIB = 1024 ** 3
+# Диски — десятичные ГБ, как на этикетке SSD/HDD (1000³).
+_GB = 1000 ** 3
+
+# Номиналы для привязки «рваных» значений WMI к тому, что стоит в железе.
+_RAM_NOMINALS = (
+    1,
+    2,
+    3,
+    4,
+    6,
+    8,
+    12,
+    16,
+    24,
+    32,
+    48,
+    64,
+    96,
+    128,
+    192,
+    256,
+    384,
+    512,
+    768,
+    1024,
+    1536,
+    2048,
+)
+_DISK_NOMINALS = (
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64,
+    120,
+    128,
+    250,
+    256,
+    320,
+    500,
+    512,
+    750,
+    1000,
+    1024,
+    1500,
+    2000,
+    2048,
+    3000,
+    4000,
+    4096,
+    6000,
+    8000,
+    8192,
+)
 
 _EDITION_ID = {
     "professional": "Pro",
@@ -110,11 +168,19 @@ class HardwareSnapshot:
         )
 
 
-def bytes_to_gb(value: int | float | str | None) -> int | None:
-    """Байты → целые ГиБ (1024³), округление до ближайшего.
+def bytes_to_gb(
+    value: int | float | str | None,
+    *,
+    kind: str = "disk",
+) -> int | None:
+    """Байты → целые ГБ с привязкой к номиналу производителя.
 
-    Ненулевой объём меньше 0.5 ГиБ даёт 1, чтобы флешка/крошечный диск
-    не стал нулём.
+    kind=\"ram\": делитель 1024³ (ГиБ). TotalPhysicalMemory часто на доли ГиБ
+    меньше установленных планок (резерв BIOS) — 15.x давало бы 15 без snap.
+    kind=\"disk\": делитель 1000³ (ГБ на этикетке). Size SSD «256 ГБ» ≈ 238 ГиБ;
+    round(ГиБ) даёт 238/244, а не 256.
+
+    Ненулевой объём меньше 0.5 единицы даёт 1.
     """
     if value is None:
         return None
@@ -129,8 +195,52 @@ def bytes_to_gb(value: int | float | str | None) -> int | None:
         return None
     if number == 0:
         return 0
-    gb = int(round(number / _GIB))
-    return gb if gb > 0 else 1
+    if kind == "ram":
+        raw = number / _GIB
+        # ceil: usable 15.2 ГиБ → не меньше 16 до snap.
+        provisional = max(1, int(math.ceil(raw - 1e-12)))
+        return _snap_nominal(float(provisional), _RAM_NOMINALS, rel=0.12)
+    raw = number / _GB
+    rounded = int(round(raw))
+    if rounded < 1:
+        return 1
+    return _snap_nominal(float(rounded), _DISK_NOMINALS, rel=0.08)
+
+
+def _snap_nominal(raw: float, nominals: tuple[int, ...], *, rel: float) -> int:
+    """Ближайший номинал, если относительная ошибка ≤ rel; иначе raw как int."""
+    if raw <= 0:
+        return 1
+    nearest = min(nominals, key=lambda n: abs(n - raw))
+    if nearest > 0 and abs(nearest - raw) / nearest <= rel:
+        return nearest
+    return max(1, int(round(raw)))
+
+
+def normalize_stored_capacity_gb(
+    value: int | None,
+    *,
+    kind: str = "disk",
+) -> int | None:
+    """Уже сохранённые ГБ (опрос v1.5.0) → номинал v1.5.1.
+
+    ОЗУ: snap к номиналу планок (15→16).
+    Диск: в БД лежал round(байты/1024³); восстанавливаем приблизительные
+    байты и считаем этикетку 1000³ (238/244→256). Сырых байтов в таблице нет.
+    """
+    if value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    if number < 0:
+        return None
+    if number == 0:
+        return 0
+    if kind == "ram":
+        return _snap_nominal(float(number), _RAM_NOMINALS, rel=0.12)
+    return bytes_to_gb(number * _GIB, kind="disk")
 
 
 def normalize_cpu_name(value: str | None) -> str | None:
@@ -291,8 +401,8 @@ def build_hardware_snapshot(
     )
     return HardwareSnapshot(
         cpu_name=normalize_cpu_name(cpu_name),
-        ram_gb=bytes_to_gb(ram_bytes),
-        disk_gb=bytes_to_gb(disk_bytes),
+        ram_gb=bytes_to_gb(ram_bytes, kind="ram"),
+        disk_gb=bytes_to_gb(disk_bytes, kind="disk"),
         os_caption=caption,
         os_family=family,
         os_edition=edition,
