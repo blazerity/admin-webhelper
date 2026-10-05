@@ -49,8 +49,13 @@
     other: `<span class="device-type-icon muted" title="Прочее" aria-label="Прочее"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5"></path><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"></circle></svg></span>`,
   };
   const FILTER_PARAM_KEYS = ["status", "type", "fav"];
+  const DEFAULT_TYPES = ["notebook", "desktop"];
+  const LAYOUT_KEY = "bawh.map.layout";
+  const SORT_KEY = "bawh.map.sort";
   const VIEW_KEY = "bawh.map.view";
   const RESTORE_KEY = "bawh.map.restore";
+  const LAYOUTS = ["list", "cards", "tiles"];
+  const SORTS = ["hostname", "ip", "mac"];
 
   const mapRoot = document.getElementById("sector-map");
   const filtersRoot = document.getElementById("map-filters");
@@ -67,9 +72,13 @@
   const bulkError = document.getElementById("map-bulk-error");
   const bulkScriptConfirm = document.getElementById("map-bulk-script-confirm");
   const bulkScriptSelect = document.getElementById("map-bulk-script-select");
+  const sortSelect = document.getElementById("map-sort");
   const favFilterBtn = filtersRoot
     ? filtersRoot.querySelector("[data-filter-fav]")
     : null;
+  const layoutButtons = filtersRoot
+    ? Array.from(filtersRoot.querySelectorAll("[data-map-layout]"))
+    : [];
 
   if (!mapRoot || !filtersRoot || !fetchJson || !postJson) {
     return;
@@ -85,6 +94,10 @@
   let searchSectorId = "";
   let favOnly = false;
   let restoringView = false;
+  /** @type {string} */
+  let currentLayout = loadLayout();
+  /** @type {string} */
+  let currentSort = loadSort();
 
   function loadFavorites() {
     try {
@@ -108,6 +121,82 @@
     } catch (_err) {
       /* ignore quota / private mode */
     }
+  }
+
+  function loadLayout() {
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (LAYOUTS.includes(raw)) {
+        return raw;
+      }
+    } catch (_err) {
+      /* ignore */
+    }
+    return "cards";
+  }
+
+  function saveLayout(layout) {
+    try {
+      localStorage.setItem(LAYOUT_KEY, layout);
+    } catch (_err) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function loadSort() {
+    try {
+      const raw = localStorage.getItem(SORT_KEY);
+      if (SORTS.includes(raw)) {
+        return raw;
+      }
+    } catch (_err) {
+      /* ignore */
+    }
+    return "hostname";
+  }
+
+  function saveSort(sort) {
+    try {
+      localStorage.setItem(SORT_KEY, sort);
+    } catch (_err) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function applyLayoutToGrids() {
+    mapRoot.querySelectorAll("[data-sector-devices]").forEach((row) => {
+      row.dataset.layout = currentLayout;
+    });
+    layoutButtons.forEach((btn) => {
+      const active = btn.dataset.mapLayout === currentLayout;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  function setLayout(layout) {
+    if (!LAYOUTS.includes(layout)) {
+      return;
+    }
+    currentLayout = layout;
+    saveLayout(layout);
+    applyLayoutToGrids();
+  }
+
+  function syncSortSelect() {
+    if (sortSelect) {
+      sortSelect.value = currentSort;
+    }
+  }
+
+  function setSort(sort) {
+    if (!SORTS.includes(sort)) {
+      return;
+    }
+    currentSort = sort;
+    saveSort(sort);
+    syncSortSelect();
+    sortAllSectorCards();
   }
 
   function formatPollStamp(lastPoll) {
@@ -241,7 +330,10 @@
   function applyUrlToFilters() {
     const params = new URLSearchParams(window.location.search);
     const statuses = new Set(parseListParam(params, "status"));
-    const types = new Set(parseListParam(params, "type"));
+    const hasTypeParam = params.has("type");
+    const types = hasTypeParam
+      ? new Set(parseListParam(params, "type"))
+      : new Set(DEFAULT_TYPES);
     favOnly = params.get("fav") === "1";
 
     filtersRoot.querySelectorAll("[data-filter-group]").forEach((btn) => {
@@ -258,6 +350,14 @@
       favFilterBtn.classList.toggle("active", favOnly);
       favFilterBtn.setAttribute("aria-pressed", favOnly ? "true" : "false");
     }
+  }
+
+  function applyDefaultTypeFilters() {
+    filtersRoot.querySelectorAll('[data-filter-group="type"]').forEach((btn) => {
+      const active = DEFAULT_TYPES.includes(btn.dataset.filterValue);
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
   }
 
   function searchIsActive() {
@@ -394,19 +494,76 @@
     return `${name.replace(/\d+/g, (digits) => digits.padStart(10, "0"))}\t${ipKey}`;
   }
 
-  function sortSectorCards(row) {
-    if (!row) {
-      return;
+  function ipSortParts(ip) {
+    const bits = String(ip || "")
+      .trim()
+      .split(".");
+    if (bits.length === 4) {
+      const nums = bits.map((part) => Number(part));
+      if (nums.every((n) => Number.isFinite(n) && n >= 0 && n <= 255)) {
+        return nums;
+      }
     }
-    const cards = Array.from(row.querySelectorAll("[data-device-card]"));
-    cards.sort((left, right) => {
+    return [999, 999, 999, 999];
+  }
+
+  function compareIp(left, right) {
+    const a = ipSortParts(left);
+    const b = ipSortParts(right);
+    for (let i = 0; i < 4; i += 1) {
+      if (a[i] !== b[i]) {
+        return a[i] - b[i];
+      }
+    }
+    return 0;
+  }
+
+  function macSortKey(mac) {
+    const normalized = String(mac || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^0-9a-f]/g, "");
+    if (!normalized) {
+      return "~";
+    }
+    return normalized.padStart(12, "0");
+  }
+
+  function compareCards(left, right) {
+    if (currentSort === "ip") {
+      const byIp = compareIp(left.dataset.ip, right.dataset.ip);
+      if (byIp !== 0) return byIp;
       const a = hostnameSortKey(left.dataset.hostname, left.dataset.ip);
       const b = hostnameSortKey(right.dataset.hostname, right.dataset.ip);
       if (a < b) return -1;
       if (a > b) return 1;
       return 0;
-    });
+    }
+    if (currentSort === "mac") {
+      const aMac = macSortKey(left.dataset.mac);
+      const bMac = macSortKey(right.dataset.mac);
+      if (aMac < bMac) return -1;
+      if (aMac > bMac) return 1;
+      return compareIp(left.dataset.ip, right.dataset.ip);
+    }
+    const a = hostnameSortKey(left.dataset.hostname, left.dataset.ip);
+    const b = hostnameSortKey(right.dataset.hostname, right.dataset.ip);
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  }
+
+  function sortSectorCards(row) {
+    if (!row) {
+      return;
+    }
+    const cards = Array.from(row.querySelectorAll("[data-device-card]"));
+    cards.sort(compareCards);
     cards.forEach((card) => row.appendChild(card));
+  }
+
+  function sortAllSectorCards() {
+    mapRoot.querySelectorAll("[data-sector-devices]").forEach(sortSectorCards);
   }
 
   function renderSectorKindCounts(panel, cards) {
@@ -571,10 +728,11 @@
 
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
-      filtersRoot.querySelectorAll("[data-filter-group]").forEach((btn) => {
+      filtersRoot.querySelectorAll('[data-filter-group="status"]').forEach((btn) => {
         btn.classList.remove("active");
         btn.setAttribute("aria-pressed", "false");
       });
+      applyDefaultTypeFilters();
       favOnly = false;
       if (favFilterBtn) {
         favFilterBtn.classList.remove("active");
@@ -582,6 +740,18 @@
       }
       applyFilters();
       syncUrlFromFilters();
+    });
+  }
+
+  layoutButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setLayout(btn.dataset.mapLayout);
+    });
+  });
+
+  if (sortSelect) {
+    sortSelect.addEventListener("change", () => {
+      setSort(sortSelect.value);
     });
   }
 
@@ -792,12 +962,16 @@
 
   function ensureSectorDevicesRow(panel) {
     let row = panel.querySelector("[data-sector-devices]");
-    if (row) return row;
+    if (row) {
+      row.dataset.layout = currentLayout;
+      return row;
+    }
     const devicesWrap = panel.querySelector(".sector-devices");
     if (!devicesWrap) return null;
     row = document.createElement("div");
     row.className = "device-card-grid";
     row.dataset.sectorDevices = "";
+    row.dataset.layout = currentLayout;
     devicesWrap.prepend(row);
     return row;
   }
@@ -991,6 +1165,10 @@
   };
 
   applyUrlToFilters();
+  syncUrlFromFilters();
+  syncSortSelect();
+  applyLayoutToGrids();
+  sortAllSectorCards();
   applyFilters();
   updateBulkBar();
   refreshSummary();
