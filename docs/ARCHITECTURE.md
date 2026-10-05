@@ -619,6 +619,9 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 ## 13. Frontend
 
+Канонические правила UI/UX (IA, токены, адаптив, разделение «работа vs конфиг») —
+в [`docs/UI_GUIDEBOOK.md`](UI_GUIDEBOOK.md). Ниже — карта файлов.
+
 **Шаблоны** (`app/templates/`): каркас `base.html` (навигация: карта, действия, УЗ,
 скрипты, пароли AD, отчёт по секторам, настройки). Домены: `accounts/`, `actions/`,
 `admin/`, `auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
@@ -728,6 +731,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | [README.md](../README.md) | Установка на Debian, минимальный `.env`, службы, обновление |
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
+| [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
 
 ---
 
