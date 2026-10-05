@@ -8,23 +8,31 @@
     <h1 class="page-title">Учётные записи</h1>
     <p class="page-subtitle">Справочник УЗ, замеченных на устройствах сети</p>
   </div>
-  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('accounts.export_csv', q=search_query) }}">CSV</a>
+  <a class="btn btn-sm btn-outline-primary" data-live-csv href="{{ url_for('accounts.export_csv', q=search_query) }}">CSV</a>
 </div>
 
-<form class="panel content-card mb-3" method="get" action="{{ url_for('accounts.list_accounts') }}">
+<form
+  class="panel content-card mb-3 live-search-form"
+  method="get"
+  action="{{ url_for('accounts.list_accounts') }}"
+  data-live-list
+  data-live-kind="accounts"
+>
   <label class="form-label" for="account-q">Поиск</label>
-  <div class="d-flex flex-wrap gap-2">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
     <input class="form-control" style="max-width: 22rem" id="account-q" name="q"
-           value="{{ search_query }}" placeholder="логин, домен или ФИО" autocomplete="off">
+           value="{{ search_query }}" placeholder="логин, домен или ФИО" autocomplete="off" data-live-q>
     <input class="form-control" style="max-width: 6rem" name="per_page" type="number" min="1" max="200"
-           value="{{ per_page|default(50) }}" title="На странице">
+           value="{{ per_page|default(50) }}" title="На странице" data-live-per-page>
     <button class="btn btn-primary" type="submit">Найти</button>
+    <button class="btn btn-sm btn-link" type="button" data-live-reset>Сбросить</button>
   </div>
+  <p class="text-muted small mb-0 mt-2" data-live-hint>Начните вводить запрос — список обновится сразу.</p>
 </form>
 
-<div class="panel content-card p-0 overflow-hidden">
+<div class="panel content-card p-0 overflow-hidden" data-live-panel>
   <div class="px-3 pt-3 pb-2">
-    <p class="panel-hint mb-0">Всего: {{ total|default(accounts|length) }} · страница {{ page|default(1) }}</p>
+    <p class="panel-hint mb-0" data-live-meta>Всего: {{ total|default(accounts|length) }} · страница {{ page|default(1) }}</p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
@@ -36,7 +44,7 @@
           <th>Последний раз</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody data-live-rows>
       {% for account in accounts %}
         <tr>
           <td>
@@ -52,6 +60,7 @@
       </tbody>
     </table>
   </div>
+  <div data-live-pager>
   {{ page_nav(
        'accounts.list_accounts',
        page|default(1),
@@ -59,5 +68,9 @@
        total|default(0),
        {'q': search_query|default('')}
      ) }}
+  </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/live_search.js') }}"></script>
 {% endblock %}

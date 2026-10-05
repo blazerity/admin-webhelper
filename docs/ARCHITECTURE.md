@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.0.3)
+# Архитектура bAWH (актуально для v1.1.0)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -6,11 +6,11 @@
 > Установка и ops — в [README.md](../README.md).
 
 **Продукт:** внутренний веб-помощник администратора сети (карта устройств,
-секторы/CIDR, ICMP+WMI опрос, диагностика, скрипты на Windows через PsExec,
+секторы/CIDR, ICMP+WMI+TCP/SNMP опрос, диагностика, скрипты на Windows через PsExec,
 LDAP-вход, отчёт по сроку паролей AD, watchlist и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.0.3` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.1.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -79,7 +79,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.0.3)
+  VERSION                      # semver (1.1.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -138,12 +138,12 @@ flowchart TB
   end
 
   subgraph services["services/"]
-    S_POLL["ping · discovery · scheduler · watchlist"]
+    S_POLL["ping · discovery · fingerprint · scheduler · watchlist"]
     S_ACC["account · action · export · audit"]
     S_ID["ldap · credential · crypto · settings"]
     S_RUN["script · psexec · batch · command_presets"]
     S_PWD["password_expiry* · password_ad · mailer<br/>sector_daily_report* · report_toggle"]
-    S_OTH["sector · search · login_status · network_summary<br/>notification · update · log_archive · net_utils"]
+    S_OTH["sector · search · login_status · network_summary<br/>notification · update · log_archive · net_utils · device_kind"]
   end
 
   subgraph data["PostgreSQL / models/"]
@@ -209,7 +209,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | --- | --- | --- | --- |
 | `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Операторы сайта после LDAP. Флаги: `is_admin`, `is_viewer`, `is_operator`, `is_password_viewer`. Группы — для `sector_access`. |
 | `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR) и ACL (subject = username или LDAP group CN). |
-| `Device`, `DeviceHistory` | `devices`, `device_history` | `device.py` | Машины + журнал опросов. Идентичность: `serial_number` (WMI), иначе hostname; IP — последний адрес; `current_account_id` — кто за ПК. |
+| `Device`, `DeviceHistory` | `devices`, `device_history` | `device.py` | Машины + журнал опросов. Идентичность: `serial_number` (WMI), иначе hostname; IP — последний адрес; `current_account_id` — кто за ПК. `fingerprint_kind` / `fingerprint_detail` — TCP/SNMP-отпечаток серого адреса. |
 | `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов опроса. |
 | `EndpointAccount`, `DeviceAccountHistory` | `endpoint_accounts`, `device_account_history` | `account.py` | УЗ на конечных точках (**не** путать с `users`). |
 | `ActionKind` | `action_kinds` | `action.py` | Справочник типов (`ACTION_KIND_SEED` / `seed_action_kinds`). |
@@ -251,7 +251,9 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Модуль | Роль |
 | --- | --- |
 | `net_utils.py` | `parse_range`, `expand_ranges`, `normalize_mac`, `assert_host_or_ipv4`, `resolve_to_ipv4` |
-| `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host`; ThreadPoolExecutor |
+| `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host`; ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
+| `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
+| `device_kind.py` | тип карты: имена AD, WMI-серийник, fingerprint, PTR/OUI |
 | `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user. Имя: PTR, иначе WMI `Name`/`DNSHostName`. Учётка: Параметры или `DISCOVERY_*` |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
@@ -534,7 +536,10 @@ sequenceDiagram
   alt online
     Ping->>Disc: PTR hostname / ARP MAC / WMI
     Disc-->>Ping: serial, mac, hostname, logged_on_user
-    Ping->>DB: devices + device_history
+    opt серый адрес (нет AD-имени и WMI-серийника)
+      Ping->>Ping: TCP 445/135, 8728/8291, 9100/515, 554 + SNMP sysDescr
+    end
+    Ping->>DB: devices + device_history (+ fingerprint_kind)
     opt logged_on_user is not None
       Ping->>Acc: apply_logged_on_user (savepoint)
       Acc->>DB: endpoint_accounts + history
@@ -576,6 +581,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
 - **Hostname:** сначала PTR (`socket.gethostbyaddr`); если записи нет — `Win32_ComputerSystem.DNSHostName` / `Name` из того же WMI-захода.
+- **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI.
+- **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
 - **WMI UserName:** `None` в probe — WMI не вызывали/упал (текущую УЗ **не** трогаем); `""` — никто не залогинен.
 - **ILIKE:** только через `utils.ilike_pattern` (экранирование `%`/`_`).
 - **Время:** всегда timezone-aware UTC (`utils.utcnow` / `as_utc`); в шаблонах фильтр `dt`.
@@ -599,7 +606,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/css/app.css` | Стили |
 | `static/js/http.js` | общий fetch/CSRF helper |
 | `static/js/map.js` | карта сети |
-| `static/js/search.js` | suggest |
+| `static/js/search.js` | живой фильтр карты (без suggest-dropdown) |
+| `static/js/live_search.js` | живой поиск списков Действия / Учётные записи |
 | `static/js/batch.js` | bulk операции |
 | `static/js/notifications.js` | колокольчик |
 | `static/js/run_log.js` | поллинг лога запуска |
@@ -653,6 +661,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | AD / LDAP | ldap3 bind+search | `ldap_service`, `password_ad_client` |
 | SMTP | mailer | `password_mailer` |
 | ICMP / traceroute | OS `ping` / `traceroute` | `ping_service` |
+| TCP fingerprint | короткий connect 445/135/8728/8291/9100/515/554 | `fingerprint_service` |
+| SNMPv1 sysDescr | UDP/161 community `public`, без pysnmp | `fingerprint_service` |
 | Windows WMI | impacket | `discovery_service` |
 | Windows remote | pypsexec (SMB/ADMIN$) | `psexec_service` |
 | Git HTTPS | update check / pull | `update_service` |
@@ -666,7 +676,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
-| Опрос / ICMP / WMI | `ping_service` → `discovery_service` → `account_service` |
+| Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Скрипты / PsExec | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |

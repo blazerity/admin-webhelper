@@ -8,7 +8,7 @@
     <h1 class="page-title">Действия в системе</h1>
     <p class="page-subtitle">Справочник типов и недавние события на доступных устройствах</p>
   </div>
-  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('actions.export_csv', kind=kind_filter|default('')) }}">CSV</a>
+  <a class="btn btn-sm btn-outline-primary" data-live-csv href="{{ url_for('actions.export_csv', kind=kind_filter|default('')) }}">CSV</a>
 </div>
 
 <div class="panel content-card mb-3">
@@ -25,15 +25,21 @@
   </div>
 </div>
 
-<form class="panel content-card mb-3" method="get" action="{{ url_for('actions.list_actions') }}">
+<form
+  class="panel content-card mb-3 live-search-form"
+  method="get"
+  action="{{ url_for('actions.list_actions') }}"
+  data-live-list
+  data-live-kind="actions"
+>
   <div class="row g-2 align-items-end">
     <div class="col-md-4">
       <label class="form-label" for="action-q">Поиск</label>
-      <input class="form-control" id="action-q" name="q" value="{{ search_query|default('') }}" autocomplete="off">
+      <input class="form-control" id="action-q" name="q" value="{{ search_query|default('') }}" autocomplete="off" data-live-q placeholder="событие, устройство или кто">
     </div>
     <div class="col-md-3">
       <label class="form-label" for="action-kind">Тип</label>
-      <select class="form-select" id="action-kind" name="kind">
+      <select class="form-select" id="action-kind" name="kind" data-live-kind-filter>
         <option value="">Все</option>
         {% for kind in action_kinds %}
         <option value="{{ kind.code }}" {% if kind_filter|default('') == kind.code %}selected{% endif %}>{{ kind.title }}</option>
@@ -42,18 +48,20 @@
     </div>
     <div class="col-md-2">
       <label class="form-label" for="action-per-page">На странице</label>
-      <input class="form-control" id="action-per-page" name="per_page" type="number" min="1" max="200" value="{{ per_page|default(50) }}">
+      <input class="form-control" id="action-per-page" name="per_page" type="number" min="1" max="200" value="{{ per_page|default(50) }}" data-live-per-page>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3 d-flex gap-2">
       <button class="btn btn-primary" type="submit">Показать</button>
+      <button class="btn btn-sm btn-link" type="button" data-live-reset>Сбросить</button>
     </div>
   </div>
+  <p class="text-muted small mb-0 mt-2" data-live-hint>Начните вводить запрос — список обновится сразу.</p>
 </form>
 
-<div class="panel content-card p-0 overflow-hidden">
+<div class="panel content-card p-0 overflow-hidden" data-live-panel>
   <div class="px-3 pt-3 pb-2">
     <h2 class="panel-title">Недавние события</h2>
-    <p class="panel-hint mb-0">Всего: {{ total|default(actions|length) }} · страница {{ page|default(1) }}</p>
+    <p class="panel-hint mb-0" data-live-meta>Всего: {{ total|default(actions|length) }} · страница {{ page|default(1) }}</p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
@@ -67,7 +75,7 @@
           <th>Статус</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody data-live-rows>
       {% for item in actions %}
         <tr>
           <td class="text-nowrap">{{ item.when|dt }}</td>
@@ -95,6 +103,7 @@
       </tbody>
     </table>
   </div>
+  <div data-live-pager>
   {{ page_nav(
        'actions.list_actions',
        page|default(1),
@@ -102,5 +111,9 @@
        total|default(0),
        {'q': search_query|default(''), 'kind': kind_filter|default('')}
      ) }}
+  </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/live_search.js') }}"></script>
 {% endblock %}

@@ -3,15 +3,12 @@
 Имена рабочих станций — буква + 3 или 5 цифр (n179, w11471, v100).
 Остальное не считаем ноутбуком/СБ: ngfw-gk3 не должен стать N-ноутбуком.
 
-Windows vs периферия (камера / MikroTik / МФУ) — по тому, что уже есть
-после опроса, без новых сетевых проб:
+Windows vs периферия (камера / MikroTik / МФУ):
 
 1. Свои префиксы AD (n/w/v, ktn/spb/kgl, ngfw) важнее всего.
 2. Серийник с WMI значит «это Windows»: камерой/принтером не метим.
-3. Иначе имя (PTR) и OUI MAC — камера, MikroTik, МФУ.
-
-Дальше точнее: TCP 445/135 (Windows), 8728/8291 (MikroTik), 554 (камера),
-9100/515 (печать), SNMP sysDescr. Это уже отдельный шаг опроса.
+3. Иначе TCP/SNMP-отпечаток опроса (fingerprint_kind).
+4. Иначе имя (PTR) и OUI MAC.
 """
 
 from __future__ import annotations
@@ -181,11 +178,21 @@ def _ip_sort_parts(ip: str | None) -> tuple[int, int, int, int]:
     return (999, 999, 999, 999)
 
 
+def needs_fingerprint(hostname: str | None, serial_number: str | None = None) -> bool:
+    """TCP/SNMP только для серых адресов: без своего имени и без WMI-серийника."""
+    if _kind_from_naming(hostname_short(hostname)):
+        return False
+    if (serial_number or "").strip():
+        return False
+    return True
+
+
 def classify_device_kind(
     hostname: str | None,
     *,
     serial_number: str | None = None,
     mac: str | None = None,
+    fingerprint_kind: str | None = None,
 ) -> str:
     """notebook / desktop / vds / server / firewall / router / camera / printer / other."""
     short = hostname_short(hostname)
@@ -195,6 +202,9 @@ def classify_device_kind(
     # WMI-серийник есть только у Windows: периферию по слабому MAC не ставим.
     if (serial_number or "").strip():
         return KIND_OTHER
+    from_fp = _kind_from_fingerprint(fingerprint_kind)
+    if from_fp:
+        return from_fp
     from_name = _kind_from_hostname_tokens(hostname)
     if from_name:
         return from_name
@@ -202,6 +212,19 @@ def classify_device_kind(
     if from_mac:
         return from_mac
     return KIND_OTHER
+
+
+def _kind_from_fingerprint(fingerprint_kind: str | None) -> str | None:
+    raw = (fingerprint_kind or "").strip().lower()
+    if raw == "windows":
+        return KIND_OTHER
+    if raw == "router":
+        return KIND_ROUTER
+    if raw == "camera":
+        return KIND_CAMERA
+    if raw == "printer":
+        return KIND_PRINTER
+    return None
 
 
 def _kind_from_naming(short: str) -> str | None:
