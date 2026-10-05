@@ -252,7 +252,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Модуль | Роль |
 | --- | --- |
 | `net_utils.py` | `parse_range`, `expand_ranges`, `normalize_mac`, `assert_host_or_ipv4`, `resolve_to_ipv4` |
-| `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host`; ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
+| `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
 | `device_kind.py` | тип карты: имена AD, WMI-серийник, fingerprint, PTR/OUI |
 | `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user. Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
@@ -351,7 +351,8 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/devices/<id>/ping` | diagnostics |
+| POST | `/devices/<id>/check` | diagnostics — быстрый ICMP → `device_history` + обновление статуса |
+| POST | `/devices/<id>/ping` | diagnostics — diagnostic run в `script_runs` |
 | POST | `/devices/<id>/tracert` | diagnostics |
 | POST | `/devices/<id>/command` | **admin** |
 
@@ -609,9 +610,11 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | `static/css/app.css` | Стили |
 | `static/js/http.js` | общий fetch/CSRF helper |
-| `static/js/map.js` | карта сети |
+| `static/js/map.js` | карта сети; автообновление опционально (localStorage) |
+| `static/js/device_check.js` | быстрая проверка статуса на карточке устройства |
 | `static/js/search.js` | живой фильтр карты (без suggest-dropdown) |
 | `static/js/live_search.js` | живой поиск списков Действия / Учётные записи |
+| `static/css/app.css` | стили; `.entity-link` — единый вид ссылок на устройство / УЗ |
 | `static/js/batch.js` | bulk операции |
 | `static/js/notifications.js` | колокольчик |
 | `static/js/run_log.js` | поллинг лога запуска |

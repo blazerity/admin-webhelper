@@ -90,6 +90,16 @@
     return `<a${cls} href="${escapeHtml(url)}">${label}</a>`;
   }
 
+  function entityLink(url, text, kind) {
+    const label = escapeHtml(text || "—");
+    if (!url) return label;
+    const classes =
+      kind === "account"
+        ? "entity-link entity-account font-monospace"
+        : "entity-link entity-device";
+    return `<a class="${classes}" href="${escapeHtml(url)}">${label}</a>`;
+  }
+
   function renderActions(items) {
     if (!items.length) {
       return `<tr><td colspan="${emptyCols}" class="text-muted">${escapeHtml(emptyText)}</td></tr>`;
@@ -99,7 +109,11 @@
         const title = linkOrText(item.url, item.title);
         const device =
           item.device_id && item.device_url
-            ? linkOrText(item.device_url, item.device_label || "#" + item.device_id)
+            ? entityLink(
+                item.device_url,
+                item.device_label || "#" + item.device_id,
+                "device"
+              )
             : "—";
         return `<tr>${cell(escapeHtml(item.when || "—"))}${cell(
           escapeHtml(item.kind_title || "")
@@ -117,7 +131,7 @@
     return items
       .map((item) => {
         return `<tr>${cell(
-          linkOrText(item.url, item.account_key, "font-monospace")
+          entityLink(item.url, item.account_key, "account")
         )}${cell(escapeHtml(item.display_name || "—"))}${cell(
           escapeHtml(item.first_seen_at || "—")
         )}${cell(escapeHtml(item.last_seen_at || "—"))}</tr>`;

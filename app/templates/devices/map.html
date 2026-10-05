@@ -9,7 +9,24 @@
     <p class="page-subtitle">Секторы и машины вашей сети</p>
   </div>
   {% if sectors %}
-  <p class="map-refresh-status" id="map-refresh-status">Автообновление каждые 15 с</p>
+  <div class="map-refresh-controls" id="map-refresh-controls">
+    <div class="form-check form-switch map-refresh-toggle">
+      <input class="form-check-input" type="checkbox" role="switch" id="map-refresh-enabled">
+      <label class="form-check-label" for="map-refresh-enabled">Автообновление</label>
+    </div>
+    <div class="map-refresh-interval is-disabled" id="map-refresh-interval-wrap">
+      <label class="map-refresh-interval-label" for="map-refresh-interval">Интервал</label>
+      <select class="form-select form-select-sm" id="map-refresh-interval" disabled>
+        <option value="30">30 с</option>
+        <option value="60">1 мин</option>
+        <option value="300" selected>5 мин</option>
+        <option value="900">15 мин</option>
+        <option value="1800">30 мин</option>
+        <option value="3600">1 ч</option>
+      </select>
+    </div>
+    <p class="map-refresh-status" id="map-refresh-status">Автообновление выключено</p>
+  </div>
   {% endif %}
 </div>
 
