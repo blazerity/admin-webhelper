@@ -20,11 +20,14 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(255), nullable=True)
     ldap_dn = db.Column(db.String(512), nullable=True)
     # Обновляется при каждом входе по членству в LDAP_ADMIN_GROUP.
-    is_admin = db.Column(db.Boolean, nullable=False, default=False)
+    is_admin = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
     # Роли из LDAP_*_GROUP (viewer / operator / password_viewer).
-    is_viewer = db.Column(db.Boolean, nullable=False, default=False)
-    is_operator = db.Column(db.Boolean, nullable=False, default=False)
-    is_password_viewer = db.Column(db.Boolean, nullable=False, default=False)
+    # server_default нужен, чтобы ensure_schema мог ADD COLUMN на непустой таблице.
+    is_viewer = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+    is_operator = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+    is_password_viewer = db.Column(
+        db.Boolean, nullable=False, default=False, server_default="0"
+    )
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)
 

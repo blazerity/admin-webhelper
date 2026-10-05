@@ -90,4 +90,6 @@ cp .env.example .env
 flask --app wsgi run --debug
 ```
 
-Таблицы создаются при старте приложения (`create_all` + справочники). Планировщик отдельно: `python -m app.scheduler_worker`.
+Таблицы и недостающие колонки подтягиваются при старте (`ensure_schema` + справочники).
+Переустановка кода без очистки Postgres безопасна: новые колонки (например роли
+`is_viewer` / `is_operator`) добавятся сами. Планировщик отдельно: `python -m app.scheduler_worker`.
