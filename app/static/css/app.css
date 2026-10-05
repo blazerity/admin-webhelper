@@ -82,7 +82,6 @@ code {
 }
 
 .app-brand {
-  order: 1;
   font-weight: 700;
   font-size: 1.15rem;
   letter-spacing: -0.02em;
@@ -95,8 +94,8 @@ code {
   color: var(--accent-ink);
 }
 
-.app-nav-toggle {
-  order: 3;
+/* Shared chrome for topbar icon buttons (menu + notifications). */
+.app-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -111,25 +110,23 @@ code {
   cursor: pointer;
 }
 
-.app-nav-toggle:hover,
-.app-nav-toggle[aria-expanded="true"] {
+.app-icon-btn:hover,
+.app-icon-btn[aria-expanded="true"],
+.app-notifications.is-open .app-icon-btn {
   background: var(--accent-soft);
   border-color: #b7ddd7;
   color: var(--accent);
 }
 
-.app-nav-toggle-icon {
+.app-icon-btn svg {
   display: block;
 }
 
 .app-nav-collapse {
-  order: 4;
   flex: 1 1 100%;
-  width: 100%;
 }
 
 .app-user {
-  order: 2;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -142,7 +139,7 @@ code {
   gap: 0.25rem;
   margin: 0.35rem 0 0;
   padding: 0.35rem 0 0.15rem;
-  border-top: 1px solid rgba(215, 224, 231, 0.95);
+  border-top: 1px solid var(--line);
 }
 
 .app-nav-link {
@@ -197,11 +194,11 @@ code {
     display: none;
   }
 
+  /* DOM: brand → user → toggle → collapse; desktop puts nav before user. */
   .app-nav-collapse {
     order: 2;
     display: flex !important;
     align-items: center;
-    width: auto;
     flex: 1 1 auto;
   }
 
@@ -1953,28 +1950,6 @@ code {
 
 .notif-bell {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.15rem;
-  height: 2.15rem;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-solid);
-  color: var(--accent-ink);
-  cursor: pointer;
-}
-
-.notif-bell:hover,
-.app-notifications.is-open .notif-bell {
-  background: var(--accent-soft);
-  border-color: #b7ddd7;
-  color: var(--accent);
-}
-
-.notif-bell-icon {
-  display: block;
 }
 
 .notif-badge {
@@ -2298,10 +2273,6 @@ code {
 @media (max-width: 640px) {
   .map-search-inner {
     max-width: none;
-  }
-
-  .map-search-input {
-    text-align: left;
   }
 
   .device-card-grid,
