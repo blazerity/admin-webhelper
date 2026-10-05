@@ -252,7 +252,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | --- | --- |
 | `net_utils.py` | `parse_range`, `expand_ranges`, `normalize_mac`, `assert_host_or_ipv4`, `resolve_to_ipv4` |
 | `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host`; ThreadPoolExecutor |
-| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / logged_on_user. Учётка: Параметры или `DISCOVERY_*` |
+| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user. Имя: PTR, иначе WMI `Name`/`DNSHostName`. Учётка: Параметры или `DISCOVERY_*` |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
 | `watchlist_service.py` | CRUD watch; `evaluate_watchlist_alerts` после опроса |
@@ -531,8 +531,8 @@ sequenceDiagram
   Note over Ping: учётка WMI в главном потоке<br/>(Параметры / DISCOVERY_*)
   Note over Ping: итог → network_poll_runs
   alt online
-    Ping->>Disc: hostname / ARP MAC / WMI
-    Disc-->>Ping: serial, mac, logged_on_user
+    Ping->>Disc: PTR hostname / ARP MAC / WMI
+    Disc-->>Ping: serial, mac, hostname, logged_on_user
     Ping->>DB: devices + device_history
     opt logged_on_user is not None
       Ping->>Acc: apply_logged_on_user (savepoint)
@@ -572,6 +572,7 @@ Admin UI → `update_service`: backup → git → pip → `flask init-db` →
 ## 12. Соглашения по домену и коду
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
+- **Hostname:** сначала PTR (`socket.gethostbyaddr`); если записи нет — `Win32_ComputerSystem.DNSHostName` / `Name` из того же WMI-захода.
 - **WMI UserName:** `None` в probe — WMI не вызывали/упал (текущую УЗ **не** трогаем); `""` — никто не залогинен.
 - **ILIKE:** только через `utils.ilike_pattern` (экранирование `%`/`_`).
 - **Время:** всегда timezone-aware UTC (`utils.utcnow` / `as_utc`); в шаблонах фильтр `dt`.
