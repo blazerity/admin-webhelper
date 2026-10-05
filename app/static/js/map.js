@@ -106,6 +106,7 @@
   let statusTimer = null;
   /** @type {number|null} */
   let summaryTimer = null;
+  let statusRefreshInFlight = false;
   /** @type {string} */
   let currentLayout = loadLayout();
   /** @type {string} */
@@ -145,10 +146,28 @@
     }
   }
 
+  function normalizeRefreshMs(raw) {
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      return null;
+    }
+    // select в шаблоне — секунды; localStorage и таймеры — миллисекунды.
+    if (ALLOWED_REFRESH_MS.has(value)) {
+      return value;
+    }
+    const asMs = value * 1000;
+    if (ALLOWED_REFRESH_MS.has(asMs)) {
+      return asMs;
+    }
+    return null;
+  }
+
   function loadRefreshInterval() {
     try {
-      const raw = Number(localStorage.getItem(REFRESH_INTERVAL_KEY));
-      if (ALLOWED_REFRESH_MS.has(raw)) return raw;
+      const normalized = normalizeRefreshMs(
+        localStorage.getItem(REFRESH_INTERVAL_KEY)
+      );
+      if (normalized != null) return normalized;
     } catch (_err) {
       /* ignore */
     }
@@ -184,7 +203,7 @@
       refreshEnabledInput.checked = refreshEnabled;
     }
     if (refreshIntervalSelect) {
-      refreshIntervalSelect.value = String(refreshMs);
+      refreshIntervalSelect.value = String(Math.round(refreshMs / 1000));
       refreshIntervalSelect.disabled = !refreshEnabled;
     }
     if (refreshIntervalWrap) {
@@ -731,8 +750,11 @@
         const deviceId = Number(card.dataset.deviceId);
         const statusOk =
           statuses.length === 0 || statuses.includes(card.dataset.status);
+        // При живом поиске не режем по типу: иначе default Ноутбуки+СБ прячет серверы/камеры.
         const typeOk =
-          types.length === 0 || types.includes(card.dataset.type);
+          searchActive ||
+          types.length === 0 ||
+          types.includes(card.dataset.type);
         const searchOk = !searchActive || (sectorOk && cardMatchesSearch(card, query));
         const favOk = !favOnly || favorites.has(deviceId);
         const show = statusOk && typeOk && searchOk && favOk;
@@ -1164,9 +1186,10 @@
 
   async function refreshStatuses() {
     const url = mapRoot.dataset.statusUrl;
-    if (!url || document.visibilityState === "hidden") {
+    if (!url || document.visibilityState === "hidden" || statusRefreshInFlight) {
       return;
     }
+    statusRefreshInFlight = true;
     try {
       const payload = await fetchJson(url);
       applyStatusPayload(payload);
@@ -1174,6 +1197,8 @@
       if (refreshStatus) {
         refreshStatus.textContent = "Не удалось обновить статусы";
       }
+    } finally {
+      statusRefreshInFlight = false;
     }
   }
 
@@ -1277,8 +1302,8 @@
   }
   if (refreshIntervalSelect) {
     refreshIntervalSelect.addEventListener("change", () => {
-      const next = Number(refreshIntervalSelect.value);
-      if (!ALLOWED_REFRESH_MS.has(next)) {
+      const next = normalizeRefreshMs(refreshIntervalSelect.value);
+      if (next == null) {
         return;
       }
       refreshMs = next;

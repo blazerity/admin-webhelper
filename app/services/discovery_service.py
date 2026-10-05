@@ -355,10 +355,11 @@ def _wmi_hardware(ip: str, creds: DiscoveryCredentials) -> WmiHardware:
         ram_bytes = _wmi_query_ram(services)
         disk_bytes = _wmi_query_disk(services)
         caption, version, build = _wmi_query_os(services)
-        display = _wmi_reg_string(services, _WINNT_CURRENT_VERSION, "DisplayVersion")
-        edition_id = _wmi_reg_string(services, _WINNT_CURRENT_VERSION, "EditionID")
+        # StdRegProv живёт в root/default, не в cimv2 — отдельный IWbemServices.
+        display = _wmi_reg_string(dcom, _WINNT_CURRENT_VERSION, "DisplayVersion")
+        edition_id = _wmi_reg_string(dcom, _WINNT_CURRENT_VERSION, "EditionID")
         if not build:
-            build = _wmi_reg_string(services, _WINNT_CURRENT_VERSION, "CurrentBuild")
+            build = _wmi_reg_string(dcom, _WINNT_CURRENT_VERSION, "CurrentBuild")
         return WmiHardware(
             cpu_name=cpu_name,
             ram_bytes=ram_bytes,
@@ -629,26 +630,54 @@ def _wmi_query_os(services) -> tuple[str | None, str | None, str | None]:
     return None, None, None
 
 
-def _wmi_reg_string(services, subkey: str, value_name: str) -> str | None:
-    """HKLM строка через StdRegProv.GetStringValue. Сбой — None, опрос не роняем."""
-    obj = None
+def _wmi_namespace_services(dcom, namespace: str):
+    """Доп. IWbemServices на уже открытом DCOM (например root/default для реестра)."""
+    from impacket.dcerpc.v5.dcom import wmi
+    from impacket.dcerpc.v5.dtypes import NULL
+
+    interface = dcom.CoCreateInstanceEx(wmi.CLSID_WbemLevel1Login, wmi.IID_IWbemLevel1Login)
+    login = wmi.IWbemLevel1Login(interface)
+    services = login.NTLMLogin(f"//./{namespace}", NULL, NULL)
+    login.RemRelease()
+    return services
+
+
+def _wmi_reg_string(dcom, subkey: str, value_name: str) -> str | None:
+    """HKLM строка через StdRegProv.GetStringValue (root/default + SpawnInstance)."""
+    services = None
+    class_obj = None
+    instance = None
     result = None
     try:
-        obj, _ = services.GetObject("StdRegProv")
-        getter = getattr(obj, "GetStringValue", None)
+        services = _wmi_namespace_services(dcom, "root/default")
+        class_obj, _ = services.GetObject("StdRegProv")
+        instance = class_obj.SpawnInstance()
+        getter = getattr(instance, "GetStringValue", None)
         if getter is None:
             return None
         result = getter(_HKLM, subkey, value_name)
         if result is None:
             return None
-        props = result.getProperties()
-        return _wmi_prop_text(props, "sValue")
+        # Impacket отдаёт либо объект с .sValue, либо getProperties()-dict.
+        direct = getattr(result, "sValue", None)
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
+        props = result.getProperties() if hasattr(result, "getProperties") else None
+        if props:
+            return _wmi_prop_text(props, "sValue")
+        return None
     except Exception as exc:
         logger.debug("WMI registry %s\\%s: %s", subkey, value_name, exc)
         return None
     finally:
         _wmi_release(result)
-        _wmi_release(obj)
+        _wmi_release(instance)
+        _wmi_release(class_obj)
+        if services is not None:
+            try:
+                services.RemRelease()
+            except Exception:
+                pass
 
 
 def _wmi_prop_int(props: dict, key: str) -> int | None:

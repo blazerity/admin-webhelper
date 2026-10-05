@@ -229,11 +229,16 @@ def run_hardware_poll(
             result.error = str(exc)[:2000]
             result.errors += 1
             if run is not None:
-                run.finished_at = utcnow()
-                run.error = result.error
-                run.scanned = result.scanned
-                run.errors = result.errors
-                db.session.commit()
+                run_id = run.id
+                # Не коммитим частичные snapshot'ы устройств — только статус прогона.
+                db.session.rollback()
+                failed = db.session.get(HardwarePollRun, run_id)
+                if failed is not None:
+                    failed.finished_at = utcnow()
+                    failed.error = result.error
+                    failed.scanned = result.scanned
+                    failed.errors = result.errors
+                    db.session.commit()
             raise
 
         if run is not None:
