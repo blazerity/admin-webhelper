@@ -424,14 +424,6 @@ def detail(device_id: int):
         else []
     )
 
-    watch_entry = watchlist_service.get_watch(current_user.id, device.id)
-    watching = watch_entry is not None
-    offline_minutes = (
-        watch_entry.offline_minutes
-        if watch_entry is not None
-        else watchlist_service.DEFAULT_OFFLINE_MINUTES
-    )
-
     return render_template(
         "devices/detail.html",
         device=device,
@@ -445,8 +437,6 @@ def detail(device_id: int):
         hardware_rows=hardware_rows,
         command_presets=command_presets,
         scripts=scripts,
-        watching=watching,
-        offline_minutes=offline_minutes,
         can_run_diagnostics=user_can_run_diagnostics(current_user),
     )
 

@@ -250,7 +250,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Прогоны железа | `hardware_poll_runs` | `hardware_poll_service.run_hardware_poll` | `/admin/settings` |
 | Снимки железа | `devices` + `device_hardware_history` | `hardware_poll_service` | карточка, вкладка «Оборудование» |
 | Аудит админа | `admin_audit_log` | `audit_service` | `/admin/audit` |
-| Watchlist | `device_watchlist` | `watchlist_service` | карточка, post-poll |
+| Watchlist | `device_watchlist` | `watchlist_service` | post-poll алерты; UI подписки с карточки убран |
 | Уведомления | `notifications` | `notification_service` / watchlist | `/api/notifications` |
 
 ---
