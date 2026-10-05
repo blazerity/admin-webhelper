@@ -29,7 +29,6 @@ from app.services.device_kind import hostname_sort_key, kind_counts
 from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
 from app.services import script_service
-from app.services import watchlist_service
 from app.utils import parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
@@ -439,29 +438,6 @@ def detail(device_id: int):
         scripts=scripts,
         can_run_diagnostics=user_can_run_diagnostics(current_user),
     )
-
-
-@bp.post("/devices/<int:device_id>/watch")
-@login_required
-def watch_device(device_id: int):
-    """Добавить/обновить подписку на offline (form: offline_minutes, csrf)."""
-    device = get_visible_device_or_404(device_id)
-    minutes = watchlist_service.normalize_offline_minutes(
-        request.form.get("offline_minutes")
-    )
-    watchlist_service.watch(current_user.id, device.id, offline_minutes=minutes)
-    flash(f"Устройство в watchlist (порог {minutes} мин).", "success")
-    return redirect(url_for("devices.detail", device_id=device.id))
-
-
-@bp.post("/devices/<int:device_id>/unwatch")
-@login_required
-def unwatch_device(device_id: int):
-    """Снять подписку с устройства."""
-    device = get_visible_device_or_404(device_id)
-    watchlist_service.unwatch(current_user.id, device.id)
-    flash("Подписка снята.", "success")
-    return redirect(url_for("devices.detail", device_id=device.id))
 
 
 @bp.post("/devices/<int:device_id>/hardware-poll")
