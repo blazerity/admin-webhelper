@@ -184,7 +184,6 @@ code {
 
 @media (max-width: 991.98px) {
   .app-topbar-inner {
-    flex-wrap: wrap;
     row-gap: 0;
   }
 
@@ -225,7 +224,6 @@ code {
 
   .app-user {
     order: 3;
-    margin-left: auto;
   }
 }
 
@@ -1123,7 +1121,6 @@ code {
   font-size: 0.8rem;
   font-weight: 600;
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .sector-toggle-kinds {
@@ -1327,19 +1324,6 @@ code {
   opacity: 0.7;
 }
 
-@media (max-width: 640px) {
-  .device-card-grid,
-  .device-card-grid[data-layout="cards"],
-  .device-card-grid[data-layout="tiles"] {
-    grid-template-columns: 1fr;
-  }
-
-  .device-card-grid[data-layout="tiles"] .device-card-shell,
-  .device-card-grid[data-layout="tiles"] .device-card {
-    min-height: 0;
-  }
-}
-
 .map-search {
   padding: 0.85rem 1.1rem;
 }
@@ -1446,16 +1430,6 @@ code {
 @keyframes map-card-return {
   0% { box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.55); }
   100% { box-shadow: 0 8px 18px rgba(24, 33, 43, 0.08); }
-}
-
-@media (max-width: 640px) {
-  .map-search-inner {
-    max-width: none;
-  }
-
-  .map-search-input {
-    text-align: left;
-  }
 }
 
 /* Device object card */
@@ -1681,12 +1655,6 @@ code {
 
 .scheduler-health.is-stale {
   border-left: 4px solid var(--warn);
-}
-
-@media (max-width: 700px) {
-  .scheduler-health-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 960px) {
@@ -2287,6 +2255,10 @@ code {
 }
 
 @media (max-width: 700px) {
+  .scheduler-health-grid {
+    grid-template-columns: 1fr;
+  }
+
   .map-bulk-actions {
     margin-left: 0;
     width: 100%;
@@ -2324,6 +2296,25 @@ code {
 }
 
 @media (max-width: 640px) {
+  .map-search-inner {
+    max-width: none;
+  }
+
+  .map-search-input {
+    text-align: left;
+  }
+
+  .device-card-grid,
+  .device-card-grid[data-layout="cards"],
+  .device-card-grid[data-layout="tiles"] {
+    grid-template-columns: 1fr;
+  }
+
+  .device-card-grid[data-layout="tiles"] .device-card-shell,
+  .device-card-grid[data-layout="tiles"] .device-card {
+    min-height: 0;
+  }
+
   .device-portrait {
     max-width: 100%;
   }
