@@ -14,8 +14,11 @@
       <div class="app-topbar-inner">
         <a class="app-brand" href="{{ url_for('devices.map') }}">{{ app_name }}</a>
         {% if current_user.is_authenticated %}
-        <button class="navbar-toggler app-nav-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#app-nav" aria-controls="app-nav" aria-expanded="false" aria-label="Меню">
-          <span class="navbar-toggler-icon"></span>
+        {# SVG-иконка вместо Bootstrap navbar-toggler-icon: без родителя .navbar CSS-переменная фона пустая. #}
+        <button class="app-nav-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#app-nav" aria-controls="app-nav" aria-expanded="false" aria-label="Меню">
+          <svg class="app-nav-toggle-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path fill="currentColor" d="M4 6.5h16a1 1 0 0 0 0-2H4a1 1 0 0 0 0 2Zm0 6h16a1 1 0 0 0 0-2H4a1 1 0 0 0 0 2Zm0 6h16a1 1 0 0 0 0-2H4a1 1 0 0 0 0 2Z"/>
+          </svg>
         </button>
         <div class="collapse app-nav-collapse" id="app-nav">
           <nav class="app-nav" aria-label="Основное меню">
@@ -35,43 +38,43 @@
             {% endif %}
             <a class="app-nav-link{% if settings_active %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Настройки</a>
           </nav>
-          <div class="app-user">
-            <div
-              class="app-notifications"
-              id="app-notifications"
-              data-list-url="/api/notifications"
-              data-read-url="/api/notifications/read"
-              data-csrf-token="{{ csrf_token() }}"
-              data-poll-ms="30000"
+        </div>
+        <div class="app-user">
+          <div
+            class="app-notifications"
+            id="app-notifications"
+            data-list-url="/api/notifications"
+            data-read-url="/api/notifications/read"
+            data-csrf-token="{{ csrf_token() }}"
+            data-poll-ms="30000"
+          >
+            <button
+              type="button"
+              class="notif-bell"
+              data-role="toggle"
+              aria-expanded="false"
+              aria-controls="app-notifications-panel"
+              aria-label="Уведомления"
             >
-              <button
-                type="button"
-                class="notif-bell"
-                data-role="toggle"
-                aria-expanded="false"
-                aria-controls="app-notifications-panel"
-                aria-label="Уведомления"
-              >
-                <svg class="notif-bell-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                  <path fill="currentColor" d="M12 22a2.2 2.2 0 0 0 2.2-2.2h-4.4A2.2 2.2 0 0 0 12 22Zm7-6.2V11a7 7 0 0 0-5-6.7V3.8a2 2 0 1 0-4 0v.5A7 7 0 0 0 5 11v4.8L3.4 17.4a1 1 0 0 0 .7 1.7h15.8a1 1 0 0 0 .7-1.7L19 15.8Z"/>
-                </svg>
-                <span class="notif-badge" data-role="badge" hidden></span>
-              </button>
-              <div class="notif-panel" id="app-notifications-panel" data-role="panel" hidden>
-                <div class="notif-panel-head">
-                  <p class="notif-panel-title">Уведомления</p>
-                  <button type="button" class="btn btn-sm btn-ghost" data-role="mark-all">Прочитать все</button>
-                </div>
-                <div class="notif-list" data-role="list"></div>
-                <p class="notif-empty" data-role="empty">Пока нет уведомлений</p>
+              <svg class="notif-bell-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path fill="currentColor" d="M12 22a2.2 2.2 0 0 0 2.2-2.2h-4.4A2.2 2.2 0 0 0 12 22Zm7-6.2V11a7 7 0 0 0-5-6.7V3.8a2 2 0 1 0-4 0v.5A7 7 0 0 0 5 11v4.8L3.4 17.4a1 1 0 0 0 .7 1.7h15.8a1 1 0 0 0 .7-1.7L19 15.8Z"/>
+              </svg>
+              <span class="notif-badge" data-role="badge" hidden></span>
+            </button>
+            <div class="notif-panel" id="app-notifications-panel" data-role="panel" hidden>
+              <div class="notif-panel-head">
+                <p class="notif-panel-title">Уведомления</p>
+                <button type="button" class="btn btn-sm btn-ghost" data-role="mark-all">Прочитать все</button>
               </div>
+              <div class="notif-list" data-role="list"></div>
+              <p class="notif-empty" data-role="empty">Пока нет уведомлений</p>
             </div>
-            <span class="app-user-name">{{ current_user.display_name or current_user.username }}</span>
-            <form method="post" action="{{ url_for('auth.logout') }}" class="d-inline">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-sm btn-ghost" type="submit">Выйти</button>
-            </form>
           </div>
+          <span class="app-user-name">{{ current_user.display_name or current_user.username }}</span>
+          <form method="post" action="{{ url_for('auth.logout') }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-ghost" type="submit">Выйти</button>
+          </form>
         </div>
         {% endif %}
       </div>

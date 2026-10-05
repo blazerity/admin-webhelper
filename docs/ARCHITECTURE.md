@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.6.0)
+# Архитектура bAWH (актуально для v1.6.1)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -10,7 +10,7 @@
 LDAP-вход, отчёт по сроку паролей AD, watchlist и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.6.0` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.6.1` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -81,7 +81,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.6.0)
+  VERSION                      # semver (1.6.1)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
