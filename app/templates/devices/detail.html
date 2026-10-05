@@ -10,6 +10,7 @@
 {% set account_rows = account_rows or [] %}
 {% set hardware_rows = hardware_rows or [] %}
 {% set show_accounts = device.shows_accounts %}
+{% set show_mac = device.shows_mac %}
 {% set show_hardware = device.shows_hardware %}
 {% set show_commands = device.shows_commands %}
 <div class="device-settings-layout">
@@ -80,7 +81,7 @@
             <dt>Серийный номер</dt>
             <dd class="font-monospace">{{ device.serial_number or '—' }}</dd>
           </div>
-          {% if show_accounts %}
+          {% if show_mac and (show_accounts or device.mac) %}
           <div>
             <dt>MAC</dt>
             <dd class="font-monospace">{{ device.mac or '—' }}</dd>

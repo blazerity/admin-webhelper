@@ -17,6 +17,7 @@ from app.services.device_kind import (
     kind_shows_accounts,
     kind_shows_commands,
     kind_shows_hardware,
+    kind_shows_mac,
 )
 
 
@@ -34,6 +35,12 @@ class DeviceKindCapabilityTests(unittest.TestCase):
             KIND_OTHER,
         ):
             self.assertFalse(kind_shows_accounts(kind), kind)
+
+    def test_mac_for_workstations_and_peripherals(self) -> None:
+        for kind in (KIND_NOTEBOOK, KIND_DESKTOP, KIND_CAMERA, KIND_PRINTER, KIND_ROUTER):
+            self.assertTrue(kind_shows_mac(kind), kind)
+        for kind in (KIND_SERVER, KIND_VDS, KIND_FIREWALL, KIND_OTHER):
+            self.assertFalse(kind_shows_mac(kind), kind)
 
     def test_hardware_and_commands_windows_hosts(self) -> None:
         for kind in (KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER):
