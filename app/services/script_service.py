@@ -459,10 +459,12 @@ def _perform(
                 "Удалённый Linux в v1 не реализован: PsExec работает только с Windows."
             )
         body = get_script_body(script)
+        timeout = int(current_app.config.get("SCRIPT_TIMEOUT_SECONDS", 600))
         rc, output = run_remote_script(
             ip,
             script.interpreter,
             body,
+            timeout=timeout,
             as_system=run_as == RunAs.SYSTEM,
             user_id=user_id,
             on_output=on_output,

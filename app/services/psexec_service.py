@@ -2,11 +2,15 @@
 
 Учётка — из настроек пользователя или входа на сайт (Fernet в БД).
 Пароль не пишется в лог; локальный shell=True не используется.
+
+PowerShell не запускаем как executable с -EncodedCommand: powershell.exe
+закрывает named pipe PAExec (STATUS_PIPE_BROKEN / 0xc000014b). Текст кладём
+в ADMIN$\\Temp и гоняем через cmd.exe, stdout — в файл, затем type.
 """
 
-import base64
 import logging
 import threading
+import uuid
 
 from flask import current_app
 
@@ -214,13 +218,16 @@ def run_remote_script(
     ip: str,
     interpreter: str,
     body: str,
-    timeout: int = 180,
+    timeout: int = 600,
     as_system: bool = False,
     user_id: int | None = None,
     on_output=None,
     run_id: int | None = None,
 ) -> tuple[int, str]:
     """Запускает текст из библиотеки. bash в v1 отклоняется: PsExec — только Windows.
+
+    PowerShell пишется в ADMIN$\\Temp и запускается через cmd.exe -File:
+    powershell.exe с -EncodedCommand закрывает pipe PAExec (STATUS_PIPE_BROKEN).
 
     as_system=True — процесс на целевой машине от NT AUTHORITY\\SYSTEM.
     Учётка из настроек при этом всё равно нужна, чтобы открыть SMB.
@@ -235,22 +242,23 @@ def run_remote_script(
     if not script.strip():
         raise RemoteExecError("Текст скрипта пустой.")
     if kind == "powershell":
-        # EncodedCommand — чтобы кавычки/переводы строк не развалили аргумент;
-        # в script_runs.command_text лежит исходный текст, не эта base64.
-        encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
-        arguments = (
-            "-NoProfile -NonInteractive -ExecutionPolicy Bypass "
-            f"-EncodedCommand {encoded}"
-        )
+        stem = f"bawh_{uuid.uuid4().hex[:12]}"
+        remote_ps1 = rf"Temp\{stem}.ps1"
+        payload = script.encode("utf-8-sig")
+
+        def prepare(client) -> None:
+            _write_admin_file(client, remote_ps1, payload)
+
         return _run(
             checked_ip,
-            "powershell.exe",
-            arguments,
+            "cmd.exe",
+            _powershell_file_cmd(stem),
             timeout,
             as_system=as_system,
             user_id=user_id,
             on_output=on_output,
             run_id=run_id,
+            prepare=prepare,
         )
     if kind == "cmd":
         # Аргумент удалённого cmd.exe; shell=False — локальный процесс без shell.
@@ -267,6 +275,60 @@ def run_remote_script(
     raise RemoteExecError(f"Неизвестный интерпретатор: {interpreter}")
 
 
+def _powershell_file_cmd(stem: str) -> str:
+    """cmd держит канал PAExec; powershell пишет в файл и не рвёт pipe."""
+    ps1 = rf"C:\Windows\Temp\{stem}.ps1"
+    out = rf"C:\Windows\Temp\{stem}.out"
+    return (
+        "/v:on /c "
+        "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass "
+        f"-File {ps1} <nul >{out} 2>&1 "
+        "& set BAWHR=!ERRORLEVEL! "
+        f"& type {out} "
+        f"& del /f /q {ps1} {out} "
+        "& exit /b !BAWHR!"
+    )
+
+
+def _write_admin_file(client, relative: str, data: bytes) -> None:
+    """Пишет файл в ADMIN$ (C:\\Windows\\...) уже открытой SMB-сессии pypsexec."""
+    from smbprotocol.open import (
+        CreateDisposition,
+        CreateOptions,
+        FileAttributes,
+        FilePipePrinterAccessMask,
+        ImpersonationLevel,
+        Open,
+        ShareAccess,
+    )
+    from smbprotocol.tree import TreeConnect
+
+    name = (relative or "").replace("/", "\\").lstrip("\\")
+    if not name or ".." in name.split("\\"):
+        raise RemoteExecError("Некорректный путь временного файла скрипта.")
+    tree = TreeConnect(client.session, rf"\\{client.connection.server_name}\ADMIN$")
+    tree.connect()
+    try:
+        handle = Open(tree, name)
+        handle.create(
+            ImpersonationLevel.Impersonation,
+            FilePipePrinterAccessMask.FILE_WRITE_DATA
+            | FilePipePrinterAccessMask.FILE_READ_DATA,
+            FileAttributes.FILE_ATTRIBUTE_NORMAL,
+            ShareAccess.FILE_SHARE_READ,
+            CreateDisposition.FILE_OVERWRITE_IF,
+            CreateOptions.FILE_NON_DIRECTORY_FILE,
+        )
+        chunk = int(getattr(client.connection, "max_write_size", 0) or 65536)
+        offset = 0
+        while offset < len(data):
+            handle.write(data[offset : offset + chunk], offset)
+            offset += chunk
+        handle.close(False)
+    finally:
+        tree.disconnect()
+
+
 def _run(
     ip: str,
     executable: str,
@@ -276,6 +338,7 @@ def _run(
     user_id: int | None = None,
     on_output=None,
     run_id: int | None = None,
+    prepare=None,
 ) -> tuple[int, str]:
     if user_id is None:
         raise RemoteExecError("Неизвестно, от чьего имени запускать PsExec.")
@@ -309,6 +372,16 @@ def _run(
                 session.attach(client, ip, secret, user_id)
         else:
             logger.debug("Повторная команда %s на %s в открытой сессии", executable, ip)
+        if prepare is not None:
+            try:
+                prepare(client)
+            except RemoteExecError:
+                raise
+            except Exception as exc:
+                safe = _scrub(str(exc), secret)
+                raise RemoteExecError(
+                    f"Не удалось записать скрипт на {ip}: {safe}"
+                ) from None
         pipe_kwargs = {}
         if on_output is not None:
             pipe = _streaming_pipe(on_output, secret)
@@ -332,6 +405,11 @@ def _run(
     except Exception as exc:
         safe = _scrub(str(exc), secret)
         logger.warning("Удалённый запуск на %s не удался: %s", ip, safe)
+        if _is_pipe_broken(safe):
+            raise RemoteExecError(
+                f"Не удалось выполнить команду на {ip}: канал PsExec закрыт "
+                f"(STATUS_PIPE_BROKEN). {safe}"
+            ) from None
         raise RemoteExecError(f"Не удалось выполнить команду на {ip}: {safe}") from None
     finally:
         if session is not None:
@@ -404,6 +482,14 @@ def _cleanup(client, ip: str, secret: str) -> bool:
             _scrub(str(exc), secret),
         )
     return ok
+
+
+def _is_pipe_broken(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(
+        marker in lowered
+        for marker in ("status_pipe_broken", "0xc000014b", "3221225803", "pipe has been closed")
+    )
 
 
 # Кириллица в выводе cmd.exe: OEM (cp866) или ANSI (cp1251), реже UTF-8.
