@@ -41,7 +41,7 @@ HTTP / CLI / scheduler
 | Маршруты | `app/routes/` | Только HTTP: форма → сервис → шаблон/JSON. **Не** пингуют и не ходят в LDAP/PsExec напрямую. |
 | Сервисы | `app/services/` | Вся логика: опрос, LDAP, WMI, PsExec, УЗ, экспорт. Вызываются из веба, планировщика и CLI. |
 | Модели | `app/models/` | Таблицы SQLAlchemy. Без HTML и сетевых вызовов. |
-| Схема БД | `app/schema.py` | `ensure_schema()`: `create_all` для недостающих таблиц + seed `action_kinds`. |
+| Схема БД | `app/schema.py` | `ensure_schema()`: `create_all` для недостающих таблиц + seed `action_kinds` + идемпотентные data-fix (флаг в `app_settings`). |
 | Authz | `app/authz.py` | Единственное место ACL секторов/устройств/script_runs и ролей. |
 | Утилиты | `app/utils.py` | `utcnow` / `as_utc` / `ilike_pattern` / `clip` / пагинация. |
 
@@ -184,7 +184,8 @@ flowchart TB
 def ensure_schema() -> None:
     # 1) если в metadata есть таблицы, которых нет в БД → db.create_all()
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
-    # 3) если action_kinds пуст → seed_action_kinds() + commit
+    # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
+    # 4) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
 Вызывается при каждом старте `create_app` (web и scheduler).  
@@ -200,6 +201,11 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 не чистили» (например `users.is_viewer`). Не делает: rename/drop колонок, смену типа,
 новые UNIQUE/FK/индексы на уже существующих колонках — для этого нужен ручной SQL
 или пересоздание БД.
+
+**Data-fix v1.5.1:** после опроса на v1.5.0 в `devices` / `device_hardware_history`
+лежат «рваные» ГБ (15 ОЗУ, 238/244 диск). При старте 1.5.1 `normalize_stored_capacity_gb`
+один раз приводит их к номиналу; маркер `data_fix.hw_gb_nominal_v151` в `app_settings`.
+Повторный WMI-опрос для этого не нужен.
 
 ---
 

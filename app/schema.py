@@ -12,6 +12,9 @@ from app.models import ActionKind, seed_action_kinds
 
 logger = logging.getLogger(__name__)
 
+# Одноразовый пересчёт ram_gb/disk_gb после хотфикса номиналов v1.5.1.
+HARDWARE_GB_NOMINAL_FIX_KEY = "data_fix.hw_gb_nominal_v151"
+
 
 def ensure_schema() -> None:
     """Создать недостающие таблицы/колонки и заполнить справочник action_kinds.
@@ -20,6 +23,8 @@ def ensure_schema() -> None:
     существующей БД (переустановка ``/opt`` без очистки Postgres) колонки из
     моделей, которых ещё нет в таблице, добавляются отдельно — иначе SELECT
     падает с ``UndefinedColumn`` (например ``users.is_viewer``).
+
+    После колонок — идемпотентные data-fix'ы (флаг в ``app_settings``).
     """
     inspector = inspect(db.engine)
     existing = set(inspector.get_table_names())
@@ -28,11 +33,66 @@ def ensure_schema() -> None:
         inspector = inspect(db.engine)
 
     _ensure_columns(inspector)
+    _migrate_hardware_gb_nominals(inspector)
 
     count = db.session.scalar(select(func.count()).select_from(ActionKind)) or 0
     if count == 0:
         seed_action_kinds()
         db.session.commit()
+
+
+def _migrate_hardware_gb_nominals(inspector) -> None:
+    """Пересчитать уже записанные ОЗУ/ПЗУ с «рватых» ГиБ на номиналы этикетки.
+
+    Сырых байтов в БД нет: опрос v1.5.0 сохранил round(байты/1024³).
+    Повторный WMI не нужен — достаточно normalize_stored_capacity_gb.
+    Флаг в app_settings, чтобы не гонять на каждом старте.
+    """
+    from app.models import AppSetting, Device, DeviceHardwareHistory
+    from app.services.hardware_info import normalize_stored_capacity_gb
+
+    tables = set(inspector.get_table_names())
+    if "app_settings" not in tables:
+        return
+
+    marker = db.session.get(AppSetting, HARDWARE_GB_NOMINAL_FIX_KEY)
+    if marker is not None and (marker.value or "").strip() == "1":
+        return
+
+    updated = 0
+    if "devices" in tables:
+        device_cols = {c["name"] for c in inspector.get_columns("devices")}
+        if {"ram_gb", "disk_gb"}.issubset(device_cols):
+            for device in db.session.scalars(select(Device)).all():
+                new_ram = normalize_stored_capacity_gb(device.ram_gb, kind="ram")
+                new_disk = normalize_stored_capacity_gb(device.disk_gb, kind="disk")
+                if new_ram == device.ram_gb and new_disk == device.disk_gb:
+                    continue
+                device.ram_gb = new_ram
+                device.disk_gb = new_disk
+                updated += 1
+
+    if "device_hardware_history" in tables:
+        history_cols = {c["name"] for c in inspector.get_columns("device_hardware_history")}
+        if {"ram_gb", "disk_gb"}.issubset(history_cols):
+            for row in db.session.scalars(select(DeviceHardwareHistory)).all():
+                new_ram = normalize_stored_capacity_gb(row.ram_gb, kind="ram")
+                new_disk = normalize_stored_capacity_gb(row.disk_gb, kind="disk")
+                if new_ram == row.ram_gb and new_disk == row.disk_gb:
+                    continue
+                row.ram_gb = new_ram
+                row.disk_gb = new_disk
+                updated += 1
+
+    if marker is None:
+        db.session.add(AppSetting(key=HARDWARE_GB_NOMINAL_FIX_KEY, value="1"))
+    else:
+        marker.value = "1"
+    db.session.commit()
+    logger.info(
+        "ensure_schema: hardware GB nominal fix v1.5.1 — updated %s rows",
+        updated,
+    )
 
 
 def _ensure_columns(inspector) -> None:

@@ -217,6 +217,32 @@ def _snap_nominal(raw: float, nominals: tuple[int, ...], *, rel: float) -> int:
     return max(1, int(round(raw)))
 
 
+def normalize_stored_capacity_gb(
+    value: int | None,
+    *,
+    kind: str = "disk",
+) -> int | None:
+    """Уже сохранённые ГБ (опрос v1.5.0) → номинал v1.5.1.
+
+    ОЗУ: snap к номиналу планок (15→16).
+    Диск: в БД лежал round(байты/1024³); восстанавливаем приблизительные
+    байты и считаем этикетку 1000³ (238/244→256). Сырых байтов в таблице нет.
+    """
+    if value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    if number < 0:
+        return None
+    if number == 0:
+        return 0
+    if kind == "ram":
+        return _snap_nominal(float(number), _RAM_NOMINALS, rel=0.12)
+    return bytes_to_gb(number * _GIB, kind="disk")
+
+
 def normalize_cpu_name(value: str | None) -> str | None:
     if not value:
         return None
