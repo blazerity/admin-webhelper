@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.6.3)
+# Архитектура bAWH (актуально для v1.6.4)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -7,10 +7,10 @@
 
 **Продукт:** внутренний веб-помощник администратора сети (карта устройств,
 секторы/CIDR, ICMP+WMI+TCP/SNMP опрос, диагностика, скрипты на Windows через PsExec,
-LDAP-вход, отчёт по сроку паролей AD, watchlist и in-app уведомления).
+LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.6.3` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.6.4` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -81,7 +81,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.6.3)
+  VERSION                      # semver (1.6.4)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -140,7 +140,7 @@ flowchart TB
   end
 
   subgraph services["services/"]
-    S_POLL["ping · discovery · fingerprint · hardware_poll · scheduler · watchlist"]
+    S_POLL["ping · discovery · fingerprint · hardware_poll · scheduler"]
     S_ACC["account · action · export · audit"]
     S_ID["ldap · credential · crypto · settings"]
     S_RUN["script · psexec · batch · command_presets"]
@@ -154,7 +154,7 @@ flowchart TB
     M_ACC["endpoint_accounts · device_account_history · action_kinds"]
     M_SCR["scripts · script_runs · app_settings · login_services"]
     M_PWD["password_notifications · password_expiry_runs<br/>sector_daily_report_runs"]
-    M_NTF["admin_audit_log · device_watchlist · notifications"]
+    M_NTF["admin_audit_log · notifications"]
   end
 
   WSGI --> CREATE
@@ -228,8 +228,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | `SectorDailyReportRun` | `sector_daily_report_runs` | `sector_daily_report.py` | Снимки ежедневного отчёта о ПК (ноутбуки/СБ, железо, кандидаты). |
 | `LoginService` | `login_services` | `login_service.py` | Сервисы для блока доступности на `/login`. |
 | `AdminAuditLog` | `admin_audit_log` | `audit.py` | Журнал админ-действий. |
-| `DeviceWatchlist` | `device_watchlist` | `watchlist.py` | Подписка пользователя на offline устройства. |
-| `Notification` | `notifications` | `notification.py` | In-app колокольчик: `device_offline`, `script_failed`, `poll_error`. |
+| `Notification` | `notifications` | `notification.py` | In-app колокольчик: `script_failed`. |
 
 Не таблицы (enum/константы): `DeviceStatus`, `SessionType`, `RunType`, `RunStatus`,
 `RunAs`, `NotificationKind`, `ActionKindCode`.
@@ -250,8 +249,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Прогоны железа | `hardware_poll_runs` | `hardware_poll_service.run_hardware_poll` | `/admin/settings` |
 | Снимки железа | `devices` + `device_hardware_history` | `hardware_poll_service` | карточка, вкладка «Оборудование» |
 | Аудит админа | `admin_audit_log` | `audit_service` | `/admin/audit` |
-| Watchlist | `device_watchlist` | `watchlist_service` | post-poll алерты; UI подписки с карточки убран |
-| Уведомления | `notifications` | `notification_service` / watchlist | `/api/notifications` |
+| Уведомления | `notifications` | `notification_service` (script_failed) | `/api/notifications` |
 
 ---
 
@@ -272,7 +270,6 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки. CLI `refresh-hostnames`, кнопка в Параметрах |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
-| `watchlist_service.py` | CRUD watch; `evaluate_watchlist_alerts` после опроса |
 
 ### Идентичность и секреты
 
@@ -356,7 +353,6 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/api/network/summary` | Сводка сети |
 | GET | `/api/command-presets` | Пресеты (**admin**) |
 | GET | `/devices/<id>` | Карточка: вкладки по типу — overview (+ accounts у ноут/СБ/прочее; commands/hardware у ноут/СБ/сервер/прочее; polls у всех; SN только ноут/СБ) |
-| POST | `/devices/<id>/watch`, `/unwatch` | Watchlist |
 | POST | `/devices/<id>/hardware-poll` | Разовый WMI-опрос железа (**admin**) |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
@@ -535,7 +531,6 @@ sequenceDiagram
   participant Ping as ping_service
   participant Disc as discovery_service
   participant Acc as account_service
-  participant WL as watchlist_service
   participant DB as PostgreSQL
 
   Sch->>Ping: run_network_poll()
@@ -556,8 +551,6 @@ sequenceDiagram
   else offline
     Ping->>DB: обновить известный IP / статус
   end
-  Ping->>WL: evaluate_watchlist_alerts
-  WL->>DB: notifications (device_offline)
 ```
 
 ### C. Скрипт / команда
@@ -630,7 +623,6 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/css/app.css` | стили; `.entity-link` — единый вид ссылок на устройство / УЗ |
 | `static/js/http.js` | общий fetch/CSRF helper |
 | `static/js/map.js` | карта сети; автообновление опционально (localStorage) |
-| `static/js/device_check.js` | быстрая проверка статуса на карточке устройства |
 | `static/js/search.js` | живой фильтр карты (без suggest-dropdown) |
 | `static/js/live_search.js` | живой поиск списков Действия / Учётные записи |
 | `static/js/batch.js` | bulk операции |
@@ -713,7 +705,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
 | Отчёты о ПК | `sector_daily_report_service` + settings, `routes/sector_daily_report.py`, `static/js/pc_reports.js` |
-| Уведомления / watchlist | `notification_service`, `watchlist_service`, `routes/notifications.py` |
+| Уведомления | `notification_service`, `routes/notifications.py` |
 | Настройки / опрос вручную | `routes/admin.py`, `settings_service` |
 | Аудит админа | `audit_service`, `/admin/audit` |
 | Новая таблица | модель в `models/` → `__all__` в `models/__init__.py` → `ensure_schema` на старте |

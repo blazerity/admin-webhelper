@@ -5,9 +5,7 @@ from app.utils import utcnow
 
 
 class NotificationKind:
-    DEVICE_OFFLINE = "device_offline"
     SCRIPT_FAILED = "script_failed"
-    POLL_ERROR = "poll_error"
 
 
 class Notification(db.Model):

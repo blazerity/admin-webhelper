@@ -14,7 +14,6 @@ from app.models.sector import Sector, SectorAccess, SectorRange
 from app.models.sector_daily_report import SectorDailyReportRun
 from app.models.setting import POLL_INTERVAL_KEY, AppSetting, RemoteCredential
 from app.models.user import User, UserLdapGroup
-from app.models.watchlist import DeviceWatchlist
 
 __all__ = [
     "ACTION_KIND_SEED",
@@ -27,7 +26,6 @@ __all__ = [
     "DeviceHardwareHistory",
     "DeviceHistory",
     "DeviceStatus",
-    "DeviceWatchlist",
     "HardwarePollRun",
     "EndpointAccount",
     "LoginService",

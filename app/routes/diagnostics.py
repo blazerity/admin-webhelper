@@ -16,7 +16,6 @@ from flask import (
     abort,
     current_app,
     flash,
-    jsonify,
     redirect,
     request,
     url_for,
@@ -32,16 +31,6 @@ from app.services.script_service import start_run
 bp = Blueprint("diagnostics", __name__)
 
 
-def _wants_json() -> bool:
-    if request.is_json:
-        return True
-    best = request.accept_mimetypes.best_match(["application/json", "text/html"])
-    return best == "application/json" and (
-        request.accept_mimetypes[best]
-        > request.accept_mimetypes["text/html"]
-    )
-
-
 @bp.post("/devices/<int:device_id>/check")
 @login_required
 def check_device_status(device_id: int):
@@ -49,23 +38,16 @@ def check_device_status(device_id: int):
     if not user_can_run_diagnostics(current_user):
         abort(403)
     device = get_visible_device_or_404(device_id)
-    tab = (request.form.get("tab") or "overview").strip() or "overview"
+    tab = (request.form.get("tab") or "polls").strip() or "polls"
     try:
         payload = check_device(device)
     except NetworkInputError as exc:
-        if _wants_json():
-            return jsonify({"error": str(exc)}), 400
         flash(str(exc), "warning")
         return redirect(url_for("devices.detail", device_id=device.id, tab=tab))
     except Exception:
         current_app.logger.exception("Не удалось проверить устройство %s", device_id)
-        if _wants_json():
-            return jsonify({"error": "Не удалось выполнить проверку."}), 500
         flash("Не удалось выполнить проверку.", "danger")
         return redirect(url_for("devices.detail", device_id=device.id, tab=tab))
-
-    if _wants_json():
-        return jsonify(payload)
 
     label = {"online": "доступен", "offline": "недоступен"}.get(
         payload["status"], "неизвестно"
