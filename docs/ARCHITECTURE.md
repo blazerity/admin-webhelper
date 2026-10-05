@@ -264,7 +264,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `net_utils.py` | `parse_range`, `expand_ranges`, `normalize_mac`, `assert_host_or_ipv4`, `resolve_to_ipv4` |
 | `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
-| `device_kind.py` | тип карты: имена AD, WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `hardware` / `commands` для вкладок карточки |
+| `device_kind.py` | тип карты: имена AD, WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
 | `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
 | `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices`, история при изменении. Mutex + `hardware_poll_runs` |
@@ -355,7 +355,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
 | GET | `/api/command-presets` | Пресеты (**admin**) |
-| GET | `/devices/<id>` | Карточка: вкладки по типу — overview (+ accounts у ноут/СБ; commands/hardware у ноут/СБ/сервер; polls у всех) |
+| GET | `/devices/<id>` | Карточка: вкладки по типу — overview (+ accounts у ноут/СБ/прочее; commands/hardware у ноут/СБ/сервер/прочее; polls у всех; SN только ноут/СБ) |
 | POST | `/devices/<id>/watch`, `/unwatch` | Watchlist |
 | POST | `/devices/<id>/hardware-poll` | Разовый WMI-опрос железа (**admin**) |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
