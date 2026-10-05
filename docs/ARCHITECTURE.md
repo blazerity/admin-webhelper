@@ -225,7 +225,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | `Script`, `ScriptRun` | `scripts`, `script_runs` | `script.py` | Библиотека и журнал запусков. У скрипта: `run_as`, `is_published`. У run: `run_type`, `batch_id`, статус. |
 | `AppSetting`, `RemoteCredential` | `app_settings`, `remote_credentials` | `setting.py` | KV-настройки; per-user Fernet-шифротекст PsExec/пароля входа. |
 | `PasswordNotification`, `PasswordExpiryRun` | `password_notifications`, `password_expiry_runs` | `password_expiry.py` | Письма о сроке пароля + снимки прогонов. |
-| `SectorDailyReportRun` | `sector_daily_report_runs` | `sector_daily_report.py` | Снимки ежедневного отчёта активных устройств по секторам. |
+| `SectorDailyReportRun` | `sector_daily_report_runs` | `sector_daily_report.py` | Снимки ежедневного отчёта о ПК (ноутбуки/СБ, железо, кандидаты). |
 | `LoginService` | `login_services` | `login_service.py` | Сервисы для блока доступности на `/login`. |
 | `AdminAuditLog` | `admin_audit_log` | `audit.py` | Журнал админ-действий. |
 | `DeviceWatchlist` | `device_watchlist` | `watchlist.py` | Подписка пользователя на offline устройства. |
@@ -314,12 +314,12 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure scheduler |
 | `systemd_service.py` | `systemctl` start/enable/restart через sudo-учётку |
 
-### Отчёт по секторам
+### Отчёты о ПК (бывш. «Отчёт по секторам»)
 
 | Модуль | Роль |
 | --- | --- |
-| `sector_daily_report_service.py` | оркестрация: active/known за прошедший день |
-| `sector_daily_report_settings.py` | cron / recipients / schedule_enabled в `app_settings` |
+| `sector_daily_report_service.py` | парк ноутбуков/СБ по секторам, диаграммы железа, кандидаты на замену, пробелы инвентаризации, CSV |
+| `sector_daily_report_settings.py` | cron / recipients / schedule_enabled в `app_settings` (ключи `sector_daily_*`) |
 
 ### Прочее
 
@@ -412,13 +412,14 @@ List, `export.csv`, detail (только видимые по ACL).
 | POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-scheduler` |
 | GET/POST | `/settings`, POST `/run`, `/pause`, `/notify` | admin |
 
-### Sector daily report — prefix `/sector-daily-report`
+### Отчёты о ПК — prefix `/pc-reports` (legacy `/sector-daily-report` → 301)
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| GET | `/` | admin — дашборд + тумблер сервиса |
+| GET | `/` | admin — дашборд парка ПК + диаграммы + тумблер |
 | POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-scheduler` |
 | GET/POST | `/settings`, POST `/run` | admin |
+| GET | `/export.csv` | admin — CSV парка / кандидатов / пробелов |
 
 ### Login services — `login_services.py`
 
@@ -583,11 +584,13 @@ ThreadPool `execute_run` → `psexec_service` или локальный ping/tra
 Scheduler cron / CLI / UI → `run_password_expiry` → LDAP fetch → classify →
 SMTP → `password_expiry_runs` + `password_notifications`.
 
-### D2. Sector daily report
+### D2. Отчёты о ПК
 
-Scheduler cron / CLI / UI → `run_sector_daily_report` → distinct online
-`device_history` за прошедший локальный день по секторам → SMTP →
-`sector_daily_report_runs`.
+Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`n…`) и СБ (`w…`)
+по секторам + агрегаты железа (ОЗУ/диск/ОС/CPU) + активность за прошедший
+локальный день → SMTP → `sector_daily_report_runs`. Дашборд `/pc-reports` строит
+живой снимок; Chart.js (vendor) рисует диаграммы. Дополнительно: кандидаты на
+замену, пробелы инвентаризации, экспорт CSV.
 
 ### D3. Опрос железа Windows
 
@@ -629,9 +632,9 @@ backup → git → pip → `flask init-db` → опциональный restart
 в [`docs/UI_GUIDEBOOK.md`](UI_GUIDEBOOK.md). Ниже — карта файлов.
 
 **Шаблоны** (`app/templates/`): каркас `base.html` (навигация: карта, действия, УЗ,
-скрипты, пароли AD, отчёт по секторам, настройки). Домены: `accounts/`, `actions/`,
+скрипты, пароли AD, отчёты о ПК, настройки). Домены: `accounts/`, `actions/`,
 `admin/`, `auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
-`macros/`, `password_expiry/`, `scripts/`, `sector_daily_report/`, `sectors/`.
+`macros/`, `password_expiry/`, `scripts/`, `sector_daily_report/` (UI «Отчёты о ПК»), `sectors/`.
 
 **Static:**
 
@@ -647,7 +650,9 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/js/notifications.js` | колокольчик |
 | `static/js/run_log.js` | поллинг лога запуска |
 | `static/js/login_status.js` | статус сервисов на `/login` |
+| `static/js/pc_reports.js` | диаграммы отчётов о ПК (Chart.js) |
 | `static/vendor/bootstrap/` | Bootstrap 5 offline (air-gap) |
+| `static/vendor/chart.js/` | Chart.js 4 UMD offline (air-gap) |
 
 ---
 
@@ -720,7 +725,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
-| Отчёт по секторам | `sector_daily_report_service` + settings, `routes/sector_daily_report.py` |
+| Отчёты о ПК | `sector_daily_report_service` + settings, `routes/sector_daily_report.py`, `static/js/pc_reports.js` |
 | Уведомления / watchlist | `notification_service`, `watchlist_service`, `routes/notifications.py` |
 | Настройки / опрос вручную | `routes/admin.py`, `settings_service` |
 | Аудит админа | `audit_service`, `/admin/audit` |

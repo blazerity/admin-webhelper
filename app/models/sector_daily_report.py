@@ -1,4 +1,7 @@
-"""Прогоны ежедневного отчёта об активных устройствах по секторам."""
+"""Прогоны ежедневного отчёта о ПК (ноутбуки/СБ по секторам).
+
+Таблица sector_daily_report_runs сохраняет прежнее имя для совместимости.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +10,7 @@ from app.utils import utcnow
 
 
 class SectorDailyReportRun(db.Model):
-    """Итог одного прогона + JSON-снимок отчёта для дашборда."""
+    """Итог одного прогона + JSON-снимок парка ПК для дашборда/истории."""
 
     __tablename__ = "sector_daily_report_runs"
 
