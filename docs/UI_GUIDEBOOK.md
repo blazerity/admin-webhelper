@@ -271,7 +271,8 @@ Header → (опционально справочник) → live-search panel �
 **Touch:** hit-area кнопок выбора/избранного ≥1.7rem; toggler/колокольчик 2.15×2.15rem; bulk-bar не перекрывает контент без отступа (`bottom: 0.85rem`).  
 **Viewport:** meta `width=device-width, initial-scale=1` обязателен.  
 **Не** фиксировать ширины таблиц жёстко — `.table-responsive`.
-**Overflow:** `overflow-x: clip` на `html`/`body`/`.app-shell` — страховка после устранения реальных источников переполнения.
+**Overflow:** `overflow-x: clip` на `.app-shell` — страховка после устранения реальных источников переполнения.  
+**RDP / mid-band:** без `background-attachment: fixed` и без `backdrop-filter` на topbar ≤991px; collapse без height-transition.
 ---
 
 ## 7. Доступность и обратная связь
