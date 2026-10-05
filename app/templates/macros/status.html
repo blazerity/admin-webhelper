@@ -1,11 +1,22 @@
 {% macro status_badge(status) -%}
 {% if status == 'online' %}
-<span class="badge text-bg-success">доступен</span>
+<span class="badge text-bg-success" data-status-badge>доступен</span>
 {% elif status == 'offline' %}
-<span class="badge text-bg-danger">недоступен</span>
+<span class="badge text-bg-danger" data-status-badge>недоступен</span>
 {% else %}
-<span class="badge text-bg-secondary">неизвестно</span>
+<span class="badge text-bg-secondary" data-status-badge>неизвестно</span>
 {% endif %}
+{%- endmacro %}
+
+{# Ссылки-сущности вне карты сети: единый вид «можно провалиться». #}
+{% macro device_entity_link(device_id, label, extra_class='') -%}
+<a class="entity-link entity-device{% if extra_class %} {{ extra_class }}{% endif %}"
+   href="{{ url_for('devices.detail', device_id=device_id) }}">{{ label }}</a>
+{%- endmacro %}
+
+{% macro account_entity_link(account_id, label, extra_class='') -%}
+<a class="entity-link entity-account font-monospace{% if extra_class %} {{ extra_class }}{% endif %}"
+   href="{{ url_for('accounts.detail', account_id=account_id) }}">{{ label }}</a>
 {%- endmacro %}
 
 {% macro status_dot(status) -%}

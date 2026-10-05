@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/status.html" import status_badge, device_portrait %}
+{% from "macros/status.html" import status_badge, device_portrait, account_entity_link %}
 {% block title %}{% if device %}{{ device.hostname or device.ip }}{% else %}Устройство{% endif %}{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -27,7 +27,15 @@
     </div>
 
     {% if tab == 'overview' %}
-    <article class="device-object panel {{ device.last_status }}">
+    <article
+      class="device-object panel {{ device.last_status }}"
+      id="device-object"
+      data-device-id="{{ device.id }}"
+      data-status="{{ device.last_status }}"
+      data-check-url="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}"
+      data-csrf-token="{{ csrf_token() }}"
+      data-can-check="{{ '1' if can_run_diagnostics|default(false) else '0' }}"
+    >
       <div class="device-object-media">
         {{ device_portrait(device) }}
       </div>
@@ -38,10 +46,20 @@
             <h2 class="device-object-name">{{ device.hostname or 'без имени' }}</h2>
             <p class="device-object-ip font-monospace">{{ device.ip }}</p>
           </div>
-          <div class="device-object-status">
+          <div class="device-object-status" data-device-status-host>
             {{ status_badge(device.last_status) }}
           </div>
         </div>
+        {% if can_run_diagnostics|default(false) %}
+        <div class="device-check-bar">
+          <button type="button" class="btn btn-sm btn-primary" id="device-check-btn" data-device-check>
+            Проверить сейчас
+          </button>
+          <p class="device-check-hint mb-0" id="device-check-hint" aria-live="polite">
+            ICMP с сервера · результат попадёт в историю опросов
+          </p>
+        </div>
+        {% endif %}
         <div class="device-watch-bar">
           {% if watching|default(false) %}
           <form method="post" action="/devices/{{ device.id }}/unwatch" class="device-watch-form">
@@ -78,7 +96,7 @@
             <dt>Текущая УЗ</dt>
             <dd>
               {% if device.current_account %}
-              <a class="font-monospace" href="{{ url_for('accounts.detail', account_id=device.current_account.id) }}">{{ device.current_account.account_key }}</a>
+              {{ account_entity_link(device.current_account.id, device.current_account.account_key) }}
               {% else %}
               —
               {% endif %}
@@ -86,15 +104,15 @@
           </div>
           <div>
             <dt>Последний ответ</dt>
-            <dd>{{ device.last_seen|dt }}</dd>
+            <dd data-device-last-seen>{{ device.last_seen|dt }}</dd>
           </div>
           <div>
             <dt>Отклик</dt>
-            <dd>{% if device.last_response_time_ms is not none %}{{ device.last_response_time_ms }} мс{% else %}—{% endif %}</dd>
+            <dd data-device-rtt>{% if device.last_response_time_ms is not none %}{{ device.last_response_time_ms }} мс{% else %}—{% endif %}</dd>
           </div>
           <div>
             <dt>Статус</dt>
-            <dd>{{ status_badge(device.last_status) }}</dd>
+            <dd data-device-status-meta>{{ status_badge(device.last_status) }}</dd>
           </div>
           <div>
             <dt>УЗ замечена</dt>
@@ -155,7 +173,7 @@
       <p class="panel-hint mb-3">УЗ по последнему успешному WMI-опросу</p>
       {% if device.current_account %}
       <p class="mb-1">
-        <a class="font-monospace fs-5" href="{{ url_for('accounts.detail', account_id=device.current_account.id) }}">{{ device.current_account.account_key }}</a>
+        {{ account_entity_link(device.current_account.id, device.current_account.account_key, 'fs-5') }}
       </p>
       {% if device.current_account.display_name %}
       <p class="text-muted mb-1">{{ device.current_account.display_name }}</p>
@@ -185,7 +203,7 @@
               <td class="text-nowrap">{{ row.seen_at|dt }}</td>
               <td>
                 {% if row.account %}
-                <a class="font-monospace" href="{{ url_for('accounts.detail', account_id=row.account.id) }}">{{ row.account.account_key }}</a>
+                {{ account_entity_link(row.account.id, row.account.account_key) }}
                 {% else %}—{% endif %}
               </td>
               <td class="font-monospace">{{ row.raw_value or '—' }}</td>
@@ -396,4 +414,7 @@
   }
 })();
 </script>
+{% if tab == 'overview' and can_run_diagnostics|default(false) %}
+<script src="{{ url_for('static', filename='js/device_check.js') }}"></script>
+{% endif %}
 {% endblock %}

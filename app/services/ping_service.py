@@ -694,6 +694,59 @@ def _resolve_device(
     return device
 
 
+def check_device(device: Device, *, timeout_s: int = 1) -> dict:
+    """Разовый ICMP по уже известному устройству: статус + device_history.
+
+    В отличие от diagnostic Ping (script_runs), пишет в историю опросов
+    и сразу обновляет last_status / last_seen / last_response_time_ms.
+    WMI/discovery не вызываются — только доступность.
+    """
+    if device is None or not getattr(device, "id", None):
+        raise ValueError("Устройство не задано.")
+    ip = assert_public_ipv4(device.ip)
+    previous = device.last_status or DeviceStatus.UNKNOWN
+    result = ping_host(ip, timeout_s=timeout_s)
+    now = utcnow()
+    status = result.status
+    changed = status != previous
+
+    device.last_status = status
+    device.last_response_time_ms = result.response_time_ms
+    if status == DeviceStatus.ONLINE:
+        device.last_seen = now
+    db.session.add(
+        DeviceHistory(
+            device_id=device.id,
+            timestamp=now,
+            status=status,
+            response_time_ms=result.response_time_ms,
+        )
+    )
+    db.session.commit()
+
+    if changed:
+        try:
+            from app.services.watchlist_service import evaluate_watchlist_alerts
+
+            evaluate_watchlist_alerts()
+        except Exception:
+            logger.exception(
+                "Не удалось оценить watchlist после проверки устройства %s",
+                device.id,
+            )
+
+    return {
+        "device_id": device.id,
+        "ip": device.ip,
+        "status": status,
+        "previous_status": previous,
+        "changed": changed,
+        "response_time_ms": result.response_time_ms,
+        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+        "checked_at": now.isoformat(),
+    }
+
+
 def _parse_response_time_ms(output: str) -> int | None:
     """Первое время ответа из текста ping. None, если строки time/время нет.
 

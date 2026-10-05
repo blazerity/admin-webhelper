@@ -434,6 +434,7 @@ def detail(device_id: int):
         scripts=scripts,
         watching=watching,
         offline_minutes=offline_minutes,
+        can_run_diagnostics=user_can_run_diagnostics(current_user),
     )
 
 

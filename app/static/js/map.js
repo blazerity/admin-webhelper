@@ -3,7 +3,10 @@
   const escapeHtml = http.escapeHtml || ((value) => String(value ?? ""));
   const fetchJson = http.fetchJson;
   const postJson = http.postJson;
-  const REFRESH_MS = 15000;
+  const REFRESH_ENABLED_KEY = "bawh.map.refresh.enabled";
+  const REFRESH_INTERVAL_KEY = "bawh.map.refresh.intervalMs";
+  const DEFAULT_REFRESH_MS = 300000;
+  const ALLOWED_REFRESH_MS = new Set([30000, 60000, 300000, 900000, 1800000, 3600000]);
   const FAV_KEY = "bawh.map.favorites";
   const STATUS_LABELS = {
     online: "доступен",
@@ -56,6 +59,9 @@
   const filtersRoot = document.getElementById("map-filters");
   const resetBtn = document.getElementById("map-filters-reset");
   const refreshStatus = document.getElementById("map-refresh-status");
+  const refreshEnabledInput = document.getElementById("map-refresh-enabled");
+  const refreshIntervalSelect = document.getElementById("map-refresh-interval");
+  const refreshIntervalWrap = document.getElementById("map-refresh-interval-wrap");
   const filtersEmpty = document.getElementById("map-filters-empty");
   const summaryRoot = document.getElementById("map-summary");
   const summaryStatus = document.getElementById("map-summary-status");
@@ -85,6 +91,12 @@
   let searchSectorId = "";
   let favOnly = false;
   let restoringView = false;
+  let refreshEnabled = loadRefreshEnabled();
+  let refreshMs = loadRefreshInterval();
+  /** @type {number|null} */
+  let statusTimer = null;
+  /** @type {number|null} */
+  let summaryTimer = null;
 
   function loadFavorites() {
     try {
@@ -108,6 +120,91 @@
     } catch (_err) {
       /* ignore quota / private mode */
     }
+  }
+
+  function loadRefreshEnabled() {
+    try {
+      const raw = localStorage.getItem(REFRESH_ENABLED_KEY);
+      if (raw === null) return false;
+      return raw === "1" || raw === "true";
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function loadRefreshInterval() {
+    try {
+      const raw = Number(localStorage.getItem(REFRESH_INTERVAL_KEY));
+      if (ALLOWED_REFRESH_MS.has(raw)) return raw;
+    } catch (_err) {
+      /* ignore */
+    }
+    return DEFAULT_REFRESH_MS;
+  }
+
+  function saveRefreshPrefs() {
+    try {
+      localStorage.setItem(REFRESH_ENABLED_KEY, refreshEnabled ? "1" : "0");
+      localStorage.setItem(REFRESH_INTERVAL_KEY, String(refreshMs));
+    } catch (_err) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function formatRefreshInterval(ms) {
+    if (ms < 60000) return `${Math.round(ms / 1000)} с`;
+    if (ms < 3600000) return `${Math.round(ms / 60000)} мин`;
+    return `${Math.round(ms / 3600000)} ч`;
+  }
+
+  function setIdleRefreshStatus() {
+    if (!refreshStatus) return;
+    if (refreshEnabled) {
+      refreshStatus.textContent = `Автообновление каждые ${formatRefreshInterval(refreshMs)}`;
+    } else {
+      refreshStatus.textContent = "Автообновление выключено";
+    }
+  }
+
+  function syncRefreshControls() {
+    if (refreshEnabledInput) {
+      refreshEnabledInput.checked = refreshEnabled;
+    }
+    if (refreshIntervalSelect) {
+      refreshIntervalSelect.value = String(refreshMs);
+      refreshIntervalSelect.disabled = !refreshEnabled;
+    }
+    if (refreshIntervalWrap) {
+      refreshIntervalWrap.classList.toggle("is-disabled", !refreshEnabled);
+    }
+    setIdleRefreshStatus();
+  }
+
+  function stopRefreshTimers() {
+    if (statusTimer != null) {
+      window.clearInterval(statusTimer);
+      statusTimer = null;
+    }
+    if (summaryTimer != null) {
+      window.clearInterval(summaryTimer);
+      summaryTimer = null;
+    }
+  }
+
+  function startRefreshTimers() {
+    stopRefreshTimers();
+    if (!refreshEnabled) {
+      return;
+    }
+    statusTimer = window.setInterval(refreshStatuses, refreshMs);
+    const summaryMs = Math.max(refreshMs * 2, 60000);
+    summaryTimer = window.setInterval(refreshSummary, summaryMs);
+  }
+
+  function applyRefreshPrefs() {
+    saveRefreshPrefs();
+    syncRefreshControls();
+    startRefreshTimers();
   }
 
   function formatPollStamp(lastPoll) {
@@ -881,9 +978,13 @@
             minute: "2-digit",
             second: "2-digit",
           });
-      refreshStatus.textContent = time
-        ? `Обновлено в ${time}`
-        : "Статусы обновлены";
+      if (time) {
+        refreshStatus.textContent = refreshEnabled
+          ? `Обновлено в ${time} · каждые ${formatRefreshInterval(refreshMs)}`
+          : `Обновлено в ${time}`;
+      } else {
+        refreshStatus.textContent = "Статусы обновлены";
+      }
     }
   }
 
@@ -990,10 +1091,39 @@
     setSearch,
   };
 
+  if (refreshEnabledInput) {
+    refreshEnabledInput.addEventListener("change", () => {
+      refreshEnabled = Boolean(refreshEnabledInput.checked);
+      applyRefreshPrefs();
+      if (refreshEnabled) {
+        refreshStatuses();
+        refreshSummary();
+      }
+    });
+  }
+  if (refreshIntervalSelect) {
+    refreshIntervalSelect.addEventListener("change", () => {
+      const next = Number(refreshIntervalSelect.value);
+      if (!ALLOWED_REFRESH_MS.has(next)) {
+        return;
+      }
+      refreshMs = next;
+      applyRefreshPrefs();
+      if (refreshEnabled) {
+        refreshStatuses();
+      }
+    });
+  }
+
   applyUrlToFilters();
   applyFilters();
   updateBulkBar();
+  syncRefreshControls();
   refreshSummary();
+  if (refreshEnabled) {
+    refreshStatuses();
+  }
+  startRefreshTimers();
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) {
       sessionStorage.removeItem(RESTORE_KEY);
@@ -1001,6 +1131,4 @@
     }
     restoreMapView();
   });
-  window.setInterval(refreshStatuses, REFRESH_MS);
-  window.setInterval(refreshSummary, REFRESH_MS * 4);
 })();
