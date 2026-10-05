@@ -1,6 +1,6 @@
 """Справочник УЗ на конечных точках и карточка пользователя."""
 
-from flask import Blueprint, render_template, request
+from flask import Blueprint, jsonify, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app.services.account_service import (
@@ -10,9 +10,36 @@ from app.services.account_service import (
     list_visible_accounts,
 )
 from app.services.export_service import csv_attachment, export_accounts_csv
-from app.utils import normalize_page, parse_optional_int
+from app.utils import format_utc, normalize_page, parse_optional_int
 
 bp = Blueprint("accounts", __name__, url_prefix="/accounts")
+
+
+def _wants_json() -> bool:
+    if (request.args.get("format") or "").strip().lower() == "json":
+        return True
+    return (request.accept_mimetypes.best or "") == "application/json"
+
+
+def _accounts_payload(result: dict) -> dict:
+    items = []
+    for account in result["items"]:
+        items.append(
+            {
+                "id": account.id,
+                "account_key": account.account_key,
+                "display_name": account.display_name or "",
+                "first_seen_at": format_utc(account.first_seen_at),
+                "last_seen_at": format_utc(account.last_seen_at),
+                "url": url_for("accounts.detail", account_id=account.id),
+            }
+        )
+    return {
+        "items": items,
+        "total": result["total"],
+        "page": result["page"],
+        "per_page": result["per_page"],
+    }
 
 
 @bp.get("/")
@@ -30,6 +57,8 @@ def list_accounts():
         page=page,
         per_page=per_page,
     )
+    if _wants_json():
+        return jsonify(_accounts_payload(result))
     return render_template(
         "accounts/list.html",
         accounts=result["items"],

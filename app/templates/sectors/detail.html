@@ -17,11 +17,11 @@
   <p class="small text-muted mb-0">Диапазоны: {% for item in sector.ranges %}<code>{{ item.cidr }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
 </div>
 <div class="device-card-grid">
-  {% for device in sector.devices %}
+  {% for device in devices|default(sector.devices) %}
   <div data-device-card data-device-id="{{ device.id }}" data-status="{{ device.last_status }}" data-type="{{ device.kind }}">{{ device_card(device) }}</div>
   {% endfor %}
 </div>
-{% if not sector.devices %}
+{% if not devices|default(sector.devices) %}
 <p class="text-muted">Устройств пока нет.</p>
 {% endif %}
 {% endif %}

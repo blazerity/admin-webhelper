@@ -9,7 +9,9 @@
 3. ThreadPoolExecutor вызывает только ping_host и функции discovery.
    Воркер получает IP и заранее загруженные creds, возвращает Probe.
    Объектов ORM в потоке нет. Строку devices заранее не создаём:
-   пустой адрес на карте не нужен.
+   пустой адрес на карте не нужен. Для серых онлайн-адресов (нет своего
+   имени и нет WMI-серийника) тот же воркер делает короткий TCP/SNMP
+   отпечаток — не отдельный проход по всей сети.
 4. Снова главный поток:
    * офлайн по уже известному IP → статус и device_history;
    * онлайн → serial+MAC+УЗ (WMI) / hostname (PTR, иначе WMI) / IP
@@ -38,7 +40,8 @@ from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.models import Device, DeviceHistory, DeviceStatus, NetworkPollRun, Sector
-from app.services import discovery_service
+from app.services import discovery_service, fingerprint_service
+from app.services.device_kind import needs_fingerprint
 from app.services.net_utils import NetworkInputError, assert_public_ipv4, expand_ranges
 from app.utils import as_utc, utcnow
 
@@ -87,6 +90,8 @@ class _Probe:
     mac: str | None
     serial_number: str | None
     logged_on_user: str | None = None
+    fingerprint_kind: str | None = None
+    fingerprint_detail: str | None = None
 
 
 def ping_host(
@@ -518,6 +523,8 @@ def _probe(
     mac = None
     serial_number = None
     logged_on_user = None
+    fingerprint_kind = None
+    fingerprint_detail = None
     if result.status == DeviceStatus.ONLINE:
         # Ищем атрибут на модуле в момент вызова, а не копией функции:
         # так подмена в тестах (и будущий кэш DNS) видна без правки этого файла.
@@ -532,6 +539,13 @@ def _probe(
         # Без PTR (Unknown host) имя всё равно можно взять с самой машины.
         if not hostname and inventory.hostname:
             hostname = inventory.hostname
+        if needs_fingerprint(hostname, serial_number):
+            try:
+                fingerprint = fingerprint_service.fingerprint_host(ip)
+                fingerprint_kind = fingerprint.kind
+                fingerprint_detail = fingerprint.detail
+            except Exception:
+                logger.exception("Не удалось снять TCP/SNMP-отпечаток %s", ip)
     return _Probe(
         ip=ip,
         result=result,
@@ -539,6 +553,8 @@ def _probe(
         mac=mac,
         serial_number=serial_number,
         logged_on_user=logged_on_user,
+        fingerprint_kind=fingerprint_kind,
+        fingerprint_detail=fingerprint_detail,
     )
 
 
@@ -563,6 +579,10 @@ def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
         device.mac = probe.mac
     if probe.serial_number:
         device.serial_number = probe.serial_number
+    if probe.fingerprint_kind:
+        device.fingerprint_kind = probe.fingerprint_kind
+        if probe.fingerprint_detail:
+            device.fingerprint_detail = probe.fingerprint_detail
 
     try:
         # Сначала id новой строки, потом история с внешним ключом.

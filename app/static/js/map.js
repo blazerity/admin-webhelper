@@ -21,15 +21,31 @@
     vds: "VDS",
     server: "Сервер",
     firewall: "Firewall",
+    router: "MikroTik",
+    camera: "Камера",
+    printer: "МФУ",
     other: "Прочее",
   };
-  const KIND_ORDER = ["notebook", "desktop", "vds", "server", "firewall", "other"];
+  const KIND_ORDER = [
+    "notebook",
+    "desktop",
+    "vds",
+    "server",
+    "firewall",
+    "router",
+    "camera",
+    "printer",
+    "other",
+  ];
   const TYPE_ICONS = {
     notebook: `<span class="device-type-icon" title="Ноутбук" aria-label="Ноутбук"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M2 20h20"></path><path d="M8 20h8"></path></svg></span>`,
     desktop: `<span class="device-type-icon" title="СБ" aria-label="СБ"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="1.5"></rect><path d="M8 20h8"></path><path d="M12 16v4"></path></svg></span>`,
     vds: `<span class="device-type-icon" title="VDS" aria-label="VDS"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8"></path><path d="M12 17v4"></path><path d="m15 8 5-5"></path><path d="M16 3h5v5"></path></svg></span>`,
     server: `<span class="device-type-icon" title="Сервер" aria-label="Сервер"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2"></rect><rect x="2" y="14" width="20" height="8" rx="2"></rect><circle cx="6" cy="6" r="0.8" fill="currentColor" stroke="none"></circle><circle cx="6" cy="18" r="0.8" fill="currentColor" stroke="none"></circle></svg></span>`,
     firewall: `<span class="device-type-icon" title="Сетевое устройство" aria-label="Сетевое устройство"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10" width="18" height="10" rx="2"></rect><path d="M7 10V7a5 5 0 0 1 10 0v3"></path><circle cx="8" cy="15" r="0.8" fill="currentColor" stroke="none"></circle><circle cx="12" cy="15" r="0.8" fill="currentColor" stroke="none"></circle><circle cx="16" cy="15" r="0.8" fill="currentColor" stroke="none"></circle></svg></span>`,
+    router: `<span class="device-type-icon" title="MikroTik" aria-label="MikroTik"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="16" height="10" rx="2"></rect><path d="M8 8V5"></path><path d="M16 8V5"></path><circle cx="8" cy="4" r="1"></circle><circle cx="16" cy="4" r="1"></circle><path d="M8 13h.01"></path><path d="M12 13h.01"></path><path d="M16 13h.01"></path></svg></span>`,
+    camera: `<span class="device-type-icon" title="Камера" aria-label="Камера"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h11a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z"></path><path d="m17 11 5-3v8l-5-3"></path><circle cx="9.5" cy="14.5" r="2.2"></circle></svg></span>`,
+    printer: `<span class="device-type-icon" title="МФУ" aria-label="МФУ"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8V4h12v4"></path><rect x="4" y="8" width="16" height="8" rx="1.5"></rect><path d="M6 16h12v4H6z"></path><path d="M7 12h.01"></path></svg></span>`,
     other: `<span class="device-type-icon muted" title="Прочее" aria-label="Прочее"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5"></path><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"></circle></svg></span>`,
   };
   const FILTER_PARAM_KEYS = ["status", "type", "fav"];
@@ -369,13 +385,37 @@
     restoringView = false;
   }
 
-  function renderSectorKindCounts(panel) {
+  function hostnameSortKey(hostname, ip) {
+    const name = String(hostname || "").trim().toLowerCase();
+    const ipKey = String(ip || "");
+    if (!name) {
+      return `~\t${ipKey}`;
+    }
+    return `${name.replace(/\d+/g, (digits) => digits.padStart(10, "0"))}\t${ipKey}`;
+  }
+
+  function sortSectorCards(row) {
+    if (!row) {
+      return;
+    }
+    const cards = Array.from(row.querySelectorAll("[data-device-card]"));
+    cards.sort((left, right) => {
+      const a = hostnameSortKey(left.dataset.hostname, left.dataset.ip);
+      const b = hostnameSortKey(right.dataset.hostname, right.dataset.ip);
+      if (a < b) return -1;
+      if (a > b) return 1;
+      return 0;
+    });
+    cards.forEach((card) => row.appendChild(card));
+  }
+
+  function renderSectorKindCounts(panel, cards) {
     const host = panel.querySelector("[data-sector-kinds]");
     if (!host) {
       return;
     }
     const counts = {};
-    panel.querySelectorAll("[data-device-card]").forEach((card) => {
+    cards.forEach((card) => {
       const kind = resolveKind(card.dataset.type);
       counts[kind] = (counts[kind] || 0) + 1;
     });
@@ -387,6 +427,36 @@
         }<span>${counts[kind]}</span></span>`;
       })
       .join("");
+  }
+
+  function updateSectorHeaderFromVisible(panel, cards) {
+    const visible = [];
+    let online = 0;
+    let offline = 0;
+    let unknown = 0;
+    cards.forEach((card) => {
+      if (card.classList.contains("d-none")) {
+        return;
+      }
+      visible.push(card);
+      const status = card.dataset.status;
+      if (status === "online") {
+        online += 1;
+      } else if (status === "offline") {
+        offline += 1;
+      } else {
+        unknown += 1;
+      }
+    });
+    const onlineEl = panel.querySelector("[data-sector-online]");
+    const offlineEl = panel.querySelector("[data-sector-offline]");
+    const unknownEl = panel.querySelector("[data-sector-unknown]");
+    const totalEl = panel.querySelector("[data-sector-total]");
+    if (onlineEl) onlineEl.textContent = String(online);
+    if (offlineEl) offlineEl.textContent = String(offline);
+    if (unknownEl) unknownEl.textContent = String(unknown);
+    if (totalEl) totalEl.textContent = String(visible.length);
+    renderSectorKindCounts(panel, visible);
   }
 
   function applyFilters(options) {
@@ -442,6 +512,8 @@
           anyVisibleSector = true;
         }
       }
+
+      updateSectorHeaderFromVisible(panel, cards);
 
       if (!restoringView && opts.expandMatches && searchActive && !hidePanel) {
         setPanelExpanded(panel, visibleCount > 0);
@@ -739,22 +811,6 @@
         return;
       }
 
-      const onlineEl = panel.querySelector("[data-sector-online]");
-      const offlineEl = panel.querySelector("[data-sector-offline]");
-      const unknownEl = panel.querySelector("[data-sector-unknown]");
-      const totalEl = panel.querySelector("[data-sector-total]");
-      if (onlineEl) {
-        onlineEl.textContent = String(sector.online);
-      }
-      if (offlineEl && sector.offline != null) {
-        offlineEl.textContent = String(sector.offline);
-      }
-      if (unknownEl && sector.unknown != null) {
-        unknownEl.textContent = String(sector.unknown);
-      }
-      if (totalEl) {
-        totalEl.textContent = String(sector.total);
-      }
       const subnetsEl = panel.querySelector("[data-sector-subnets]");
       if (subnetsEl && Array.isArray(sector.subnets)) {
         const labels = sector.subnets.filter(Boolean);
@@ -811,7 +867,7 @@
         }
       });
 
-      renderSectorKindCounts(panel);
+      sortSectorCards(panel.querySelector("[data-sector-devices]"));
     });
 
     applyFilters();

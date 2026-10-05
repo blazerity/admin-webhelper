@@ -50,6 +50,9 @@ class Device(TimestampMixin, db.Model):
         index=True,
     )
     last_response_time_ms = db.Column(db.Integer, nullable=True)
+    # Отпечаток серого адреса: windows/router/camera/printer. Пишет poll, не пользователь.
+    fingerprint_kind = db.Column(db.String(16), nullable=True)
+    fingerprint_detail = db.Column(db.String(255), nullable=True)
 
     sector = db.relationship("Sector", back_populates="devices")
     current_account = db.relationship(
@@ -72,8 +75,13 @@ class Device(TimestampMixin, db.Model):
 
     @property
     def kind(self) -> str:
-        """Тип по hostname: n/w/v + 3|5 цифр, ktn/spb/kgl, ngfw, иначе other."""
-        return classify_device_kind(self.hostname)
+        """Тип по hostname, WMI-серийнику, TCP/SNMP-отпечатку и MAC."""
+        return classify_device_kind(
+            self.hostname,
+            serial_number=self.serial_number,
+            mac=self.mac,
+            fingerprint_kind=self.fingerprint_kind,
+        )
 
     @property
     def kind_label(self) -> str:
