@@ -82,7 +82,6 @@ code {
 }
 
 .app-brand {
-  order: 1;
   font-weight: 700;
   font-size: 1.15rem;
   letter-spacing: -0.02em;
@@ -95,8 +94,8 @@ code {
   color: var(--accent-ink);
 }
 
-.app-nav-toggle {
-  order: 3;
+/* Shared chrome for topbar icon buttons (menu + notifications). */
+.app-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -111,25 +110,23 @@ code {
   cursor: pointer;
 }
 
-.app-nav-toggle:hover,
-.app-nav-toggle[aria-expanded="true"] {
+.app-icon-btn:hover,
+.app-icon-btn[aria-expanded="true"],
+.app-notifications.is-open .app-icon-btn {
   background: var(--accent-soft);
   border-color: #b7ddd7;
   color: var(--accent);
 }
 
-.app-nav-toggle-icon {
+.app-icon-btn svg {
   display: block;
 }
 
 .app-nav-collapse {
-  order: 4;
   flex: 1 1 100%;
-  width: 100%;
 }
 
 .app-user {
-  order: 2;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -142,7 +139,7 @@ code {
   gap: 0.25rem;
   margin: 0.35rem 0 0;
   padding: 0.35rem 0 0.15rem;
-  border-top: 1px solid rgba(215, 224, 231, 0.95);
+  border-top: 1px solid var(--line);
 }
 
 .app-nav-link {
@@ -184,7 +181,6 @@ code {
 
 @media (max-width: 991.98px) {
   .app-topbar-inner {
-    flex-wrap: wrap;
     row-gap: 0;
   }
 
@@ -198,11 +194,11 @@ code {
     display: none;
   }
 
+  /* DOM: brand → user → toggle → collapse; desktop puts nav before user. */
   .app-nav-collapse {
     order: 2;
     display: flex !important;
     align-items: center;
-    width: auto;
     flex: 1 1 auto;
   }
 
@@ -225,7 +221,6 @@ code {
 
   .app-user {
     order: 3;
-    margin-left: auto;
   }
 }
 
@@ -1123,7 +1118,6 @@ code {
   font-size: 0.8rem;
   font-weight: 600;
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .sector-toggle-kinds {
@@ -1327,19 +1321,6 @@ code {
   opacity: 0.7;
 }
 
-@media (max-width: 640px) {
-  .device-card-grid,
-  .device-card-grid[data-layout="cards"],
-  .device-card-grid[data-layout="tiles"] {
-    grid-template-columns: 1fr;
-  }
-
-  .device-card-grid[data-layout="tiles"] .device-card-shell,
-  .device-card-grid[data-layout="tiles"] .device-card {
-    min-height: 0;
-  }
-}
-
 .map-search {
   padding: 0.85rem 1.1rem;
 }
@@ -1446,16 +1427,6 @@ code {
 @keyframes map-card-return {
   0% { box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.55); }
   100% { box-shadow: 0 8px 18px rgba(24, 33, 43, 0.08); }
-}
-
-@media (max-width: 640px) {
-  .map-search-inner {
-    max-width: none;
-  }
-
-  .map-search-input {
-    text-align: left;
-  }
 }
 
 /* Device object card */
@@ -1681,12 +1652,6 @@ code {
 
 .scheduler-health.is-stale {
   border-left: 4px solid var(--warn);
-}
-
-@media (max-width: 700px) {
-  .scheduler-health-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 960px) {
@@ -1985,28 +1950,6 @@ code {
 
 .notif-bell {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.15rem;
-  height: 2.15rem;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-solid);
-  color: var(--accent-ink);
-  cursor: pointer;
-}
-
-.notif-bell:hover,
-.app-notifications.is-open .notif-bell {
-  background: var(--accent-soft);
-  border-color: #b7ddd7;
-  color: var(--accent);
-}
-
-.notif-bell-icon {
-  display: block;
 }
 
 .notif-badge {
@@ -2287,6 +2230,10 @@ code {
 }
 
 @media (max-width: 700px) {
+  .scheduler-health-grid {
+    grid-template-columns: 1fr;
+  }
+
   .map-bulk-actions {
     margin-left: 0;
     width: 100%;
@@ -2324,6 +2271,21 @@ code {
 }
 
 @media (max-width: 640px) {
+  .map-search-inner {
+    max-width: none;
+  }
+
+  .device-card-grid,
+  .device-card-grid[data-layout="cards"],
+  .device-card-grid[data-layout="tiles"] {
+    grid-template-columns: 1fr;
+  }
+
+  .device-card-grid[data-layout="tiles"] .device-card-shell,
+  .device-card-grid[data-layout="tiles"] .device-card {
+    min-height: 0;
+  }
+
   .device-portrait {
     max-width: 100%;
   }
