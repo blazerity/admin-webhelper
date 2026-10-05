@@ -4,6 +4,8 @@ script_runs — общий журнал для скриптов, Ping / Tracert 
 Групповой запуск пишет несколько строк с одним batch_id.
 """
 
+from sqlalchemy import false, true
+
 from app.extensions import db
 from app.models.base import TimestampMixin
 from app.utils import utcnow
@@ -52,7 +54,7 @@ class Script(TimestampMixin, db.Model):
     file_path = db.Column(db.String(512), nullable=True)
     content = db.Column(db.Text, nullable=True)
     # Operator может запускать только опубликованные (admin — любые).
-    is_published = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
+    is_published = db.Column(db.Boolean, nullable=False, default=True, server_default=true())
     created_by_id = db.Column(
         db.Integer,
         db.ForeignKey("users.id", ondelete="SET NULL"),

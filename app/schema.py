@@ -87,34 +87,70 @@ def _add_column_ddl(table_name: str, column: Column, dialect) -> str:
 def _column_default_sql(column: Column, dialect) -> str | None:
     """DEFAULT для ADD COLUMN: server_default или скалярный Python default."""
     if column.server_default is not None:
-        rendered = _render_server_default(column.server_default, dialect)
+        rendered = _render_server_default(column.server_default, column, dialect)
         if rendered is not None:
             return rendered
 
     if column.default is not None and getattr(column.default, "is_scalar", False):
-        return _literal_sql(column.default.arg, dialect)
+        return _literal_sql(column.default.arg, column, dialect)
 
     if not column.nullable:
         fallback = _type_fallback_default(column)
         if fallback is not None:
-            return _literal_sql(fallback, dialect)
+            return _literal_sql(fallback, column, dialect)
 
     return None
 
 
-def _render_server_default(server_default: DefaultClause, dialect) -> str | None:
+def _render_server_default(
+    server_default: DefaultClause, column: Column, dialect
+) -> str | None:
     arg = getattr(server_default, "arg", None)
     if arg is None:
         return None
     if hasattr(arg, "text"):
-        return str(arg.text)
+        return _normalize_default_text(str(arg.text), column, dialect)
     if isinstance(arg, str):
-        # Как у Script.is_published (server_default="1") — уже SQL-литерал.
-        if arg.upper() in {"TRUE", "FALSE", "NULL"} or arg[:1].isdigit() or arg[:1] in "-+":
-            return arg
-        return _literal_sql(arg, dialect)
+        return _normalize_default_text(arg, column, dialect)
     if isinstance(arg, (bool, int, float)):
-        return _literal_sql(arg, dialect)
+        return _literal_sql(arg, column, dialect)
+    # sqlalchemy.true() / false() и прочие ClauseElement — компилируем в диалект.
+    compile_ = getattr(arg, "compile", None)
+    if callable(compile_):
+        try:
+            return str(compile_(dialect=dialect))
+        except Exception:
+            return None
+    return None
+
+
+def _normalize_default_text(raw: str, column: Column, dialect) -> str:
+    """Привести литерал DEFAULT к типу колонки и диалекту.
+
+    В моделях часто ``server_default="0"``/``"1"`` (удобно для SQLite), но
+    PostgreSQL для BOOLEAN требует ``true``/``false``, не integer.
+    """
+    value = raw.strip()
+    if isinstance(column.type, Boolean):
+        parsed = _parse_boolish(value)
+        if parsed is not None:
+            return _bool_sql(parsed, dialect)
+    if value.upper() in {"TRUE", "FALSE", "NULL"}:
+        return value.lower() if dialect.name != "sqlite" else ("1" if value.upper() == "TRUE" else "0" if value.upper() == "FALSE" else "NULL")
+    if value[:1].isdigit() or value[:1] in "-+":
+        return value
+    # Строковый литерал без кавычек в server_default (как run_as='psexec').
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value
+    return _literal_sql(value, column, dialect)
+
+
+def _parse_boolish(value: str) -> bool | None:
+    lowered = value.strip().strip("'\"").lower()
+    if lowered in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if lowered in {"0", "false", "f", "no", "n", "off"}:
+        return False
     return None
 
 
@@ -131,13 +167,27 @@ def _type_fallback_default(column: Column):
     return None
 
 
-def _literal_sql(value, dialect) -> str:
+def _literal_sql(value, column: Column, dialect) -> str:
+    if isinstance(column.type, Boolean):
+        if isinstance(value, str):
+            parsed = _parse_boolish(value)
+            if parsed is None:
+                raise TypeError(f"Не могу разобрать boolean DEFAULT {value!r}")
+            return _bool_sql(parsed, dialect)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return _bool_sql(bool(value), dialect)
+        return _bool_sql(bool(value), dialect)
     if isinstance(value, bool):
-        if dialect.name == "sqlite":
-            return "1" if value else "0"
-        return "true" if value else "false"
+        return _bool_sql(value, dialect)
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return str(value)
     if isinstance(value, str):
         return "'" + value.replace("'", "''") + "'"
     raise TypeError(f"Не могу сформировать DEFAULT для значения типа {type(value)!r}")
+
+
+def _bool_sql(value: bool, dialect) -> str:
+    # SQLite хранит boolean как integer; PostgreSQL — native boolean.
+    if dialect.name == "sqlite":
+        return "1" if value else "0"
+    return "true" if value else "false"
