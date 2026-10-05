@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Отчёт по секторам{% endblock %}
-{% block body_class %}page-sector-daily-report{% endblock %}
+{% from "macros/status.html" import device_entity_link %}
+{% block title %}Отчёты о ПК{% endblock %}
+{% block body_class %}page-pc-reports{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
-    <h1 class="page-title">Отчёт по секторам</h1>
+    <h1 class="page-title">Отчёты о ПК</h1>
     <p class="page-subtitle">
+      Ноутбуки и системные блоки по секторам · конфигурации железа
       {% if report %}
-        Активные устройства за {{ report.report_date }}
-        {% if report.timezone %} ({{ report.timezone }}){% endif %}
-        · обновлён {{ report.generated_at }} · источник {{ report.source }}
-      {% else %}
-        Отчёта ещё нет — запустите прогон или дождитесь расписания.
+        · парк на {{ report.generated_at }}
+        · активность за {{ report.report_date }}{% if report.timezone %} ({{ report.timezone }}){% endif %}
       {% endif %}
     </p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-primary" href="{{ url_for('sector_daily_report.export_csv') }}">Экспорт CSV</a>
     <a class="btn btn-outline-secondary" href="{{ url_for('sector_daily_report.settings_page') }}">Настройки модуля</a>
   </div>
 </div>
@@ -27,10 +27,10 @@
       <h2 class="h5 mb-1">Сервис отчётов</h2>
       <p class="text-muted mb-0">
         {% if settings.schedule_enabled %}
-          Включён — отчёты будут приходить по расписанию
+          Включён — письма с сводкой парка ПК уходят по расписанию
           (<code>{{ settings.schedule_cron }}</code>).
         {% else %}
-          Выключен — плановые письма не уходят. Ручной прогон доступен ниже.
+          Выключен — плановые письма не уходят. Ручной прогон и экспорт доступны ниже.
         {% endif %}
       </p>
       <p class="small mb-0 mt-2 {% if scheduler.active %}text-success{% elif not scheduler.available %}text-muted{% else %}text-warning{% endif %}">
@@ -42,8 +42,6 @@
         {% else %}
           не запущена ({{ scheduler.active_state }}) — включение тумблера поднимет её
         {% endif %}
-        · управление в
-        <a href="{{ url_for('admin.settings') }}#service-control">Параметры</a>
       </p>
     </div>
     {% if can_toggle %}
@@ -55,11 +53,11 @@
           class="form-check-input"
           type="checkbox"
           role="switch"
-          id="sector_report_service_enabled"
+          id="pc_report_service_enabled"
           {% if settings.schedule_enabled %}checked{% endif %}
           onchange="this.form.submit()"
         >
-        <label class="form-check-label" for="sector_report_service_enabled">
+        <label class="form-check-label" for="pc_report_service_enabled">
           {% if settings.schedule_enabled %}Вкл.{% else %}Выкл.{% endif %}
         </label>
       </div>
@@ -76,30 +74,46 @@
   </div>
 </div>
 
-<div class="row g-3 mb-3">
-  <div class="col-md-4">
-    <div class="panel content-card h-100">
-      <div class="text-muted small">Активных устройств</div>
-      <div class="fs-3 fw-semibold">{{ report.active_total if report else "—" }}</div>
+<div class="row g-3 mb-3 pc-report-stats">
+  <div class="col-6 col-lg-3">
+    <div class="panel content-card h-100 pc-stat-card">
+      <div class="text-muted small">ПК всего</div>
+      <div class="fs-3 fw-semibold">{{ report.pc_total }}</div>
+      <div class="pc-stat-split">
+        <span>{{ report.notebook_total }} ноутб.</span>
+        <span>{{ report.desktop_total }} СБ</span>
+      </div>
     </div>
   </div>
-  <div class="col-md-4">
-    <div class="panel content-card h-100">
-      <div class="text-muted small">Известных устройств</div>
-      <div class="fs-3 fw-semibold">{{ report.known_total if report else "—" }}</div>
+  <div class="col-6 col-lg-3">
+    <div class="panel content-card h-100 pc-stat-card">
+      <div class="text-muted small">Активных вчера</div>
+      <div class="fs-3 fw-semibold">{{ report.active_pc_total }}</div>
+      <div class="text-muted small mt-1">из {{ report.pc_total }} известных ПК</div>
     </div>
   </div>
-  <div class="col-md-4">
-    <div class="panel content-card h-100">
-      <div class="text-muted small">Секторов</div>
-      <div class="fs-3 fw-semibold">{{ report.sectors|length if report else "—" }}</div>
+  <div class="col-6 col-lg-3">
+    <div class="panel content-card h-100 pc-stat-card">
+      <div class="text-muted small">Со снимком железа</div>
+      <div class="fs-3 fw-semibold">{{ report.with_hardware_total }}</div>
+      <div class="text-muted small mt-1">без снимка: {{ report.without_hardware_total }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="panel content-card h-100 pc-stat-card pc-stat-card-alert">
+      <div class="text-muted small">Внимание сисадмину</div>
+      <div class="fs-3 fw-semibold">{{ report.replacement_total + report.inventory_gap_total }}</div>
+      <div class="pc-stat-split">
+        <span>{{ report.replacement_total }} на замену</span>
+        <span>{{ report.inventory_gap_total }} пробелов</span>
+      </div>
     </div>
   </div>
 </div>
 
 {% if run %}
 <p class="text-muted mb-3">
-  Последний прогон: {{ run.finished_at|dt if run.finished_at else "—" }} · код {{ run.exit_code }} ·
+  Последняя рассылка: {{ run.finished_at|dt if run.finished_at else "—" }} · код {{ run.exit_code }} ·
   писем {{ run.sent_count }} · режим {{ run.mode }}
   {% if run.error %} · <span class="text-danger">{{ run.error }}</span>{% endif %}
 </p>
@@ -118,45 +132,220 @@
     </form>
   </div>
   <p class="text-muted small mt-2 mb-0">
-    Отчёт за прошедший календарный день (локальный TZ сервера).
-    Активное устройство — хотя бы один опрос со статусом online за этот день.
+    В отчёт попадают только ноутбуки (<code>n…</code>) и системные блоки (<code>w…</code>).
+    «Активный» — хотя бы один online-опрос за прошедший календарный день.
     SMTP: {% if smtp.configured %}{{ smtp.host }}:{{ smtp.port }}{% else %}не настроен{% endif %}
-    (<a href="{{ url_for('admin.settings') }}#smtp">Параметры → Почта</a>).
+    (настройки в <a href="{{ url_for('password_expiry.settings_page') }}">Пароли AD</a>).
   </p>
 </div>
 
-<div class="panel content-card">
-  <h2 class="h5 mb-3">Активность по секторам</h2>
-  {% if report and report.sectors %}
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="panel content-card h-100 pc-chart-panel">
+      <h2 class="h6 mb-3">Типы ПК</h2>
+      <div class="pc-chart-wrap pc-chart-wrap-sm">
+        <canvas id="pc-chart-kind" aria-label="Ноутбуки и СБ"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="panel content-card h-100 pc-chart-panel">
+      <h2 class="h6 mb-3">ПК по секторам</h2>
+      <div class="pc-chart-wrap">
+        <canvas id="pc-chart-sectors" aria-label="Ноутбуки и СБ по секторам"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-6 col-xl-3">
+    <div class="panel content-card h-100 pc-chart-panel">
+      <h2 class="h6 mb-3">ОЗУ</h2>
+      <div class="pc-chart-wrap pc-chart-wrap-sm">
+        <canvas id="pc-chart-ram" aria-label="Распределение ОЗУ"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-3">
+    <div class="panel content-card h-100 pc-chart-panel">
+      <h2 class="h6 mb-3">Диски</h2>
+      <div class="pc-chart-wrap pc-chart-wrap-sm">
+        <canvas id="pc-chart-disk" aria-label="Распределение дисков"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-3">
+    <div class="panel content-card h-100 pc-chart-panel">
+      <h2 class="h6 mb-3">ОС Windows</h2>
+      <div class="pc-chart-wrap pc-chart-wrap-sm">
+        <canvas id="pc-chart-os" aria-label="Распределение ОС"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl-3">
+    <div class="panel content-card h-100 pc-chart-panel">
+      <h2 class="h6 mb-3">Топ процессоров</h2>
+      <div class="pc-chart-wrap">
+        <canvas id="pc-chart-cpu" aria-label="Топ CPU"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel content-card mb-3">
+  <h2 class="h5 mb-3">Парк ПК по секторам</h2>
+  {% if report.sectors %}
   <div class="table-responsive">
     <table class="table table-sm align-middle mb-0">
       <thead>
         <tr>
           <th>Сектор</th>
+          <th class="text-end">Ноутбуки</th>
+          <th class="text-end">СБ</th>
+          <th class="text-end">ПК</th>
           <th class="text-end">Активных</th>
-          <th class="text-end">Известных</th>
+          <th class="text-end">С железом</th>
+          <th class="text-end">Без снимка</th>
+          <th class="text-end">Ср. ОЗУ</th>
+          <th class="text-end">Ср. диск</th>
         </tr>
       </thead>
       <tbody>
         {% for row in report.sectors %}
-        <tr>
+        <tr{% if row.pc_total == 0 %} class="text-muted"{% endif %}>
           <td>{{ row.sector_name }}</td>
-          <td class="text-end">{{ row.active_count }}</td>
-          <td class="text-end">{{ row.known_count }}</td>
+          <td class="text-end">{{ row.notebook_count }}</td>
+          <td class="text-end">{{ row.desktop_count }}</td>
+          <td class="text-end fw-semibold">{{ row.pc_total }}</td>
+          <td class="text-end">{{ row.active_pc }}</td>
+          <td class="text-end">{{ row.with_hardware }}</td>
+          <td class="text-end{% if row.without_hardware %} text-warning{% endif %}">{{ row.without_hardware }}</td>
+          <td class="text-end">{% if row.avg_ram_gb is not none %}{{ row.avg_ram_gb }} ГБ{% else %}—{% endif %}</td>
+          <td class="text-end">{% if row.avg_disk_gb is not none %}{{ row.avg_disk_gb }} ГБ{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr class="fw-semibold">
           <td>Итого</td>
-          <td class="text-end">{{ report.active_total }}</td>
-          <td class="text-end">{{ report.known_total }}</td>
+          <td class="text-end">{{ report.notebook_total }}</td>
+          <td class="text-end">{{ report.desktop_total }}</td>
+          <td class="text-end">{{ report.pc_total }}</td>
+          <td class="text-end">{{ report.active_pc_total }}</td>
+          <td class="text-end">{{ report.with_hardware_total }}</td>
+          <td class="text-end">{{ report.without_hardware_total }}</td>
+          <td class="text-end">—</td>
+          <td class="text-end">—</td>
         </tr>
       </tfoot>
     </table>
   </div>
   {% else %}
-  <p class="text-muted mb-0">Нет данных для отображения.</p>
+  <p class="text-muted mb-0">Секторы не найдены.</p>
   {% endif %}
 </div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="panel content-card h-100">
+      <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+        <h2 class="h5 mb-0">Кандидаты на замену</h2>
+        <span class="badge text-bg-secondary">{{ report.replacement_total }}</span>
+      </div>
+      <p class="text-muted small">
+        ОЗУ ≤ {{ replacement_ram_gb }} ГБ, диск ≤ {{ replacement_disk_gb }} ГБ или Windows 10 —
+        ориентир для закупки и апгрейда.
+      </p>
+      {% if report.replacement_candidates %}
+      <div class="table-responsive pc-list-scroll">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>ПК</th>
+              <th>Сектор</th>
+              <th>Конфиг</th>
+              <th>Причина</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in report.replacement_candidates[:80] %}
+            <tr>
+              <td>
+                {{ device_entity_link(item.device_id, item.hostname) }}
+                <div class="small text-muted">{{ item.kind_label }} · <span class="font-monospace">{{ item.ip }}</span></div>
+              </td>
+              <td>{{ item.sector_name }}</td>
+              <td class="small">
+                {% if item.ram_gb is not none %}{{ item.ram_gb }} ГБ{% else %}—{% endif %}
+                /
+                {% if item.disk_gb is not none %}{{ item.disk_gb }} ГБ{% else %}—{% endif %}
+                <div class="text-muted">{{ item.os_label or "—" }}</div>
+              </td>
+              <td class="small">{{ item.reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if report.replacement_candidates|length > 80 %}
+      <p class="text-muted small mt-2 mb-0">Показаны первые 80. Полный список — в CSV.</p>
+      {% endif %}
+      {% else %}
+      <p class="text-muted mb-0">Кандидатов нет — по текущим порогам парк в норме.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="panel content-card h-100">
+      <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+        <h2 class="h5 mb-0">Пробелы инвентаризации</h2>
+        <span class="badge text-bg-secondary">{{ report.inventory_gap_total }}</span>
+      </div>
+      <p class="text-muted small">
+        Ноутбуки и СБ без снимка железа или со снимком старше {{ inventory_stale_days }} дней —
+        цели для ручного или планового WMI-опроса.
+      </p>
+      {% if report.inventory_gaps %}
+      <div class="table-responsive pc-list-scroll">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>ПК</th>
+              <th>Сектор</th>
+              <th>Причина</th>
+              <th>Снято</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in report.inventory_gaps[:80] %}
+            <tr>
+              <td>
+                {{ device_entity_link(item.device_id, item.hostname) }}
+                <div class="small text-muted">{{ item.kind_label }} · <span class="font-monospace">{{ item.ip }}</span></div>
+              </td>
+              <td>{{ item.sector_name }}</td>
+              <td class="small">{{ item.reason }}</td>
+              <td class="small text-muted">{{ item.hardware_checked_at or "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if report.inventory_gaps|length > 80 %}
+      <p class="text-muted small mt-2 mb-0">Показаны первые 80. Полный список — в CSV.</p>
+      {% endif %}
+      {% else %}
+      <p class="text-muted mb-0">Пробелов нет — все ПК имеют свежий снимок железа.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="pc-report-charts">{{ charts|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/chart.js/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pc_reports.js') }}"></script>
 {% endblock %}

@@ -1,6 +1,7 @@
-"""Ключи app_settings и чтение/запись настроек отчёта по секторам.
+"""Ключи app_settings и чтение/запись настроек «Отчёты о ПК».
 
 SMTP переиспользуется из модуля паролей AD (`get_smtp_settings`).
+Ключи sector_daily_* сохранены для совместимости с уже развёрнутыми БД.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ DEFAULT_SCHEDULE_CRON = "0 7 * * *"
 
 @dataclass(frozen=True)
 class SectorDailyReportSettings:
-    """Параметры ежедневного отчёта по активным устройствам."""
+    """Параметры ежедневной рассылки отчётов о ПК."""
 
     schedule_enabled: bool
     schedule_cron: str

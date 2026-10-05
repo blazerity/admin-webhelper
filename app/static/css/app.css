@@ -2101,6 +2101,38 @@ code {
   margin-left: 0.35rem;
 }
 
+/* Отчёты о ПК */
+.pc-stat-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.pc-stat-card-alert {
+  border-left: 3px solid var(--warn);
+}
+
+.pc-chart-panel h2 {
+  color: var(--accent-ink);
+}
+
+.pc-chart-wrap {
+  position: relative;
+  height: 260px;
+}
+
+.pc-chart-wrap-sm {
+  height: 220px;
+}
+
+.pc-list-scroll {
+  max-height: 360px;
+  overflow: auto;
+}
+
 .service-control-panel {
   border: 1px solid rgba(15, 118, 110, 0.28);
   box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.04);

@@ -125,7 +125,7 @@ def register_commands(app) -> None:
             help="Построить отчёт без SMTP.",
         )
         def sector_daily_report_cmd(dry_run: bool) -> None:
-            """Отчёт об активных устройствах за прошедший день по секторам."""
+            """Отчёты о ПК: ноутбуки/СБ и конфигурации железа по секторам."""
             with app.app_context():
                 result = run_sector_daily_report(
                     send_emails=not dry_run,
@@ -327,17 +327,17 @@ def start_scheduler(app) -> BackgroundScheduler:
             try:
                 settings = get_sector_daily_report_settings()
                 if not settings.schedule_enabled:
-                    logger.info("Отчёт по секторам: расписание выключено, пропуск")
+                    logger.info("Отчёты о ПК: расписание выключено, пропуск")
                     return
                 result = run_sector_daily_report(send_emails=True, mode="scheduled")
                 logger.info(
-                    "Отчёт по секторам: scheduled exit=%s active=%s sent=%s",
+                    "Отчёты о ПК: scheduled exit=%s active=%s sent=%s",
                     result.exit_code,
                     result.active_total,
                     result.sent_count,
                 )
             except Exception:
-                logger.exception("Отчёт по секторам: сбой планового прогона")
+                logger.exception("Отчёты о ПК: сбой планового прогона")
             finally:
                 db.session.remove()
 
@@ -530,7 +530,7 @@ def _apply_sector_daily_schedule(
     *,
     force: bool = False,
 ) -> None:
-    """Включить/выключить или переставить cron отчёта по секторам."""
+    """Включить/выключить или переставить cron отчётов о ПК."""
     settings = get_sector_daily_report_settings()
     _apply_cron_job(
         scheduler,
@@ -539,7 +539,7 @@ def _apply_sector_daily_schedule(
         cron=settings.schedule_cron or DEFAULT_SECTOR_DAILY_CRON,
         enabled=bool(settings.schedule_enabled),
         default_cron=DEFAULT_SECTOR_DAILY_CRON,
-        label="Отчёт по секторам",
+        label="Отчёты о ПК",
         force=force,
     )
 

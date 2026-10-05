@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Активные устройства по секторам</title>
+  <title>Отчёты о ПК</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f5f7;font-family:Segoe UI,Arial,sans-serif;color:#222;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;padding:24px 0;">
     <tr>
       <td align="center">
-        <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+        <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="width:680px;max-width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;">
           <tr>
-            <td style="background-color:#1f4e79;color:#ffffff;padding:22px 28px;">
-              <div style="font-size:22px;font-weight:700;">Активные устройства по секторам</div>
+            <td style="background-color:#0f766e;color:#ffffff;padding:22px 28px;">
+              <div style="font-size:22px;font-weight:700;">Отчёты о ПК</div>
               <div style="font-size:13px;opacity:0.9;padding-top:6px;">
-                Отчёт за {{ report_date }}{% if timezone %} · {{ timezone }}{% endif %}
+                Парк ноутбуков и СБ · активность за {{ report_date }}{% if timezone %} · {{ timezone }}{% endif %}
               </div>
             </td>
           </tr>
@@ -22,22 +22,44 @@
             <td style="padding:24px 28px 8px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td width="50%" valign="top" style="padding:0 6px 12px 0;">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#e8f5e9;border-radius:8px;">
+                  <td width="25%" valign="top" style="padding:0 4px 12px 0;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#e6f4f2;border-radius:8px;">
                       <tr>
-                        <td style="padding:16px;text-align:center;">
-                          <div style="font-size:12px;color:#1e7a3a;">Активных устройств</div>
-                          <div style="font-size:32px;font-weight:700;color:#1e8449;">{{ active_total }}</div>
+                        <td style="padding:14px;text-align:center;">
+                          <div style="font-size:11px;color:#0b4f49;">ПК всего</div>
+                          <div style="font-size:26px;font-weight:700;color:#0f766e;">{{ known_total }}</div>
+                          <div style="font-size:11px;color:#666;">{{ notebook_total }} ноутб. · {{ desktop_total }} СБ</div>
                         </td>
                       </tr>
                     </table>
                   </td>
-                  <td width="50%" valign="top" style="padding:0 0 12px 6px;">
+                  <td width="25%" valign="top" style="padding:0 4px 12px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#e8f5e9;border-radius:8px;">
+                      <tr>
+                        <td style="padding:14px;text-align:center;">
+                          <div style="font-size:11px;color:#1e7a3a;">Активных вчера</div>
+                          <div style="font-size:26px;font-weight:700;color:#1e8449;">{{ active_total }}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td width="25%" valign="top" style="padding:0 4px 12px;">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7fbff;border-radius:8px;">
                       <tr>
-                        <td style="padding:16px;text-align:center;">
-                          <div style="font-size:12px;color:#1f4e79;">Известных устройств</div>
-                          <div style="font-size:32px;font-weight:700;color:#1f4e79;">{{ known_total }}</div>
+                        <td style="padding:14px;text-align:center;">
+                          <div style="font-size:11px;color:#1f4e79;">С железом</div>
+                          <div style="font-size:26px;font-weight:700;color:#1f4e79;">{{ with_hardware_total }}</div>
+                          <div style="font-size:11px;color:#666;">без: {{ without_hardware_total }}</div>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td width="25%" valign="top" style="padding:0 0 12px 4px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fff7ed;border-radius:8px;">
+                      <tr>
+                        <td style="padding:14px;text-align:center;">
+                          <div style="font-size:11px;color:#9a3412;">На замену / пробелы</div>
+                          <div style="font-size:26px;font-weight:700;color:#c2410c;">{{ replacement_total }} / {{ inventory_gap_total }}</div>
                         </td>
                       </tr>
                     </table>
@@ -45,30 +67,39 @@
                 </tr>
               </table>
               <p style="font-size:13px;color:#666;margin:0 0 16px;">
-                Активное устройство — хотя бы один опрос со статусом online за отчётный день.
+                В отчёт входят только ноутбуки и системные блоки. Активность — хотя бы один online-опрос за отчётный день.
               </p>
             </td>
           </tr>
           <tr>
             <td style="padding:0 28px 28px;">
               {% if sectors %}
-              <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
-                <tr style="background-color:#1f4e79;color:#fff;text-align:left;">
+              <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-size:12px;">
+                <tr style="background-color:#0f766e;color:#fff;text-align:left;">
                   <th>Сектор</th>
+                  <th style="text-align:right;">Ноутб.</th>
+                  <th style="text-align:right;">СБ</th>
+                  <th style="text-align:right;">ПК</th>
                   <th style="text-align:right;">Активных</th>
-                  <th style="text-align:right;">Известных</th>
+                  <th style="text-align:right;">С железом</th>
                 </tr>
                 {% for row in sectors %}
-                <tr style="background-color:{% if loop.index is odd %}#f7fbff{% else %}#ffffff{% endif %};">
+                <tr style="background-color:{% if loop.index is odd %}#f0faf8{% else %}#ffffff{% endif %};">
                   <td>{{ row.sector_name }}</td>
-                  <td style="text-align:right;">{{ row.active_count }}</td>
-                  <td style="text-align:right;">{{ row.known_count }}</td>
+                  <td style="text-align:right;">{{ row.notebook_count }}</td>
+                  <td style="text-align:right;">{{ row.desktop_count }}</td>
+                  <td style="text-align:right;font-weight:600;">{{ row.pc_total }}</td>
+                  <td style="text-align:right;">{{ row.active_pc }}</td>
+                  <td style="text-align:right;">{{ row.with_hardware }}</td>
                 </tr>
                 {% endfor %}
-                <tr style="background-color:#eef2f7;font-weight:700;">
+                <tr style="background-color:#e6f4f2;font-weight:700;">
                   <td>Итого</td>
-                  <td style="text-align:right;">{{ active_total }}</td>
+                  <td style="text-align:right;">{{ notebook_total }}</td>
+                  <td style="text-align:right;">{{ desktop_total }}</td>
                   <td style="text-align:right;">{{ known_total }}</td>
+                  <td style="text-align:right;">{{ active_total }}</td>
+                  <td style="text-align:right;">{{ with_hardware_total }}</td>
                 </tr>
               </table>
               {% else %}
