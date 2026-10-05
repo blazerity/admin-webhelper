@@ -16,12 +16,13 @@
 <div class="panel content-card mb-3">
   <p class="small text-muted mb-0">Диапазоны: {% for item in sector.ranges %}<code>{{ item.cidr }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
 </div>
-<div class="row g-2">
+<div class="device-card-grid">
   {% for device in sector.devices %}
-  <div class="col-6 col-sm-4 col-md-3 col-xl-2">{{ device_card(device) }}</div>
-  {% else %}
-  <p class="text-muted">Устройств пока нет.</p>
+  <div data-device-card data-device-id="{{ device.id }}" data-status="{{ device.last_status }}" data-type="{{ device.kind }}">{{ device_card(device) }}</div>
   {% endfor %}
 </div>
+{% if not sector.devices %}
+<p class="text-muted">Устройств пока нет.</p>
+{% endif %}
 {% endif %}
 {% endblock %}

@@ -138,11 +138,15 @@ def map_status_payload() -> dict:
             for device in sector.visible_devices
         ]
         online = sum(1 for device in devices if device["status"] == "online")
+        offline = sum(1 for device in devices if device["status"] == "offline")
+        unknown = sum(1 for device in devices if device["status"] == "unknown")
         sectors_payload.append(
             {
                 "id": sector.id,
                 "name": sector.name,
                 "online": online,
+                "offline": offline,
+                "unknown": unknown,
                 "total": len(devices),
                 "devices": devices,
             }

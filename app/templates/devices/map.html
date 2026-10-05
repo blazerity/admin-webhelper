@@ -27,9 +27,9 @@
 >
   <p class="map-summary-status" id="map-summary-status">Загрузка сводки сети…</p>
   <div class="map-summary-metrics d-none" id="map-summary-metrics">
-    <span class="map-summary-item"><span class="map-summary-label">Онлайн</span> <strong data-summary="online">—</strong></span>
-    <span class="map-summary-item"><span class="map-summary-label">Офлайн</span> <strong data-summary="offline">—</strong></span>
-    <span class="map-summary-item"><span class="map-summary-label">Неизвестно</span> <strong data-summary="unknown">—</strong></span>
+    <span class="map-summary-item" data-tone="online"><span class="map-summary-label">Онлайн</span> <strong data-summary="online">—</strong></span>
+    <span class="map-summary-item" data-tone="offline"><span class="map-summary-label">Офлайн</span> <strong data-summary="offline">—</strong></span>
+    <span class="map-summary-item" data-tone="unknown"><span class="map-summary-label">Неизвестно</span> <strong data-summary="unknown">—</strong></span>
     <span class="map-summary-item"><span class="map-summary-label">Всего</span> <strong data-summary="total">—</strong></span>
     <span class="map-summary-item"><span class="map-summary-label">Последний опрос</span> <strong data-summary="last-poll">—</strong></span>
     <span class="map-summary-item"><span class="map-summary-label">Сбои скриптов 24ч</span> <strong data-summary="failed-scripts">—</strong></span>
@@ -142,6 +142,8 @@
     >
       {% for sector in sectors %}
       {% set online_count = sector.visible_devices|selectattr('last_status', 'equalto', 'online')|list|length %}
+      {% set offline_count = sector.visible_devices|selectattr('last_status', 'equalto', 'offline')|list|length %}
+      {% set unknown_count = sector.visible_devices|selectattr('last_status', 'equalto', 'unknown')|list|length %}
       {% set total_count = sector.visible_devices|length %}
       {% set panel_id = 'sector-panel-' ~ sector.id %}
       <section class="sector-panel" data-sector-id="{{ sector.id }}">
@@ -156,17 +158,19 @@
           <span class="sector-toggle-main">
             <span class="sector-toggle-name">{{ sector.name }}</span>
             <span class="sector-toggle-meta">
-              <strong data-sector-online>{{ online_count }}</strong> активн. · <span data-sector-total>{{ total_count }}</span> всего
+              <span class="sector-stat sector-stat-online"><strong data-sector-online>{{ online_count }}</strong> онлайн</span>
+              <span class="sector-stat sector-stat-offline"><span data-sector-offline>{{ offline_count }}</span> офлайн</span>
+              <span class="sector-stat sector-stat-unknown"><span data-sector-unknown>{{ unknown_count }}</span> неизв.</span>
+              <span class="sector-stat"><span data-sector-total>{{ total_count }}</span> всего</span>
             </span>
           </span>
           <span class="sector-toggle-chevron" aria-hidden="true"></span>
         </button>
         <div class="collapse show" id="{{ panel_id }}">
           <div class="sector-devices">
-            <div class="row g-2" data-sector-devices>
+            <div class="device-card-grid" data-sector-devices>
               {% for device in sector.visible_devices %}
               <div
-                class="col-6 col-sm-4 col-md-3 col-xl-2"
                 data-device-card
                 data-device-id="{{ device.id }}"
                 data-status="{{ device.last_status }}"
