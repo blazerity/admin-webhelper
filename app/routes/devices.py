@@ -19,7 +19,7 @@ from app.run_display import run_launch_label, run_status_label, run_when_label
 from app.services.account_service import device_account_sightings
 from app.services import batch_service
 from app.services.command_presets import list_command_presets
-from app.services.device_kind import kind_counts
+from app.services.device_kind import hostname_sort_key, kind_counts
 from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
 from app.services import script_service
@@ -166,7 +166,7 @@ def map_status_payload() -> dict:
 
 
 def _load_visible_sectors():
-    """Секторы текущего пользователя с устройствами, отсортированными по IP.
+    """Секторы текущего пользователя с устройствами, отсортированными по имени.
 
     На карте только машины, которые хотя бы раз отвечали (last_seen).
     Пустые адреса из CIDR в devices больше не создаются.
@@ -189,7 +189,7 @@ def _load_visible_sectors():
     sectors = [by_id[sector.id] for sector in allowed if sector.id in by_id]
     for sector in sectors:
         visible = [device for device in sector.devices if device.last_seen is not None]
-        visible.sort(key=lambda device: device.ip)
+        visible.sort(key=lambda device: hostname_sort_key(device.hostname, device.ip))
         sector.visible_devices = visible
         sector.kind_stats = kind_counts(visible)
         sector.subnet_labels = sector_subnet_labels(sector, visible)

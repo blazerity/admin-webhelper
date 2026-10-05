@@ -23,6 +23,7 @@ from app.authz import accessible_sectors, admin_required, get_visible_sector_or_
 from app.extensions import db
 from app.models import Sector, SectorRange
 from app.services import audit_service
+from app.services.device_kind import hostname_sort_key
 from app.services.net_utils import NetworkInputError
 from app.services.sector_service import SectorError
 from app.services.sector_service import delete_sector as remove_sector
@@ -71,7 +72,11 @@ def create_sector():
 @login_required
 def detail(sector_id: int):
     sector = get_visible_sector_or_404(sector_id)
-    return render_template("sectors/detail.html", sector=sector)
+    devices = sorted(
+        sector.devices,
+        key=lambda device: hostname_sort_key(device.hostname, device.ip),
+    )
+    return render_template("sectors/detail.html", sector=sector, devices=devices)
 
 
 @bp.get("/<int:sector_id>/edit")

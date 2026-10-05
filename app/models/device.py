@@ -72,8 +72,12 @@ class Device(TimestampMixin, db.Model):
 
     @property
     def kind(self) -> str:
-        """Тип по hostname: n/w/v + 3|5 цифр, ktn/spb/kgl, ngfw, иначе other."""
-        return classify_device_kind(self.hostname)
+        """Тип по hostname, WMI-серийнику и MAC. См. classify_device_kind."""
+        return classify_device_kind(
+            self.hostname,
+            serial_number=self.serial_number,
+            mac=self.mac,
+        )
 
     @property
     def kind_label(self) -> str:
