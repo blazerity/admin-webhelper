@@ -101,6 +101,8 @@ def tracert_device(device_id: int):
 @admin_required
 def command_device(device_id: int):
     device = get_visible_device_or_404(device_id)
+    if not device.shows_commands:
+        abort(404)
     command = (request.form.get("command") or "").strip()
     limit = int(current_app.config.get("MAX_REMOTE_COMMAND_CHARS", 4_000))
     if not command:

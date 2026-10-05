@@ -9,6 +9,9 @@
 {% set tab = tab or 'overview' %}
 {% set account_rows = account_rows or [] %}
 {% set hardware_rows = hardware_rows or [] %}
+{% set show_accounts = device.shows_accounts %}
+{% set show_hardware = device.shows_hardware %}
+{% set show_commands = device.shows_commands %}
 <div class="device-settings-layout">
   <div class="device-settings-content">
     <div class="page-header">
@@ -77,14 +80,17 @@
             <dt>Серийный номер</dt>
             <dd class="font-monospace">{{ device.serial_number or '—' }}</dd>
           </div>
+          {% if show_accounts %}
           <div>
             <dt>MAC</dt>
             <dd class="font-monospace">{{ device.mac or '—' }}</dd>
           </div>
+          {% endif %}
           <div>
             <dt>Сектор</dt>
             <dd>{{ device.sector.name }}</dd>
           </div>
+          {% if show_accounts %}
           <div>
             <dt>Текущая УЗ</dt>
             <dd>
@@ -95,6 +101,7 @@
               {% endif %}
             </dd>
           </div>
+          {% endif %}
           <div>
             <dt>Последний ответ</dt>
             <dd data-device-last-seen>{{ device.last_seen|dt }}</dd>
@@ -107,14 +114,17 @@
             <dt>Статус</dt>
             <dd data-device-status-meta>{{ status_badge(device.last_status) }}</dd>
           </div>
+          {% if show_accounts %}
           <div>
             <dt>УЗ замечена</dt>
             <dd>{{ device.current_account_seen_at|dt }}</dd>
           </div>
+          {% endif %}
         </dl>
       </div>
     </article>
 
+    {% if show_hardware %}
     <div class="panel content-card mt-3">
       <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
         <div>
@@ -160,8 +170,9 @@
       </p>
       {% endif %}
     </div>
+    {% endif %}
 
-    {% elif tab == 'accounts' %}
+    {% elif tab == 'accounts' and show_accounts %}
     <div class="panel content-card mb-3">
       <h2 class="panel-title mb-1">Сейчас авторизован</h2>
       <p class="panel-hint mb-3">УЗ по последнему успешному WMI-опросу</p>
@@ -210,7 +221,7 @@
       </div>
     </div>
 
-    {% elif tab == 'commands' %}
+    {% elif tab == 'commands' and show_commands %}
     <div class="panel content-card device-actions-panel mb-3">
       <h2 class="panel-title mb-1">Командная строка</h2>
       <p class="panel-hint mb-3">Удалённая команда на устройстве</p>
@@ -282,7 +293,7 @@
       </div>
     </div>
 
-    {% elif tab == 'hardware' %}
+    {% elif tab == 'hardware' and show_hardware %}
     <div class="panel content-card mb-3">
       <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
         <div>
@@ -383,12 +394,18 @@
     <nav class="settings-nav">
       <a class="settings-nav-link{% if tab == 'overview' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='overview') }}">Обзор</a>
+      {% if show_accounts %}
       <a class="settings-nav-link{% if tab == 'accounts' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='accounts') }}">Учётные записи</a>
+      {% endif %}
+      {% if show_commands %}
       <a class="settings-nav-link{% if tab == 'commands' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Команды</a>
+      {% endif %}
+      {% if show_hardware %}
       <a class="settings-nav-link{% if tab == 'hardware' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>
+      {% endif %}
       <a class="settings-nav-link{% if tab == 'polls' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">Опросы</a>
     </nav>
