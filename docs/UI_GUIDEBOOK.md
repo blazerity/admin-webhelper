@@ -258,17 +258,20 @@ Header → (опционально справочник) → live-search panel �
 | Breakpoint | Поведение |
 | --- | --- |
 | ≥992px | Topbar: nav + user в одну линию; toggler скрыт |
-| ≤900px | Settings: одна колонка, nav горизонтальный wrap |
+| ≤991px | Topbar: SVG-гамбургер + колокольчик/выход снаружи collapse; пункты меню столбиком на всю ширину; фильтры карты переносятся |
+| ≤900px | Settings: одна колонка, nav — горизонтальный scroll-ряд |
 | ≤960px | Device object: портрет сверху; actions sidebar сверху |
-| ≤800px | Login: одна колонка |
+| ≤800px | Login: одна колонка; page-header / refresh карты — столбиком |
 | ≤720px | Map list-layout → column; search form column |
-| ≤640px | Map refresh controls на всю ширину |
-| ≤520px | Device cards — 1 колонка |
+| ≤700px | Bulk-bar actions на всю ширину; meta-list / pagination / terminal wrap |
+| ≤640px | Device cards — 1 колонка; портрет на всю ширину; плотнее padding main |
 
-**Touch:** hit-area кнопок выбора/избранного ≥1.7rem; bulk-bar не перекрывает контент без отступа (`bottom: 0.85rem`).  
+**RDP / mid-band (≈760×1417):** типичный кейс Windows App на iPhone → Chrome на удалённом ПК. Collapse включается (&lt;992), поэтому иконка меню обязана быть собственной SVG — **не** полагаться на `.navbar-toggler-icon` без родителя `.navbar` (CSS-переменная фона пустая → пустая кнопка).
+
+**Touch:** hit-area кнопок выбора/избранного ≥1.7rem; toggler/колокольчик 2.15×2.15rem; bulk-bar не перекрывает контент без отступа (`bottom: 0.85rem`).  
 **Viewport:** meta `width=device-width, initial-scale=1` обязателен.  
 **Не** фиксировать ширины таблиц жёстко — `.table-responsive`.
-
+**Overflow:** `overflow-x: clip` на `html`/`body`/`.app-shell` — страховка после устранения реальных источников переполнения.
 ---
 
 ## 7. Доступность и обратная связь
