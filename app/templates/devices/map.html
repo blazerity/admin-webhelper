@@ -9,7 +9,24 @@
     <p class="page-subtitle">Секторы и машины вашей сети</p>
   </div>
   {% if sectors %}
-  <p class="map-refresh-status" id="map-refresh-status">Автообновление каждые 15 с</p>
+  <div class="map-refresh-controls" id="map-refresh-controls">
+    <div class="form-check form-switch map-refresh-toggle">
+      <input class="form-check-input" type="checkbox" role="switch" id="map-refresh-enabled">
+      <label class="form-check-label" for="map-refresh-enabled">Автообновление</label>
+    </div>
+    <div class="map-refresh-interval is-disabled" id="map-refresh-interval-wrap">
+      <label class="map-refresh-interval-label" for="map-refresh-interval">Интервал</label>
+      <select class="form-select form-select-sm" id="map-refresh-interval" disabled>
+        <option value="30">30 с</option>
+        <option value="60">1 мин</option>
+        <option value="300" selected>5 мин</option>
+        <option value="900">15 мин</option>
+        <option value="1800">30 мин</option>
+        <option value="3600">1 ч</option>
+      </select>
+    </div>
+    <p class="map-refresh-status" id="map-refresh-status">Автообновление выключено</p>
+  </div>
   {% endif %}
 </div>
 
@@ -88,8 +105,8 @@
       <div class="map-filter-group">
         <span class="map-filter-label">Тип</span>
         <div class="btn-group btn-group-sm" role="group">
-          <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="notebook" aria-pressed="false">Ноутбуки</button>
-          <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="desktop" aria-pressed="false">СБ</button>
+          <button type="button" class="btn btn-outline-primary active" data-filter-group="type" data-filter-value="notebook" aria-pressed="true">Ноутбуки</button>
+          <button type="button" class="btn btn-outline-primary active" data-filter-group="type" data-filter-value="desktop" aria-pressed="true">СБ</button>
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="vds" aria-pressed="false">VDS</button>
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="server" aria-pressed="false">Серверы</button>
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="firewall" aria-pressed="false">Firewall</button>
@@ -98,6 +115,22 @@
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="printer" aria-pressed="false">МФУ</button>
           <button type="button" class="btn btn-outline-primary" data-filter-group="type" data-filter-value="other" aria-pressed="false">Прочие</button>
         </div>
+      </div>
+      <div class="map-filter-group">
+        <span class="map-filter-label">Вид</span>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Вид сети">
+          <button type="button" class="btn btn-outline-secondary" data-map-layout="list" aria-pressed="false" title="Список">Список</button>
+          <button type="button" class="btn btn-outline-secondary active" data-map-layout="cards" aria-pressed="true" title="Прямоугольные карточки">Карточки</button>
+          <button type="button" class="btn btn-outline-secondary" data-map-layout="tiles" aria-pressed="false" title="Крупные квадратные карточки">Крупные</button>
+        </div>
+      </div>
+      <div class="map-filter-group">
+        <span class="map-filter-label">Сортировка</span>
+        <select class="form-select form-select-sm map-sort-select" id="map-sort" aria-label="Сортировка устройств">
+          <option value="hostname">По hostname</option>
+          <option value="ip">По IP</option>
+          <option value="mac">По MAC</option>
+        </select>
       </div>
       <div class="map-filter-group">
         <span class="map-filter-label">Прочее</span>
@@ -157,7 +190,7 @@
         </button>
         <div class="collapse" id="{{ panel_id }}">
           <div class="sector-devices">
-            <div class="device-card-grid" data-sector-devices>
+            <div class="device-card-grid" data-sector-devices data-layout="cards">
               {% for device in sector.visible_devices %}
               <div
                 data-device-card

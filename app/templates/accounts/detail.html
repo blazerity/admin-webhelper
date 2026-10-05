@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/status.html" import status_badge %}
+{% from "macros/status.html" import status_badge, device_entity_link %}
 {% block title %}{{ account.account_key }}{% endblock %}
 {% block body_class %}page-account-detail{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
@@ -58,7 +58,7 @@
       {% for device in current_devices %}
         <tr>
           <td>
-            <a href="{{ url_for('devices.detail', device_id=device.id) }}">{{ device.hostname or 'без имени' }}</a>
+            {{ device_entity_link(device.id, device.hostname or 'без имени') }}
           </td>
           <td class="font-monospace">{{ device.ip }}</td>
           <td>{{ device.sector.name if device.sector else '—' }}</td>
@@ -87,7 +87,7 @@
           <td class="text-nowrap">{{ row.seen_at|dt }}</td>
           <td>
             {% if row.device %}
-            <a href="{{ url_for('devices.detail', device_id=row.device.id) }}">{{ row.device.hostname or 'без имени' }}</a>
+            {{ device_entity_link(row.device.id, row.device.hostname or 'без имени') }}
             {% else %}—{% endif %}
           </td>
           <td class="font-monospace">{{ row.device.ip if row.device else '—' }}</td>

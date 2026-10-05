@@ -4,6 +4,7 @@ from app.models.account import DeviceAccountHistory, EndpointAccount, SessionTyp
 from app.models.action import ACTION_KIND_SEED, ActionKind, ActionKindCode, seed_action_kinds
 from app.models.audit import AdminAuditLog
 from app.models.device import Device, DeviceHistory, DeviceStatus
+from app.models.hardware import DeviceHardwareHistory, HardwarePollRun
 from app.models.login_service import LoginService
 from app.models.notification import Notification, NotificationKind
 from app.models.password_expiry import PasswordExpiryRun, PasswordNotification
@@ -23,9 +24,11 @@ __all__ = [
     "AppSetting",
     "Device",
     "DeviceAccountHistory",
+    "DeviceHardwareHistory",
     "DeviceHistory",
     "DeviceStatus",
     "DeviceWatchlist",
+    "HardwarePollRun",
     "EndpointAccount",
     "LoginService",
     "NetworkPollRun",

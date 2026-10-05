@@ -56,6 +56,16 @@ class Device(TimestampMixin, db.Model):
     # Отпечаток серого адреса: windows/router/camera/printer. Пишет poll, не пользователь.
     fingerprint_kind = db.Column(db.String(16), nullable=True)
     fingerprint_detail = db.Column(db.String(255), nullable=True)
+    # Снимок железа (отдельный WMI-опрос, не ICMP). Пусто — ещё не собирали.
+    cpu_name = db.Column(db.String(255), nullable=True)
+    ram_gb = db.Column(db.Integer, nullable=True)
+    disk_gb = db.Column(db.Integer, nullable=True)
+    os_caption = db.Column(db.String(255), nullable=True)
+    os_family = db.Column(db.String(64), nullable=True)
+    os_edition = db.Column(db.String(64), nullable=True)
+    os_display_version = db.Column(db.String(32), nullable=True)
+    os_build = db.Column(db.String(32), nullable=True)
+    hardware_checked_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     sector = db.relationship("Sector", back_populates="devices")
     current_account = db.relationship(
@@ -75,6 +85,12 @@ class Device(TimestampMixin, db.Model):
         cascade="all, delete-orphan",
         order_by="DeviceAccountHistory.seen_at.desc()",
     )
+    hardware_history = db.relationship(
+        "DeviceHardwareHistory",
+        back_populates="device",
+        cascade="all, delete-orphan",
+        order_by="DeviceHardwareHistory.collected_at.desc()",
+    )
 
     @property
     def kind(self) -> str:
@@ -89,6 +105,25 @@ class Device(TimestampMixin, db.Model):
     @property
     def kind_label(self) -> str:
         return kind_label(self.kind)
+
+    @property
+    def os_label(self) -> str:
+        """Windows 11 Pro 25H2 — пусто, если опрос железа ещё не писал ОС."""
+        from app.services.hardware_info import format_os_label
+
+        return format_os_label(self.os_family, self.os_edition, self.os_display_version)
+
+    @property
+    def hardware_identity(self) -> tuple:
+        return (
+            self.cpu_name,
+            self.ram_gb,
+            self.disk_gb,
+            self.os_family,
+            self.os_edition,
+            self.os_display_version,
+            self.os_build,
+        )
 
     def __repr__(self) -> str:
         return f"<Device {self.ip} {self.last_status}>"

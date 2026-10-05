@@ -3,7 +3,10 @@
   const escapeHtml = http.escapeHtml || ((value) => String(value ?? ""));
   const fetchJson = http.fetchJson;
   const postJson = http.postJson;
-  const REFRESH_MS = 15000;
+  const REFRESH_ENABLED_KEY = "bawh.map.refresh.enabled";
+  const REFRESH_INTERVAL_KEY = "bawh.map.refresh.intervalMs";
+  const DEFAULT_REFRESH_MS = 300000;
+  const ALLOWED_REFRESH_MS = new Set([30000, 60000, 300000, 900000, 1800000, 3600000]);
   const FAV_KEY = "bawh.map.favorites";
   const STATUS_LABELS = {
     online: "доступен",
@@ -49,13 +52,21 @@
     other: `<span class="device-type-icon muted" title="Прочее" aria-label="Прочее"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5"></path><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"></circle></svg></span>`,
   };
   const FILTER_PARAM_KEYS = ["status", "type", "fav"];
+  const DEFAULT_TYPES = ["notebook", "desktop"];
+  const LAYOUT_KEY = "bawh.map.layout";
+  const SORT_KEY = "bawh.map.sort";
   const VIEW_KEY = "bawh.map.view";
   const RESTORE_KEY = "bawh.map.restore";
+  const LAYOUTS = ["list", "cards", "tiles"];
+  const SORTS = ["hostname", "ip", "mac"];
 
   const mapRoot = document.getElementById("sector-map");
   const filtersRoot = document.getElementById("map-filters");
   const resetBtn = document.getElementById("map-filters-reset");
   const refreshStatus = document.getElementById("map-refresh-status");
+  const refreshEnabledInput = document.getElementById("map-refresh-enabled");
+  const refreshIntervalSelect = document.getElementById("map-refresh-interval");
+  const refreshIntervalWrap = document.getElementById("map-refresh-interval-wrap");
   const filtersEmpty = document.getElementById("map-filters-empty");
   const summaryRoot = document.getElementById("map-summary");
   const summaryStatus = document.getElementById("map-summary-status");
@@ -67,9 +78,13 @@
   const bulkError = document.getElementById("map-bulk-error");
   const bulkScriptConfirm = document.getElementById("map-bulk-script-confirm");
   const bulkScriptSelect = document.getElementById("map-bulk-script-select");
+  const sortSelect = document.getElementById("map-sort");
   const favFilterBtn = filtersRoot
     ? filtersRoot.querySelector("[data-filter-fav]")
     : null;
+  const layoutButtons = filtersRoot
+    ? Array.from(filtersRoot.querySelectorAll("[data-map-layout]"))
+    : [];
 
   if (!mapRoot || !filtersRoot || !fetchJson || !postJson) {
     return;
@@ -85,6 +100,17 @@
   let searchSectorId = "";
   let favOnly = false;
   let restoringView = false;
+  let refreshEnabled = loadRefreshEnabled();
+  let refreshMs = loadRefreshInterval();
+  /** @type {number|null} */
+  let statusTimer = null;
+  /** @type {number|null} */
+  let summaryTimer = null;
+  let statusRefreshInFlight = false;
+  /** @type {string} */
+  let currentLayout = loadLayout();
+  /** @type {string} */
+  let currentSort = loadSort();
 
   function loadFavorites() {
     try {
@@ -108,6 +134,185 @@
     } catch (_err) {
       /* ignore quota / private mode */
     }
+  }
+
+  function loadRefreshEnabled() {
+    try {
+      const raw = localStorage.getItem(REFRESH_ENABLED_KEY);
+      if (raw === null) return false;
+      return raw === "1" || raw === "true";
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function normalizeRefreshMs(raw) {
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      return null;
+    }
+    // select в шаблоне — секунды; localStorage и таймеры — миллисекунды.
+    if (ALLOWED_REFRESH_MS.has(value)) {
+      return value;
+    }
+    const asMs = value * 1000;
+    if (ALLOWED_REFRESH_MS.has(asMs)) {
+      return asMs;
+    }
+    return null;
+  }
+
+  function loadRefreshInterval() {
+    try {
+      const normalized = normalizeRefreshMs(
+        localStorage.getItem(REFRESH_INTERVAL_KEY)
+      );
+      if (normalized != null) return normalized;
+    } catch (_err) {
+      /* ignore */
+    }
+    return DEFAULT_REFRESH_MS;
+  }
+
+  function saveRefreshPrefs() {
+    try {
+      localStorage.setItem(REFRESH_ENABLED_KEY, refreshEnabled ? "1" : "0");
+      localStorage.setItem(REFRESH_INTERVAL_KEY, String(refreshMs));
+    } catch (_err) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function formatRefreshInterval(ms) {
+    if (ms < 60000) return `${Math.round(ms / 1000)} с`;
+    if (ms < 3600000) return `${Math.round(ms / 60000)} мин`;
+    return `${Math.round(ms / 3600000)} ч`;
+  }
+
+  function setIdleRefreshStatus() {
+    if (!refreshStatus) return;
+    if (refreshEnabled) {
+      refreshStatus.textContent = `Автообновление каждые ${formatRefreshInterval(refreshMs)}`;
+    } else {
+      refreshStatus.textContent = "Автообновление выключено";
+    }
+  }
+
+  function syncRefreshControls() {
+    if (refreshEnabledInput) {
+      refreshEnabledInput.checked = refreshEnabled;
+    }
+    if (refreshIntervalSelect) {
+      refreshIntervalSelect.value = String(Math.round(refreshMs / 1000));
+      refreshIntervalSelect.disabled = !refreshEnabled;
+    }
+    if (refreshIntervalWrap) {
+      refreshIntervalWrap.classList.toggle("is-disabled", !refreshEnabled);
+    }
+    setIdleRefreshStatus();
+  }
+
+  function stopRefreshTimers() {
+    if (statusTimer != null) {
+      window.clearInterval(statusTimer);
+      statusTimer = null;
+    }
+    if (summaryTimer != null) {
+      window.clearInterval(summaryTimer);
+      summaryTimer = null;
+    }
+  }
+
+  function startRefreshTimers() {
+    stopRefreshTimers();
+    if (!refreshEnabled) {
+      return;
+    }
+    statusTimer = window.setInterval(refreshStatuses, refreshMs);
+    const summaryMs = Math.max(refreshMs * 2, 60000);
+    summaryTimer = window.setInterval(refreshSummary, summaryMs);
+  }
+
+  function applyRefreshPrefs() {
+    saveRefreshPrefs();
+    syncRefreshControls();
+    startRefreshTimers();
+  }
+
+  function loadLayout() {
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (LAYOUTS.includes(raw)) {
+        return raw;
+      }
+    } catch (_err) {
+      /* ignore */
+    }
+    return "cards";
+  }
+
+  function saveLayout(layout) {
+    try {
+      localStorage.setItem(LAYOUT_KEY, layout);
+    } catch (_err) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function loadSort() {
+    try {
+      const raw = localStorage.getItem(SORT_KEY);
+      if (SORTS.includes(raw)) {
+        return raw;
+      }
+    } catch (_err) {
+      /* ignore */
+    }
+    return "hostname";
+  }
+
+  function saveSort(sort) {
+    try {
+      localStorage.setItem(SORT_KEY, sort);
+    } catch (_err) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function applyLayoutToGrids() {
+    mapRoot.querySelectorAll("[data-sector-devices]").forEach((row) => {
+      row.dataset.layout = currentLayout;
+    });
+    layoutButtons.forEach((btn) => {
+      const active = btn.dataset.mapLayout === currentLayout;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  function setLayout(layout) {
+    if (!LAYOUTS.includes(layout)) {
+      return;
+    }
+    currentLayout = layout;
+    saveLayout(layout);
+    applyLayoutToGrids();
+  }
+
+  function syncSortSelect() {
+    if (sortSelect) {
+      sortSelect.value = currentSort;
+    }
+  }
+
+  function setSort(sort) {
+    if (!SORTS.includes(sort)) {
+      return;
+    }
+    currentSort = sort;
+    saveSort(sort);
+    syncSortSelect();
+    sortAllSectorCards();
   }
 
   function formatPollStamp(lastPoll) {
@@ -173,14 +378,7 @@
     }
     const url = summaryRoot.dataset.summaryUrl || "/api/network/summary";
     try {
-      const response = await fetch(url, {
-        headers: { Accept: "application/json" },
-        credentials: "same-origin",
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const payload = await response.json();
+      const payload = await fetchJson(url);
       if (
         payload == null ||
         (payload.devices_total == null &&
@@ -241,7 +439,10 @@
   function applyUrlToFilters() {
     const params = new URLSearchParams(window.location.search);
     const statuses = new Set(parseListParam(params, "status"));
-    const types = new Set(parseListParam(params, "type"));
+    const hasTypeParam = params.has("type");
+    const types = hasTypeParam
+      ? new Set(parseListParam(params, "type"))
+      : new Set(DEFAULT_TYPES);
     favOnly = params.get("fav") === "1";
 
     filtersRoot.querySelectorAll("[data-filter-group]").forEach((btn) => {
@@ -258,6 +459,14 @@
       favFilterBtn.classList.toggle("active", favOnly);
       favFilterBtn.setAttribute("aria-pressed", favOnly ? "true" : "false");
     }
+  }
+
+  function applyDefaultTypeFilters() {
+    filtersRoot.querySelectorAll('[data-filter-group="type"]').forEach((btn) => {
+      const active = DEFAULT_TYPES.includes(btn.dataset.filterValue);
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
   }
 
   function searchIsActive() {
@@ -394,19 +603,76 @@
     return `${name.replace(/\d+/g, (digits) => digits.padStart(10, "0"))}\t${ipKey}`;
   }
 
-  function sortSectorCards(row) {
-    if (!row) {
-      return;
+  function ipSortParts(ip) {
+    const bits = String(ip || "")
+      .trim()
+      .split(".");
+    if (bits.length === 4) {
+      const nums = bits.map((part) => Number(part));
+      if (nums.every((n) => Number.isFinite(n) && n >= 0 && n <= 255)) {
+        return nums;
+      }
     }
-    const cards = Array.from(row.querySelectorAll("[data-device-card]"));
-    cards.sort((left, right) => {
+    return [999, 999, 999, 999];
+  }
+
+  function compareIp(left, right) {
+    const a = ipSortParts(left);
+    const b = ipSortParts(right);
+    for (let i = 0; i < 4; i += 1) {
+      if (a[i] !== b[i]) {
+        return a[i] - b[i];
+      }
+    }
+    return 0;
+  }
+
+  function macSortKey(mac) {
+    const normalized = String(mac || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^0-9a-f]/g, "");
+    if (!normalized) {
+      return "~";
+    }
+    return normalized.padStart(12, "0");
+  }
+
+  function compareCards(left, right) {
+    if (currentSort === "ip") {
+      const byIp = compareIp(left.dataset.ip, right.dataset.ip);
+      if (byIp !== 0) return byIp;
       const a = hostnameSortKey(left.dataset.hostname, left.dataset.ip);
       const b = hostnameSortKey(right.dataset.hostname, right.dataset.ip);
       if (a < b) return -1;
       if (a > b) return 1;
       return 0;
-    });
+    }
+    if (currentSort === "mac") {
+      const aMac = macSortKey(left.dataset.mac);
+      const bMac = macSortKey(right.dataset.mac);
+      if (aMac < bMac) return -1;
+      if (aMac > bMac) return 1;
+      return compareIp(left.dataset.ip, right.dataset.ip);
+    }
+    const a = hostnameSortKey(left.dataset.hostname, left.dataset.ip);
+    const b = hostnameSortKey(right.dataset.hostname, right.dataset.ip);
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  }
+
+  function sortSectorCards(row) {
+    if (!row) {
+      return;
+    }
+    const cards = Array.from(row.querySelectorAll("[data-device-card]"));
+    cards.sort(compareCards);
     cards.forEach((card) => row.appendChild(card));
+  }
+
+  function sortAllSectorCards() {
+    mapRoot.querySelectorAll("[data-sector-devices]").forEach(sortSectorCards);
   }
 
   function renderSectorKindCounts(panel, cards) {
@@ -477,8 +743,11 @@
         const deviceId = Number(card.dataset.deviceId);
         const statusOk =
           statuses.length === 0 || statuses.includes(card.dataset.status);
+        // При живом поиске не режем по типу: иначе default Ноутбуки+СБ прячет серверы/камеры.
         const typeOk =
-          types.length === 0 || types.includes(card.dataset.type);
+          searchActive ||
+          types.length === 0 ||
+          types.includes(card.dataset.type);
         const searchOk = !searchActive || (sectorOk && cardMatchesSearch(card, query));
         const favOk = !favOnly || favorites.has(deviceId);
         const show = statusOk && typeOk && searchOk && favOk;
@@ -571,10 +840,11 @@
 
   if (resetBtn) {
     resetBtn.addEventListener("click", () => {
-      filtersRoot.querySelectorAll("[data-filter-group]").forEach((btn) => {
+      filtersRoot.querySelectorAll('[data-filter-group="status"]').forEach((btn) => {
         btn.classList.remove("active");
         btn.setAttribute("aria-pressed", "false");
       });
+      applyDefaultTypeFilters();
       favOnly = false;
       if (favFilterBtn) {
         favFilterBtn.classList.remove("active");
@@ -582,6 +852,18 @@
       }
       applyFilters();
       syncUrlFromFilters();
+    });
+  }
+
+  layoutButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setLayout(btn.dataset.mapLayout);
+    });
+  });
+
+  if (sortSelect) {
+    sortSelect.addEventListener("change", () => {
+      setSort(sortSelect.value);
     });
   }
 
@@ -792,12 +1074,16 @@
 
   function ensureSectorDevicesRow(panel) {
     let row = panel.querySelector("[data-sector-devices]");
-    if (row) return row;
+    if (row) {
+      row.dataset.layout = currentLayout;
+      return row;
+    }
     const devicesWrap = panel.querySelector(".sector-devices");
     if (!devicesWrap) return null;
     row = document.createElement("div");
     row.className = "device-card-grid";
     row.dataset.sectorDevices = "";
+    row.dataset.layout = currentLayout;
     devicesWrap.prepend(row);
     return row;
   }
@@ -881,17 +1167,22 @@
             minute: "2-digit",
             second: "2-digit",
           });
-      refreshStatus.textContent = time
-        ? `Обновлено в ${time}`
-        : "Статусы обновлены";
+      if (time) {
+        refreshStatus.textContent = refreshEnabled
+          ? `Обновлено в ${time} · каждые ${formatRefreshInterval(refreshMs)}`
+          : `Обновлено в ${time}`;
+      } else {
+        refreshStatus.textContent = "Статусы обновлены";
+      }
     }
   }
 
   async function refreshStatuses() {
     const url = mapRoot.dataset.statusUrl;
-    if (!url || document.visibilityState === "hidden") {
+    if (!url || document.visibilityState === "hidden" || statusRefreshInFlight) {
       return;
     }
+    statusRefreshInFlight = true;
     try {
       const payload = await fetchJson(url);
       applyStatusPayload(payload);
@@ -899,6 +1190,8 @@
       if (refreshStatus) {
         refreshStatus.textContent = "Не удалось обновить статусы";
       }
+    } finally {
+      statusRefreshInFlight = false;
     }
   }
 
@@ -990,10 +1283,43 @@
     setSearch,
   };
 
+  if (refreshEnabledInput) {
+    refreshEnabledInput.addEventListener("change", () => {
+      refreshEnabled = Boolean(refreshEnabledInput.checked);
+      applyRefreshPrefs();
+      if (refreshEnabled) {
+        refreshStatuses();
+        refreshSummary();
+      }
+    });
+  }
+  if (refreshIntervalSelect) {
+    refreshIntervalSelect.addEventListener("change", () => {
+      const next = normalizeRefreshMs(refreshIntervalSelect.value);
+      if (next == null) {
+        return;
+      }
+      refreshMs = next;
+      applyRefreshPrefs();
+      if (refreshEnabled) {
+        refreshStatuses();
+      }
+    });
+  }
+
   applyUrlToFilters();
+  syncUrlFromFilters();
+  syncSortSelect();
+  applyLayoutToGrids();
+  sortAllSectorCards();
   applyFilters();
   updateBulkBar();
+  syncRefreshControls();
   refreshSummary();
+  if (refreshEnabled) {
+    refreshStatuses();
+  }
+  startRefreshTimers();
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) {
       sessionStorage.removeItem(RESTORE_KEY);
@@ -1001,6 +1327,4 @@
     }
     restoreMapView();
   });
-  window.setInterval(refreshStatuses, REFRESH_MS);
-  window.setInterval(refreshSummary, REFRESH_MS * 4);
 })();

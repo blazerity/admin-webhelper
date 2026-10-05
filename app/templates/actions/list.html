@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/pagination.html" import page_nav %}
+{% from "macros/status.html" import device_entity_link %}
 {% block title %}Действия{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -89,7 +90,7 @@
           </td>
           <td>
             {% if item.device_id %}
-            <a href="{{ url_for('devices.detail', device_id=item.device_id) }}">{{ item.device_label or ('#' ~ item.device_id) }}</a>
+            {{ device_entity_link(item.device_id, item.device_label or ('#' ~ item.device_id)) }}
             {% else %}
             —
             {% endif %}

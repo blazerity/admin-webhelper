@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/status.html" import status_badge, device_portrait %}
+{% from "macros/status.html" import status_badge, device_portrait, account_entity_link %}
 {% block title %}{% if device %}{{ device.hostname or device.ip }}{% else %}Устройство{% endif %}{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -8,6 +8,7 @@
 {% else %}
 {% set tab = tab or 'overview' %}
 {% set account_rows = account_rows or [] %}
+{% set hardware_rows = hardware_rows or [] %}
 <div class="device-settings-layout">
   <div class="device-settings-content">
     <div class="page-header">
@@ -18,6 +19,7 @@
           {% if tab == 'overview' %}Обзор объекта в инвентаре сети
           {% elif tab == 'accounts' %}Учётные записи на этом устройстве
           {% elif tab == 'commands' %}Командная строка и скрипты
+          {% elif tab == 'hardware' %}Процессор, память, диски и версия Windows
           {% else %}Результаты опросов доступности
           {% endif %}
         </p>
@@ -25,7 +27,15 @@
     </div>
 
     {% if tab == 'overview' %}
-    <article class="device-object panel {{ device.last_status }}">
+    <article
+      class="device-object panel {{ device.last_status }}"
+      id="device-object"
+      data-device-id="{{ device.id }}"
+      data-status="{{ device.last_status }}"
+      data-check-url="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}"
+      data-csrf-token="{{ csrf_token() }}"
+      data-can-check="{{ '1' if can_run_diagnostics|default(false) else '0' }}"
+    >
       <div class="device-object-media">
         {{ device_portrait(device) }}
       </div>
@@ -36,10 +46,20 @@
             <h2 class="device-object-name">{{ device.hostname or 'без имени' }}</h2>
             <p class="device-object-ip font-monospace">{{ device.ip }}</p>
           </div>
-          <div class="device-object-status">
+          <div class="device-object-status" data-device-status-host>
             {{ status_badge(device.last_status) }}
           </div>
         </div>
+        {% if can_run_diagnostics|default(false) %}
+        <div class="device-check-bar">
+          <button type="button" class="btn btn-sm btn-primary" id="device-check-btn" data-device-check>
+            Проверить сейчас
+          </button>
+          <p class="device-check-hint mb-0" id="device-check-hint" aria-live="polite">
+            ICMP с сервера · результат попадёт в историю опросов
+          </p>
+        </div>
+        {% endif %}
         <div class="device-watch-bar">
           {% if watching|default(false) %}
           <form method="post" action="/devices/{{ device.id }}/unwatch" class="device-watch-form">
@@ -76,7 +96,7 @@
             <dt>Текущая УЗ</dt>
             <dd>
               {% if device.current_account %}
-              <a class="font-monospace" href="{{ url_for('accounts.detail', account_id=device.current_account.id) }}">{{ device.current_account.account_key }}</a>
+              {{ account_entity_link(device.current_account.id, device.current_account.account_key) }}
               {% else %}
               —
               {% endif %}
@@ -84,15 +104,15 @@
           </div>
           <div>
             <dt>Последний ответ</dt>
-            <dd>{{ device.last_seen|dt }}</dd>
+            <dd data-device-last-seen>{{ device.last_seen|dt }}</dd>
           </div>
           <div>
             <dt>Отклик</dt>
-            <dd>{% if device.last_response_time_ms is not none %}{{ device.last_response_time_ms }} мс{% else %}—{% endif %}</dd>
+            <dd data-device-rtt>{% if device.last_response_time_ms is not none %}{{ device.last_response_time_ms }} мс{% else %}—{% endif %}</dd>
           </div>
           <div>
             <dt>Статус</dt>
-            <dd>{{ status_badge(device.last_status) }}</dd>
+            <dd data-device-status-meta>{{ status_badge(device.last_status) }}</dd>
           </div>
           <div>
             <dt>УЗ замечена</dt>
@@ -102,13 +122,58 @@
       </div>
     </article>
 
+    <div class="panel content-card mt-3">
+      <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
+        <div>
+          <h2 class="panel-title mb-1">Оборудование</h2>
+          <p class="panel-hint mb-0">WMI-снимок: процессор, ОЗУ, диски, версия Windows. Отдельный опрос, обычно в полдень.</p>
+        </div>
+        {% if current_user.is_admin %}
+        <form method="post" action="{{ url_for('devices.poll_device_hardware', device_id=device.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-primary" type="submit">Опросить сейчас</button>
+        </form>
+        {% endif %}
+      </div>
+      {% if device.hardware_checked_at %}
+      <dl class="device-object-meta device-hardware-meta">
+        <div>
+          <dt>Процессор</dt>
+          <dd>{{ device.cpu_name or '—' }}</dd>
+        </div>
+        <div>
+          <dt>ОЗУ</dt>
+          <dd>{% if device.ram_gb is not none %}{{ device.ram_gb }} ГБ{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Диски</dt>
+          <dd>{% if device.disk_gb is not none %}{{ device.disk_gb }} ГБ{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Windows</dt>
+          <dd>{{ device.os_label or device.os_caption or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Сборка</dt>
+          <dd class="font-monospace">{{ device.os_build or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Снято</dt>
+          <dd>{{ device.hardware_checked_at|dt }}</dd>
+        </div>
+      </dl>
+      {% else %}
+      <p class="text-muted mb-0">Ещё не опрашивали. Плановый сбор — около полудня (WMI), либо кнопка «Опросить сейчас».</p>
+      {% endif %}
+    </div>
+
     {% elif tab == 'accounts' %}
     <div class="panel content-card mb-3">
       <h2 class="panel-title mb-1">Сейчас авторизован</h2>
       <p class="panel-hint mb-3">УЗ по последнему успешному WMI-опросу</p>
       {% if device.current_account %}
       <p class="mb-1">
-        <a class="font-monospace fs-5" href="{{ url_for('accounts.detail', account_id=device.current_account.id) }}">{{ device.current_account.account_key }}</a>
+        {{ account_entity_link(device.current_account.id, device.current_account.account_key, 'fs-5') }}
       </p>
       {% if device.current_account.display_name %}
       <p class="text-muted mb-1">{{ device.current_account.display_name }}</p>
@@ -138,7 +203,7 @@
               <td class="text-nowrap">{{ row.seen_at|dt }}</td>
               <td>
                 {% if row.account %}
-                <a class="font-monospace" href="{{ url_for('accounts.detail', account_id=row.account.id) }}">{{ row.account.account_key }}</a>
+                {{ account_entity_link(row.account.id, row.account.account_key) }}
                 {% else %}—{% endif %}
               </td>
               <td class="font-monospace">{{ row.raw_value or '—' }}</td>
@@ -222,6 +287,93 @@
         </table>
       </div>
     </div>
+
+    {% elif tab == 'hardware' %}
+    <div class="panel content-card mb-3">
+      <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div>
+          <h2 class="panel-title mb-1">Текущая конфигурация</h2>
+          <p class="panel-hint mb-0">Последний успешный WMI-опрос железа</p>
+        </div>
+        {% if current_user.is_admin %}
+        <form method="post" action="{{ url_for('devices.poll_device_hardware', device_id=device.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-primary" type="submit">Опросить сейчас</button>
+        </form>
+        {% endif %}
+      </div>
+      {% if device.hardware_checked_at %}
+      <dl class="device-object-meta device-hardware-meta mt-3">
+        <div>
+          <dt>Процессор</dt>
+          <dd>{{ device.cpu_name or '—' }}</dd>
+        </div>
+        <div>
+          <dt>ОЗУ</dt>
+          <dd>{% if device.ram_gb is not none %}{{ device.ram_gb }} ГБ{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Диски, всего</dt>
+          <dd>{% if device.disk_gb is not none %}{{ device.disk_gb }} ГБ{% else %}—{% endif %}</dd>
+        </div>
+        <div>
+          <dt>Windows</dt>
+          <dd>{{ device.os_label or device.os_caption or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Редакция</dt>
+          <dd>{{ device.os_edition or '—' }}</dd>
+        </div>
+        <div>
+          <dt>DisplayVersion</dt>
+          <dd>{{ device.os_display_version or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Сборка</dt>
+          <dd class="font-monospace">{{ device.os_build or '—' }}</dd>
+        </div>
+        <div>
+          <dt>Снято</dt>
+          <dd>{{ device.hardware_checked_at|dt }}</dd>
+        </div>
+      </dl>
+      {% if device.os_caption %}
+      <p class="text-muted small mb-0 mt-2">WMI Caption: <span class="font-monospace">{{ device.os_caption }}</span></p>
+      {% endif %}
+      {% else %}
+      <p class="text-muted mb-0 mt-3">Снимка ещё нет.</p>
+      {% endif %}
+    </div>
+
+    <div class="panel content-card p-0 overflow-hidden">
+      <div class="px-3 pt-3 pb-2 d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div>
+          <h2 class="panel-title">История конфигурации</h2>
+          <p class="panel-hint mb-0">Новая строка, только если CPU / ОЗУ / диски / ОС изменились{% if not show_all %} — последние {{ list_limit }}{% endif %}</p>
+        </div>
+        {% if has_more %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('devices.detail', device_id=device.id, tab='hardware', all=1) }}">Показать все</a>
+        {% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Время</th><th>Windows</th><th>Процессор</th><th>ОЗУ</th><th>Диски</th></tr></thead>
+          <tbody>
+          {% for row in hardware_rows %}
+            <tr>
+              <td class="text-nowrap">{{ row.collected_at|dt }}</td>
+              <td>{{ row.os_label or row.os_caption or '—' }}</td>
+              <td>{{ row.cpu_name or '—' }}</td>
+              <td>{% if row.ram_gb is not none %}{{ row.ram_gb }} ГБ{% else %}—{% endif %}</td>
+              <td>{% if row.disk_gb is not none %}{{ row.disk_gb }} ГБ{% else %}—{% endif %}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="text-muted">Изменений конфигурации ещё не записывали.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
     {% endif %}
   </div>
 
@@ -234,6 +386,8 @@
          href="{{ url_for('devices.detail', device_id=device.id, tab='accounts') }}">Учётные записи</a>
       <a class="settings-nav-link{% if tab == 'commands' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Командная строка и скрипты</a>
+      <a class="settings-nav-link{% if tab == 'hardware' %} active{% endif %}"
+         href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>
       <a class="settings-nav-link{% if tab == 'polls' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">Результаты опросов</a>
     </nav>
@@ -260,4 +414,7 @@
   }
 })();
 </script>
+{% if tab == 'overview' and can_run_diagnostics|default(false) %}
+<script src="{{ url_for('static', filename='js/device_check.js') }}"></script>
+{% endif %}
 {% endblock %}

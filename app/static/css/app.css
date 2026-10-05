@@ -10,6 +10,10 @@
   --ok: #15803d;
   --bad: #b91c1c;
   --warn: #b45309;
+  --entity-device: #ea580c;
+  --entity-device-soft: rgba(234, 88, 12, 0.1);
+  --entity-account: #1d4ed8;
+  --entity-account-soft: rgba(29, 78, 216, 0.1);
   --shadow: 0 10px 30px rgba(24, 33, 43, 0.08);
   --radius: 14px;
   /* Offline-friendly: system stack first; Manrope optional if operator adds local fonts. */
@@ -457,6 +461,144 @@ code {
   font-size: 0.85rem;
 }
 
+.map-refresh-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem 1rem;
+}
+
+.map-refresh-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  min-height: 1.6rem;
+}
+
+.map-refresh-toggle .form-check-input {
+  width: 2.4rem;
+  height: 1.3rem;
+  margin: 0;
+  cursor: pointer;
+}
+
+.map-refresh-toggle .form-check-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.map-refresh-interval {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.map-refresh-interval-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.map-refresh-interval .form-select {
+  width: auto;
+  min-width: 7.5rem;
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.map-refresh-interval.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Ссылки на сущности (устройство / УЗ) — вне карты сети */
+.entity-link {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.1rem 0.45rem;
+  border: 1.5px solid transparent;
+  border-radius: 0.4rem;
+  text-decoration: none;
+  font-weight: 600;
+  line-height: 1.35;
+  vertical-align: baseline;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.entity-link:hover {
+  text-decoration: none;
+}
+
+.entity-device {
+  color: #9a3412;
+  border-color: var(--entity-device);
+  background: var(--entity-device-soft);
+}
+
+.entity-device:hover {
+  color: #7c2d12;
+  border-color: #c2410c;
+  background: rgba(234, 88, 12, 0.18);
+}
+
+.entity-account {
+  color: #1e3a8a;
+  border-color: var(--entity-account);
+  background: var(--entity-account-soft);
+}
+
+.entity-account:hover {
+  color: #1e3a8a;
+  border-color: #1e40af;
+  background: rgba(29, 78, 216, 0.18);
+}
+
+.device-check-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 0.85rem;
+  margin: 0.85rem 0 0.25rem;
+}
+
+.device-check-bar .device-object-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.device-check-hint {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.device-check-hint.is-changed {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.device-check-hint.is-error {
+  color: var(--bad);
+}
+
+.device-object.online {
+  border-color: rgba(21, 128, 61, 0.35);
+}
+
+.device-object.offline {
+  border-color: rgba(185, 28, 28, 0.35);
+}
+
+.device-object.unknown {
+  border-color: rgba(93, 107, 120, 0.35);
+}
+
 .map-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -492,11 +634,129 @@ code {
   color: #fff;
 }
 
+.map-sort-select {
+  width: auto;
+  min-width: 9.5rem;
+}
+
 /* Device card select / favorites */
 .device-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(16.75rem, 1fr));
   gap: 0.7rem;
+}
+
+.device-card-grid[data-layout="tiles"] {
+  grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
+  gap: 0.85rem;
+}
+
+.device-card-grid[data-layout="tiles"] .device-card-shell {
+  min-height: 13.5rem;
+}
+
+.device-card-grid[data-layout="tiles"] .device-card {
+  min-height: 13.5rem;
+}
+
+.device-card-grid[data-layout="tiles"] .device-card-body {
+  justify-content: center;
+  padding: 0.85rem 0.8rem 1rem;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.device-card-grid[data-layout="tiles"] .device-card-name {
+  font-size: 1.02rem;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.device-card-grid[data-layout="tiles"] .device-card-ip {
+  font-size: 0.86rem;
+}
+
+.device-card-grid[data-layout="tiles"] .device-card-meta {
+  white-space: normal;
+  font-size: 0.72rem;
+}
+
+.device-card-grid[data-layout="tiles"] .device-card-kind {
+  justify-content: center;
+}
+
+.device-card-grid[data-layout="list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.device-card-grid[data-layout="list"] .device-card-shell {
+  height: auto;
+}
+
+.device-card-grid[data-layout="list"] .device-card {
+  flex-direction: row;
+  align-items: stretch;
+  height: auto;
+  border-radius: 10px;
+}
+
+.device-card-grid[data-layout="list"] .device-card:hover {
+  transform: none;
+  box-shadow: 0 2px 8px rgba(24, 33, 43, 0.06);
+}
+
+.device-card-grid[data-layout="list"] .device-card-head {
+  flex: 0 0 auto;
+  width: 11.5rem;
+  max-width: 34%;
+  border-bottom: 0;
+  border-right: 1px solid #e4ecf1;
+  padding: 0.55rem 0.65rem;
+  gap: 0.45rem;
+}
+
+.device-card-grid[data-layout="list"] .device-card-body {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+  padding: 0.55rem 0.85rem;
+}
+
+.device-card-grid[data-layout="list"] .device-card-name {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+  font-size: 0.95rem;
+}
+
+.device-card-grid[data-layout="list"] .device-card-ip {
+  flex: 0 0 auto;
+  min-width: 7.5rem;
+  font-size: 0.82rem;
+}
+
+.device-card-grid[data-layout="list"] .device-card-meta {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: 0.74rem;
+}
+
+@media (max-width: 720px) {
+  .device-card-grid[data-layout="list"] .device-card {
+    flex-direction: column;
+  }
+
+  .device-card-grid[data-layout="list"] .device-card-head {
+    width: auto;
+    max-width: none;
+    border-right: 0;
+    border-bottom: 1px solid #e4ecf1;
+  }
 }
 
 .device-card-shell {
@@ -971,8 +1231,15 @@ code {
 }
 
 @media (max-width: 520px) {
-  .device-card-grid {
+  .device-card-grid,
+  .device-card-grid[data-layout="cards"],
+  .device-card-grid[data-layout="tiles"] {
     grid-template-columns: 1fr;
+  }
+
+  .device-card-grid[data-layout="tiles"] .device-card-shell,
+  .device-card-grid[data-layout="tiles"] .device-card {
+    min-height: 0;
   }
 }
 
@@ -1225,6 +1492,10 @@ code {
   margin: 0;
   font-weight: 600;
   word-break: break-word;
+}
+
+.device-hardware-meta {
+  padding-top: 0.85rem;
 }
 
 .device-settings-layout {
@@ -1862,4 +2133,11 @@ code {
   padding: 0 1.15rem 1.15rem;
   border-top: 1px solid var(--line);
   padding-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .map-refresh-controls {
+    justify-content: flex-start;
+    width: 100%;
+  }
 }

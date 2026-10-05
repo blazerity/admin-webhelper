@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.3.0)
+# Архитектура bAWH (актуально для v1.5.0)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -10,7 +10,7 @@
 LDAP-вход, отчёт по сроку паролей AD, watchlist и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.3.0` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.5.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -19,7 +19,8 @@ Gunicorn + Nginx · Bootstrap 5 (vendorized).
 
 **Нет в репозитории:** Alembic / Flask-Migrate, Redis, Celery, WebSocket,
 Telegram, S3, SPA-фреймворка, Pydantic. Идентичность устройств — unittest
-в `tests/test_device_identity.py` (без pytest в requirements).
+в `tests/test_device_identity.py`; опрос железа — `tests/test_hardware_poll.py`
+(без pytest в requirements).
 
 ---
 
@@ -55,7 +56,7 @@ HTTP / CLI / scheduler
 | Веб (prod) | `wsgi.py` → `create_app()` → Gunicorn `wsgi:app` | Только HTTP. Опрос здесь **запрещён**. |
 | Веб (dev) | `python wsgi.py` (:8000) или `flask --app wsgi run` | То же. |
 | Планировщик | `python -m app.scheduler_worker` | `create_app()` + `start_scheduler(app)`; HTTP не слушает. |
-| Flask CLI | `flask --app wsgi …` | `poll`, `archive-logs`, `password-expiry [--dry-run]`, `sector-daily-report [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
+| Flask CLI | `flask --app wsgi …` | `poll`, `hardware-poll`, `archive-logs`, `password-expiry [--dry-run]`, `sector-daily-report [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
 | Docker | `Dockerfile` | Опциональный web-only образ; scheduler — отдельно. |
 
 Фабрика: `app/__init__.py` → `create_app(config_name)`.
@@ -80,7 +81,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.3.0)
+  VERSION                      # semver (1.5.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -116,7 +117,7 @@ flowchart TB
   subgraph entry["Точки входа"]
     WSGI["wsgi.py<br/>Gunicorn"]
     SCHED["app.scheduler_worker<br/>bawh-scheduler"]
-    CLI["flask CLI<br/>poll · archive-logs · password-expiry · sector-daily-report · refresh-hostnames · init-db"]
+    CLI["flask CLI<br/>poll · hardware-poll · archive-logs · password-expiry · sector-daily-report · refresh-hostnames · init-db"]
   end
 
   subgraph app_core["app/"]
@@ -139,7 +140,7 @@ flowchart TB
   end
 
   subgraph services["services/"]
-    S_POLL["ping · discovery · fingerprint · scheduler · watchlist"]
+    S_POLL["ping · discovery · fingerprint · hardware_poll · scheduler · watchlist"]
     S_ACC["account · action · export · audit"]
     S_ID["ldap · credential · crypto · settings"]
     S_RUN["script · psexec · batch · command_presets"]
@@ -149,7 +150,7 @@ flowchart TB
 
   subgraph data["PostgreSQL / models/"]
     M_USER["users · user_ldap_groups · remote_credentials"]
-    M_NET["sectors · sector_ranges · sector_access<br/>devices · device_history · network_poll_runs"]
+    M_NET["sectors · sector_ranges · sector_access<br/>devices · device_history · network_poll_runs<br/>hardware_poll_runs · device_hardware_history"]
     M_ACC["endpoint_accounts · device_account_history · action_kinds"]
     M_SCR["scripts · script_runs · app_settings · login_services"]
     M_PWD["password_notifications · password_expiry_runs<br/>sector_daily_report_runs"]
@@ -210,8 +211,9 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | --- | --- | --- | --- |
 | `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Операторы сайта после LDAP. Флаги: `is_admin`, `is_viewer`, `is_operator`, `is_password_viewer`. Группы — для `sector_access`. |
 | `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR) и ACL (subject = username или LDAP group CN). |
-| `Device`, `DeviceHistory` | `devices`, `device_history` | `device.py` | Машины + журнал опросов. Идентичность: **только** `serial_number` (WMI). `hostname` — отображение (имя ОС), не ключ. IP — последний адрес, без unique; без SN — заглушка на этом IP. `current_account_id` — кто за ПК. `fingerprint_kind` / `fingerprint_detail` — TCP/SNMP-отпечаток серого адреса. |
-| `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов опроса. |
+| `Device`, `DeviceHistory` | `devices`, `device_history` | `device.py` | Машины + журнал опросов. Идентичность: **только** `serial_number` (WMI). `hostname` — отображение (имя ОС), не ключ. IP — последний адрес, без unique; без SN — заглушка на этом IP. `current_account_id` — кто за ПК. `fingerprint_kind` / `fingerprint_detail` — TCP/SNMP-отпечаток серого адреса. Снимок железа (`cpu_name`, `ram_gb`, `disk_gb`, `os_*`, `hardware_checked_at`) пишет **отдельный** WMI-опрос, не ICMP. |
+| `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов ICMP-опроса. |
+| `HardwarePollRun`, `DeviceHardwareHistory` | `hardware_poll_runs`, `device_hardware_history` | `hardware.py` | Журнал ежедневного опроса железа Windows и история смены CPU/ОЗУ/дисков/ОС. |
 | `EndpointAccount`, `DeviceAccountHistory` | `endpoint_accounts`, `device_account_history` | `account.py` | УЗ на конечных точках (**не** путать с `users`). |
 | `ActionKind` | `action_kinds` | `action.py` | Справочник типов (`ACTION_KIND_SEED` / `seed_action_kinds`). |
 | `Script`, `ScriptRun` | `scripts`, `script_runs` | `script.py` | Библиотека и журнал запусков. У скрипта: `run_as`, `is_published`. У run: `run_type`, `batch_id`, статус. |
@@ -239,6 +241,8 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Запуски | `script_runs` | `script_service` | `/scripts/runs`, `/actions` |
 | Опросы | `device_history` | `ping_service` | вкладка polls |
 | Прогоны опроса | `network_poll_runs` | `ping_service.run_network_poll` | `/admin/settings` |
+| Прогоны железа | `hardware_poll_runs` | `hardware_poll_service.run_hardware_poll` | `/admin/settings` |
+| Снимки железа | `devices` + `device_hardware_history` | `hardware_poll_service` | карточка, вкладка «Оборудование» |
 | Аудит админа | `admin_audit_log` | `audit_service` | `/admin/audit` |
 | Watchlist | `device_watchlist` | `watchlist_service` | карточка, post-poll |
 | Уведомления | `notifications` | `notification_service` / watchlist | `/api/notifications` |
@@ -252,10 +256,13 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Модуль | Роль |
 | --- | --- |
 | `net_utils.py` | `parse_range`, `expand_ranges`, `normalize_mac`, `assert_host_or_ipv4`, `resolve_to_ipv4` |
-| `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host`; ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
+| `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
 | `device_kind.py` | тип карты: имена AD, WMI-серийник, fingerprint, PTR/OUI |
-| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user. Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
+| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
+| `hardware_info.py` | чистый разбор снимка: ГиБ, семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
+| `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices`, история при изменении. Mutex + `hardware_poll_runs` |
+| `hardware_poll_settings.py` | cron / schedule_enabled в `app_settings` (default `0 12 * * *`, включено) |
 | `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки. CLI `refresh-hostnames`, кнопка в Параметрах |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
@@ -343,15 +350,17 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
 | GET | `/api/command-presets` | Пресеты (**admin**) |
-| GET | `/devices/<id>` | Карточка: overview / accounts / commands / polls |
+| GET | `/devices/<id>` | Карточка: overview / accounts / commands / hardware / polls |
 | POST | `/devices/<id>/watch`, `/unwatch` | Watchlist |
+| POST | `/devices/<id>/hardware-poll` | Разовый WMI-опрос железа (**admin**) |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
 ### Diagnostics — `diagnostics.py`
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/devices/<id>/ping` | diagnostics |
+| POST | `/devices/<id>/check` | diagnostics — быстрый ICMP → `device_history` + обновление статуса |
+| POST | `/devices/<id>/ping` | diagnostics — diagnostic run в `script_runs` |
 | POST | `/devices/<id>/tracert` | diagnostics |
 | POST | `/devices/<id>/command` | **admin** |
 
@@ -383,6 +392,8 @@ List, `export.csv`, detail (только видимые по ACL).
 | GET/POST | `/admin/settings` |
 | GET | `/admin/poll-runs/export.csv` |
 | POST | `/admin/poll-run` |
+| GET | `/admin/hardware-poll-runs/export.csv` |
+| POST | `/admin/hardware-poll-run` |
 | POST | `/admin/refresh-hostnames` |
 | GET/POST | `/admin/updates` |
 | GET | `/admin/audit` |
@@ -489,6 +500,7 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | Job | Триггер | Действие |
 | --- | --- | --- |
 | `poll-devices` | Interval из `app_settings` / `POLL_INTERVAL_SECONDS` | `run_network_poll` |
+| `hardware-poll` | cron из настроек (default `0 12 * * *`, локальный TZ) | `run_hardware_poll` (если включено) |
 | `archive-logs` | daily ~00:20 UTC | `log_archive_service` |
 | `password-expiry` | cron из настроек модуля | `run_password_expiry` (если включено) |
 | `sector-daily-report` | cron из настроек модуля (default `0 7 * * *`) | `run_sector_daily_report` (если включено) |
@@ -571,6 +583,14 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → distinct online
 `device_history` за прошедший локальный день по секторам → SMTP →
 `sector_daily_report_runs`.
 
+### D3. Опрос железа Windows
+
+Scheduler cron (полдень) / CLI `hardware-poll` / UI Параметры или карточка →
+`run_hardware_poll` → ping известных Windows-целей (серийник WMI, имена n/w/v/сервер,
+fingerprint windows) → `lookup_wmi_hardware` → снимок на `devices` + строка
+`device_hardware_history` только если CPU/ОЗУ/диски/ОС изменились.
+Итог прогона — `hardware_poll_runs`. ICMP-опрос сети **не** трогает эти поля.
+
 ### E. Self-update
 
 Admin UI → `update_service` (фоновый поток + `app.app_context()`):
@@ -588,6 +608,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 - **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI.
 - **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
 - **WMI UserName:** `None` в probe — WMI не вызывали/упал (текущую УЗ **не** трогаем); `""` — никто не залогинен.
+- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN с WMI, имена n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. CPU = `Win32_Processor.Name`, ОЗУ = `Win32_ComputerSystem.TotalPhysicalMemory` в ГиБ, диски = сумма `Win32_DiskDrive.Size` без USB (запасной — локальные тома), ОС = Caption + DisplayVersion (реестр StdRegProv) / сборка.
 - **ILIKE:** только через `utils.ilike_pattern` (экранирование `%`/`_`).
 - **Время:** всегда timezone-aware UTC (`utils.utcnow` / `as_utc`); в шаблонах фильтр `dt`.
 - **Пустые адреса** в `devices` опрос не создаёт.
@@ -607,9 +628,10 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 | Путь | Назначение |
 | --- | --- |
-| `static/css/app.css` | Стили |
+| `static/css/app.css` | стили; `.entity-link` — единый вид ссылок на устройство / УЗ |
 | `static/js/http.js` | общий fetch/CSRF helper |
-| `static/js/map.js` | карта сети |
+| `static/js/map.js` | карта сети; автообновление опционально (localStorage) |
+| `static/js/device_check.js` | быстрая проверка статуса на карточке устройства |
 | `static/js/search.js` | живой фильтр карты (без suggest-dropdown) |
 | `static/js/live_search.js` | живой поиск списков Действия / Учётные записи |
 | `static/js/batch.js` | bulk операции |
@@ -681,6 +703,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
+| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Параметры и вкладка «Оборудование»; тесты `tests/test_hardware_poll.py` |
 | Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; `tests/test_device_identity.py` |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |

@@ -11,6 +11,7 @@ from flask import Response
 from app.services.account_service import list_visible_accounts
 from app.services.action_service import list_system_actions
 from app.services.ping_service import load_recent_poll_runs
+from app.services.hardware_poll_service import load_recent_hardware_poll_runs
 
 
 def _writerows(headers: list[str], rows: Iterable[list]) -> str:
@@ -102,6 +103,44 @@ def export_poll_runs_csv(*, limit: int = 100) -> str:
             "scanned",
             "online",
             "offline",
+            "errors",
+            "error",
+        ],
+        rows,
+    )
+
+
+def export_hardware_poll_runs_csv(*, limit: int = 100) -> str:
+    runs = load_recent_hardware_poll_runs(limit=limit)
+    rows = [
+        [
+            run.id,
+            run.mode,
+            run.started_at.isoformat() if run.started_at else "",
+            run.finished_at.isoformat() if run.finished_at else "",
+            run.scanned,
+            run.online,
+            run.offline,
+            run.collected,
+            run.changed,
+            run.skipped,
+            run.errors,
+            (run.error or "").replace("\n", " ")[:500],
+        ]
+        for run in runs
+    ]
+    return _writerows(
+        [
+            "id",
+            "mode",
+            "started_at",
+            "finished_at",
+            "scanned",
+            "online",
+            "offline",
+            "collected",
+            "changed",
+            "skipped",
             "errors",
             "error",
         ],
