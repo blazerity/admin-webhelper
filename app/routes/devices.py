@@ -17,6 +17,12 @@ from app.extensions import db
 from app.models import DeviceHistory, RunType, Script, ScriptRun, Sector
 from app.run_display import run_launch_label, run_status_label, run_when_label
 from app.services.account_service import device_account_sightings
+from app.services.hardware_poll_service import (
+    HardwarePollError,
+    HardwarePollInProgressError,
+    load_device_hardware_history,
+    poll_one_device,
+)
 from app.services import batch_service
 from app.services.command_presets import list_command_presets
 from app.services.device_kind import hostname_sort_key, kind_counts
@@ -28,7 +34,7 @@ from app.utils import parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
 
-_DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls"})
+_DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls", "hardware"})
 _DEFAULT_LIST_LIMIT = 5
 _ALL_LIST_LIMIT = 50
 
@@ -370,6 +376,7 @@ def detail(device_id: int):
     history = []
     launches = []
     account_rows = []
+    hardware_rows = []
     has_more = False
     if tab == "polls":
         rows = (
@@ -391,6 +398,10 @@ def detail(device_id: int):
         rows = device_account_sightings(device.id, limit=limit + 1)
         has_more = (not show_all) and len(rows) > limit
         account_rows = rows[:limit]
+    elif tab == "hardware":
+        rows = load_device_hardware_history(device.id, limit=limit + 1)
+        has_more = (not show_all) and len(rows) > limit
+        hardware_rows = rows[:limit]
 
     # Пресеты всегда в context; библиотека — admin/operator (operator: published).
     command_presets = list_command_presets()
@@ -418,6 +429,7 @@ def detail(device_id: int):
         history=history,
         launches=launches,
         account_rows=account_rows,
+        hardware_rows=hardware_rows,
         command_presets=command_presets,
         scripts=scripts,
         watching=watching,
@@ -446,6 +458,44 @@ def unwatch_device(device_id: int):
     watchlist_service.unwatch(current_user.id, device.id)
     flash("Подписка снята.", "success")
     return redirect(url_for("devices.detail", device_id=device.id))
+
+
+@bp.post("/devices/<int:device_id>/hardware-poll")
+@admin_required
+def poll_device_hardware(device_id: int):
+    """Разовый WMI-опрос железа этой машины (admin)."""
+    device = get_visible_device_or_404(device_id)
+    try:
+        result = poll_one_device(device)
+    except HardwarePollInProgressError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
+    except HardwarePollError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
+    except Exception as exc:  # noqa: BLE001
+        flash(f"Ошибка опроса железа: {exc}", "danger")
+        return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
+
+    db.session.refresh(device)
+    if result.collected:
+        ram = f"{device.ram_gb} ГБ" if device.ram_gb is not None else "—"
+        disk = f"{device.disk_gb} ГБ" if device.disk_gb is not None else "—"
+        flash(
+            f"Железо обновлено: {device.os_label or '—'} · {device.cpu_name or '—'} "
+            f"· ОЗУ {ram} · диски {disk}.",
+            "success",
+        )
+    elif result.offline:
+        flash("Устройство не ответило на ping — железо не читали.", "warning")
+    elif result.no_wmi:
+        flash("WMI не отдал конфигурацию железа.", "warning")
+    else:
+        flash(
+            "Опрос железа: проверено {scanned}, ошибок {errors}.".format(**result.as_dict()),
+            "warning",
+        )
+    return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
 
 
 @bp.post("/devices/<int:device_id>/scripts/run")

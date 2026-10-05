@@ -1227,6 +1227,10 @@ code {
   word-break: break-word;
 }
 
+.device-hardware-meta {
+  padding-top: 0.85rem;
+}
+
 .device-settings-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 240px;

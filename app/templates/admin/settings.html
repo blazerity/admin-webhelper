@@ -187,6 +187,96 @@
   <p class="text-muted small mt-3 mb-0">Прогонов ещё нет — дождитесь расписания или нажмите «Запустить опрос сейчас».</p>
   {% endif %}
 </div>
+<div class="panel content-card mb-3" id="hardware-poll">
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="hardware_poll">
+    <h2 class="h5 mb-3">Опрос железа Windows</h2>
+    <p class="text-muted">
+      Отдельный проход по уже известным Windows-машинам (не ICMP-опрос сети):
+      ping, затем WMI — процессор, вся ОЗУ, суммарный объём дисков, версия Windows
+      (10/11/Server, Pro/Enterprise, 25H2/26H2). Учётка та же, что для серийника.
+      По умолчанию — каждый день в полдень по часовому поясу сервера.
+    </p>
+    {% set hw = hardware_poll_settings if hardware_poll_settings is defined else none %}
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label" for="hardware_poll_cron">Cron расписания</label>
+        <input class="form-control" id="hardware_poll_cron" name="hardware_poll_cron" value="{{ hw.schedule_cron if hw else '0 12 * * *' }}">
+        <div class="form-text">По умолчанию <code>0 12 * * *</code> (12:00 локального времени).</div>
+      </div>
+      <div class="col-md-8 d-flex align-items-end">
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" value="1" id="hardware_poll_enabled" name="hardware_poll_enabled"{% if not hw or hw.schedule_enabled %} checked{% endif %}>
+          <label class="form-check-label" for="hardware_poll_enabled">
+            Расписание включено (служба <code>bawh-scheduler</code>)
+          </label>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">Сохранить расписание</button>
+  </form>
+  <hr class="my-3">
+  <form method="post" action="{{ url_for('admin.hardware_poll_run') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-primary" type="submit">Опросить железо сейчас</button>
+  </form>
+  <p class="text-muted small mt-2 mb-0">
+    CLI: <code>flask --app wsgi hardware-poll --dry-run</code>.
+    На карточке устройства админ может опросить одну машину.
+  </p>
+  <p class="mt-3 mb-0">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.export_hardware_poll_runs') }}">Скачать журнал опроса железа (CSV)</a>
+  </p>
+  {% if hardware_poll_runs %}
+  <h3 class="h6 mt-4 mb-2">Последние прогоны железа</h3>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>Начало</th>
+          <th>Конец</th>
+          <th>Режим</th>
+          <th>Проверено</th>
+          <th>Онлайн</th>
+          <th>Собрано</th>
+          <th>Изменено</th>
+          <th>Офлайн</th>
+          <th>Ошибки</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in hardware_poll_runs %}
+        <tr>
+          <td>{{ run.started_at|dt }}</td>
+          <td>
+            {% if run.finished_at %}
+              {{ run.finished_at|dt }}
+            {% else %}
+              <span class="text-warning">идёт…</span>
+            {% endif %}
+          </td>
+          <td>{{ run.mode }}</td>
+          <td>{{ run.scanned }}</td>
+          <td>{{ run.online }}</td>
+          <td>{{ run.collected }}</td>
+          <td>{{ run.changed }}</td>
+          <td>{{ run.offline }}</td>
+          <td>
+            {{ run.errors }}
+            {% if run.error %}
+              <div class="text-danger small">{{ run.error }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-muted small mt-3 mb-0">Прогонов железа ещё нет — дождитесь полудня или нажмите «Опросить железо сейчас».</p>
+  {% endif %}
+</div>
 <div class="panel content-card mb-3 service-control-panel" id="service-control">
   <h2 class="h5 mb-1">Управление службами</h2>
   <p class="text-muted mb-3">

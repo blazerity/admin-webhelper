@@ -20,6 +20,16 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.extensions import db
+from app.services.hardware_poll_service import (
+    HardwarePollError,
+    HardwarePollInProgressError,
+    format_change_lines,
+    run_hardware_poll,
+)
+from app.services.hardware_poll_settings import (
+    DEFAULT_SCHEDULE_CRON as DEFAULT_HARDWARE_POLL_CRON,
+)
+from app.services.hardware_poll_settings import get_hardware_poll_settings
 from app.services.log_archive_service import archive_rotated_logs
 from app.services.password_expiry_service import run_password_expiry
 from app.services.password_expiry_settings import (
@@ -43,11 +53,12 @@ JOB_ID = "poll-devices"
 ARCHIVE_JOB_ID = "archive-logs"
 PASSWORD_EXPIRY_JOB_ID = "password-expiry"
 SECTOR_DAILY_JOB_ID = "sector-daily-report"
+HARDWARE_POLL_JOB_ID = "hardware-poll"
 
 
 def register_commands(app) -> None:
     """Команды CLI: poll, archive-logs, password-expiry, sector-daily-report,
-    refresh-hostnames.
+    refresh-hostnames, hardware-poll.
 
     Повторный вызов ничего не делает. Иначе Click упадёт
     с «command already registered», когда create_app вызовут дважды
@@ -178,6 +189,50 @@ def register_commands(app) -> None:
                 for line in format_change_lines(result):
                     print(line)
 
+    if "hardware-poll" not in app.cli.commands:
+        import click
+
+        @app.cli.command("hardware-poll")
+        @click.option(
+            "--dry-run",
+            is_flag=True,
+            help="Спросить WMI, не писать в БД.",
+        )
+        @click.option(
+            "--limit",
+            type=int,
+            default=None,
+            help="Максимум устройств (для проверки).",
+        )
+        @click.option(
+            "--device-id",
+            "device_ids",
+            type=int,
+            multiple=True,
+            help="Только эти id (можно повторять).",
+        )
+        def hardware_poll_cmd(
+            dry_run: bool, limit: int | None, device_ids: tuple[int, ...]
+        ) -> None:
+            """Опросить CPU / ОЗУ / диски / версию Windows по WMI."""
+            with app.app_context():
+                try:
+                    result = run_hardware_poll(
+                        mode="dry-run" if dry_run else "cli",
+                        dry_run=dry_run,
+                        limit=limit,
+                        device_ids=device_ids or None,
+                    )
+                except HardwarePollError as exc:
+                    print({"error": str(exc)})
+                    raise SystemExit(1) from exc
+                except HardwarePollInProgressError as exc:
+                    print({"error": str(exc)})
+                    raise SystemExit(1) from exc
+                print(result.as_dict())
+                for line in format_change_lines(result):
+                    print(line)
+
     app.extensions[_POLL_COMMAND_KEY] = True
 
 
@@ -199,8 +254,9 @@ def start_scheduler(app) -> BackgroundScheduler:
     Задача archive-logs — раз в сутки около 00:20 UTC: суточные хвосты
     завершённых месяцев пакуются в LOG_ARCHIVE_DIR.
 
-    Задачи password-expiry и sector-daily-report — cron из app_settings
-    (локальный TZ сервера).
+    Задачи password-expiry, sector-daily-report и hardware-poll — cron
+    из app_settings (локальный TZ сервера). Опрос железа по умолчанию
+    в полдень: CPU, ОЗУ, диски, версия Windows через WMI.
 
     Запускать только из scheduler_worker, не из воркера Gunicorn.
     Иначе каждый веб-процесс начнёт пинговать сеть. Когда появится
@@ -215,6 +271,7 @@ def start_scheduler(app) -> BackgroundScheduler:
     scheduled_for = {"seconds": _read_interval(app)}
     password_cron_state = {"cron": "", "enabled": False, "func": None}
     sector_daily_cron_state = {"cron": "", "enabled": False, "func": None}
+    hardware_poll_cron_state = {"cron": "", "enabled": False, "func": None}
 
     def poll_job() -> None:
         # У планировщика нет HTTP-запроса, который открыл бы контекст сам.
@@ -233,6 +290,7 @@ def start_scheduler(app) -> BackgroundScheduler:
                     _apply_interval(scheduler, scheduled_for)
                     _apply_password_expiry_schedule(scheduler, password_cron_state)
                     _apply_sector_daily_schedule(scheduler, sector_daily_cron_state)
+                    _apply_hardware_poll_schedule(scheduler, hardware_poll_cron_state)
                 except Exception:
                     logger.exception("Не удалось обновить интервал опроса")
                 finally:
@@ -283,8 +341,39 @@ def start_scheduler(app) -> BackgroundScheduler:
             finally:
                 db.session.remove()
 
+    def hardware_poll_job() -> None:
+        with app.app_context():
+            try:
+                settings = get_hardware_poll_settings()
+                if not settings.schedule_enabled:
+                    logger.info("Опрос железа: расписание выключено, пропуск")
+                    return
+                result = run_hardware_poll(mode="scheduled")
+                logger.info(
+                    "Опрос железа: scheduled scanned=%s collected=%s changed=%s errors=%s",
+                    result.scanned,
+                    result.collected,
+                    result.changed,
+                    result.errors,
+                )
+            except HardwarePollError as exc:
+                logger.warning("Опрос железа: %s", exc)
+            except HardwarePollInProgressError as exc:
+                logger.warning("Плановый опрос железа пропущен: %s", exc)
+            except Exception:
+                logger.exception("Опрос железа: сбой планового прогона")
+            finally:
+                try:
+                    db.session.rollback()
+                    _apply_hardware_poll_schedule(scheduler, hardware_poll_cron_state)
+                except Exception:
+                    logger.exception("Не удалось обновить расписание опроса железа")
+                finally:
+                    db.session.remove()
+
     password_cron_state["func"] = password_expiry_job
     sector_daily_cron_state["func"] = sector_daily_job
+    hardware_poll_cron_state["func"] = hardware_poll_job
 
     scheduler.add_job(
         poll_job,
@@ -308,6 +397,7 @@ def start_scheduler(app) -> BackgroundScheduler:
     with app.app_context():
         _apply_password_expiry_schedule(scheduler, password_cron_state, force=True)
         _apply_sector_daily_schedule(scheduler, sector_daily_cron_state, force=True)
+        _apply_hardware_poll_schedule(scheduler, hardware_poll_cron_state, force=True)
     scheduler.start()
     app.extensions[SCHEDULER_EXT_KEY] = scheduler
     logger.info("Планировщик опроса запущен, интервал %s с", scheduled_for["seconds"])
@@ -450,5 +540,25 @@ def _apply_sector_daily_schedule(
         enabled=bool(settings.schedule_enabled),
         default_cron=DEFAULT_SECTOR_DAILY_CRON,
         label="Отчёт по секторам",
+        force=force,
+    )
+
+
+def _apply_hardware_poll_schedule(
+    scheduler: BackgroundScheduler,
+    state: dict,
+    *,
+    force: bool = False,
+) -> None:
+    """Включить/выключить или переставить cron опроса железа Windows."""
+    settings = get_hardware_poll_settings()
+    _apply_cron_job(
+        scheduler,
+        state,
+        job_id=HARDWARE_POLL_JOB_ID,
+        cron=settings.schedule_cron or DEFAULT_HARDWARE_POLL_CRON,
+        enabled=bool(settings.schedule_enabled),
+        default_cron=DEFAULT_HARDWARE_POLL_CRON,
+        label="Опрос железа",
         force=force,
     )

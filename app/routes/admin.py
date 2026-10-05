@@ -3,11 +3,12 @@
 Эндпоинты:
 - settings      GET/POST /admin/settings
 - poll-run      POST /admin/poll-run — принудительный опрос сети
+- hardware-poll-run POST /admin/hardware-poll-run — опрос железа Windows
 - refresh-hostnames POST /admin/refresh-hostnames — WMI-имена на известных машинах
 - updates       GET/POST /admin/updates
 
 Формы на странице настроек различаются скрытым полем form:
-psexec, discovery, poll или update. Открытый пароль в шаблон и во flash не попадает.
+psexec, discovery, poll, hardware_poll или update. Открытый пароль в шаблон и во flash не попадает.
 
 PsExec: учётка только текущего администратора. Пустые пользователь
 и пароль означают запуск от его входа на сайт. Пустой пароль при уже
@@ -18,6 +19,9 @@ Discovery: глобальная учётка WMI для опроса (серий
 
 Опрос: интервал в app_settings; журнал прогонов — network_poll_runs;
 кнопка «Запустить сейчас» вызывает ту же run_network_poll, что и планировщик.
+
+Опрос железа: cron и журнал hardware_poll_runs на той же странице;
+кнопка вызывает run_hardware_poll.
 
 Обновление — отдельные кнопки на /admin/updates. Замена кода
 начинается только после резервной копии, см. update_service.
@@ -30,7 +34,7 @@ from flask_login import current_user
 
 from app.authz import admin_required
 from app.services import audit_service
-from app.services.export_service import csv_attachment, export_poll_runs_csv
+from app.services.export_service import csv_attachment, export_hardware_poll_runs_csv, export_poll_runs_csv
 from app.services.credential_service import (
     CredentialsNotConfigured,
     get_stored_credential,
@@ -38,6 +42,13 @@ from app.services.credential_service import (
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
 from app.services.network_summary_service import get_scheduler_health
+from app.services.hardware_poll_service import (
+    HardwarePollError,
+    HardwarePollInProgressError,
+    load_recent_hardware_poll_runs,
+    run_hardware_poll,
+)
+from app.services.hardware_poll_settings import get_hardware_poll_settings, set_hardware_poll_settings
 from app.services.hostname_sweep_service import (
     HostnameSweepError,
     run_hostname_sweep,
@@ -143,6 +154,25 @@ def settings():
             )
             flash("Интервал опроса сохранён.", "success")
             return redirect(url_for("admin.settings"))
+        if kind == "hardware_poll":
+            want_enabled = request.form.get("hardware_poll_enabled") == "1"
+            try:
+                set_hardware_poll_settings(
+                    schedule_enabled=want_enabled,
+                    schedule_cron=request.form.get("hardware_poll_cron", ""),
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.settings") + "#hardware-poll")
+            audit_service.log(
+                current_user,
+                "update",
+                "admin_settings",
+                "hardware_poll",
+                detail=f"enabled={int(want_enabled)} cron={request.form.get('hardware_poll_cron', '')}",
+            )
+            flash("Расписание опроса железа сохранено.", "success")
+            return redirect(url_for("admin.settings") + "#hardware-poll")
         if kind == "update":
             try:
                 saved = save_update_sudo_credentials(
@@ -185,6 +215,8 @@ def settings():
         discovery_password_set=discovery.password_set,
         poll_interval=get_poll_interval_seconds(),
         poll_runs=load_recent_poll_runs(),
+        hardware_poll_settings=get_hardware_poll_settings(),
+        hardware_poll_runs=load_recent_hardware_poll_runs(),
         scheduler_health=get_scheduler_health(),
         update_sudo_user=update_sudo.username,
         update_sudo_password_set=update_sudo.password_set,
@@ -196,6 +228,41 @@ def settings():
 def export_poll_runs():
     """CSV журнала прогонов опроса (admin)."""
     return csv_attachment(export_poll_runs_csv(limit=200), "poll_runs.csv")
+
+
+@bp.get("/hardware-poll-runs/export.csv")
+@admin_required
+def export_hardware_poll_runs():
+    """CSV журнала прогонов опроса железа (admin)."""
+    return csv_attachment(
+        export_hardware_poll_runs_csv(limit=200), "hardware_poll_runs.csv"
+    )
+
+
+@bp.route("/hardware-poll-run", methods=["POST"])
+@admin_required
+def hardware_poll_run():
+    """Принудительный опрос железа Windows (тот же код, что у планировщика)."""
+    try:
+        result = run_hardware_poll(mode="manual")
+    except HardwarePollInProgressError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("admin.settings") + "#hardware-poll")
+    except HardwarePollError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("admin.settings") + "#hardware-poll")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Сбой ручного опроса железа")
+        flash(f"Ошибка опроса железа: {exc}", "danger")
+        return redirect(url_for("admin.settings") + "#hardware-poll")
+
+    flash(
+        "Опрос железа: проверено {scanned}, онлайн {online}, "
+        "собрано {collected}, изменено {changed}, офлайн {offline}, "
+        "без WMI {no_wmi}, ошибок {errors}.".format(**result.as_dict()),
+        "success",
+    )
+    return redirect(url_for("admin.settings") + "#hardware-poll")
 
 
 @bp.route("/poll-run", methods=["POST"])
