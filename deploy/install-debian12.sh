@@ -260,6 +260,13 @@ install_sources() {
         --exclude __pycache__ \
         --exclude .git \
         --exclude .pytest_cache \
+        --exclude .cursor \
+        --exclude .claude \
+        --exclude .scratch \
+        --exclude scripts \
+        --exclude tools \
+        --exclude tmp \
+        --exclude temp \
         --exclude logs \
         --exclude backups \
         --exclude '*.db' \

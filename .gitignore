@@ -15,3 +15,34 @@ build/
 *.egg-info/
 .idea/
 .vscode/
+*.code-workspace
+
+# Agent / IDE scratch (Cloud Agent, Claude, Cursor) — только локально
+.cursor/
+.claude/
+.scratch/
+
+# Локальные черновики и одноразовые скрипты — не в git
+scripts/
+tools/
+tmp/
+temp/
+
+# Диагностика и ручные/временные тесты (остаются на машине или в Cloud)
+debug_*
+diagnose_*
+diag_*
+test_manual*
+*_manual.py
+*_manual.sh
+smoke_*.py
+harness_*.py
+scratch_*.py
+
+# Логи и мусор вне runtime-каталога
+*.log
+*.bak
+*.orig
+*.swp
+*~
+.DS_Store

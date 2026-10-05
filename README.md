@@ -76,7 +76,20 @@ journalctl -u bawh-web -u bawh-scheduler -f
 
 Или повторный запуск установщика из каталога с кодом / через one-liner — обновит `/opt/bawh`, зависимости и юниты; существующий `.env` не перезаписывает.
 
-Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.5.1`).
+Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.6.0`).
+
+## Тесты
+
+Канонические регрессии — stdlib `unittest` в `tests/` (pytest в requirements нет):
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Временные диагностические скрипты, ручные прогоны и scratch агентов
+(`debug_*`, `diagnose_*`, `scripts/`, `tools/`, `tmp/`, `.cursor/` …)
+**не коммитятся** — остаются локально или в Cloud Agent. Правила и полный список
+паттернов: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §19 и [`.gitignore`](.gitignore).
 
 ## Локальный запуск (опционально)
 

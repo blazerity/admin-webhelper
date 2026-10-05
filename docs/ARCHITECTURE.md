@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.5.1)
+# Архитектура bAWH (актуально для v1.6.0)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -10,7 +10,7 @@
 LDAP-вход, отчёт по сроку паролей AD, watchlist и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.5.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.6.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -81,7 +81,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.5.1)
+  VERSION                      # semver (1.6.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -105,6 +105,7 @@ bAWH/                          # на сервере = /opt/bawh
     templates/
     static/                    # css/, js/, vendor/bootstrap/
   deploy/                      # Debian 12: systemd, nginx, install
+  tests/                       # unittest (канонические регрессии)
   logs/                        # runtime (в gitignore содержимое)
 ```
 
@@ -136,7 +137,6 @@ flowchart TB
     R_ADM["admin · login_services"]
     R_PWD["password_expiry · sector_daily_report"]
     R_NTF["notifications"]
-    R_API["api_v1"]
   end
 
   subgraph services["services/"]
@@ -145,7 +145,7 @@ flowchart TB
     S_ID["ldap · credential · crypto · settings"]
     S_RUN["script · psexec · batch · command_presets"]
     S_PWD["password_expiry* · password_ad · mailer<br/>sector_daily_report* · report_toggle"]
-    S_OTH["sector · search · login_status · network_summary<br/>notification · update · log_archive · net_utils · device_kind"]
+    S_OTH["sector · login_status · network_summary<br/>notification · update · log_archive · net_utils · device_kind"]
   end
 
   subgraph data["PostgreSQL / models/"]
@@ -326,7 +326,6 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Модуль | Роль |
 | --- | --- |
 | `sector_service.py` | CRUD секторов, ranges, access |
-| `search_service.py` | поиск по IP / MAC / hostname / serial |
 | `login_service_status.py` | CRUD сервисов экрана входа + ICMP status |
 | `notification_service.py` | in-app уведомления |
 | `log_archive_service.py` | месячный tar.gz ротированных логов |
@@ -376,8 +375,9 @@ CRUD: list, new, create, detail, edit, update, delete (mutating — `admin_requi
 
 ### Search — `search.py`
 
-| GET | `/search` | редирект на карту |
-| GET | `/search/api`, `/search/suggest` | JSON suggest |
+| GET | `/search` | редирект на карту (старые закладки) |
+
+Поиск на карте — клиентский фильтр (`static/js/map.js`), отдельных JSON-endpoint нет.
 
 ### Scripts — prefix `/scripts`
 
@@ -430,22 +430,9 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | GET | `/api/notifications` |
 | POST | `/api/notifications/read` |
 
-### API v1 — prefix `/api/v1` (`api_v1.py`)
-
-Тонкие alias на legacy-handlers:
-
-- `GET /api/v1/network/summary`
-- `GET /api/v1/command-presets`
-- `GET /api/v1/map/status`
-- `GET /api/v1/batches/<batch_id>`
-- `GET /api/v1/notifications`
-- `GET /api/v1/search/suggest`
-- `GET /api/v1/health` → `{"status":"ok"}`
-
 ### Открытые без логина
 
 - `GET /health`
-- `GET /api/v1/health`
 - `GET /api/login-services/status`
 - `GET/POST /login`
 
@@ -743,6 +730,30 @@ backup → git → pip → `flask init-db` → опциональный restart
 | [README.md](../README.md) | Установка на Debian, минимальный `.env`, службы, обновление |
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
 | [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
+
+---
+
+## 19. Что коммитить и что оставлять локально / в Cloud
+
+**В git (канон):** `app/`, `deploy/`, `docs/`, `tests/` (только `unittest` регрессии продукта),
+`VERSION`, `requirements.txt`, `wsgi.py`, `.env.example`, `Dockerfile`, `README.md`.
+
+**Не коммитить** (остаются на машине разработчика или в рабочей среде Cloud Agent;
+прописано в [`.gitignore`](../.gitignore)):
+
+| Паттерн / каталог | Зачем |
+| --- | --- |
+| `.env`, `*.db`, `instance/`, `.venv/` | секреты и локальная БД |
+| `logs/*`, `backups/`, `*.log` | runtime |
+| `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
+| `scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики |
+| `debug_*`, `diagnose_*`, `diag_*`, `*_manual.py`, `smoke_*.py`, `harness_*.py`, `scratch_*.py` | диагностика и ручные прогоны |
+
+Установщик (`deploy/install-debian12.sh`) и self-update (`update_service._SKIP_DIRS`)
+тоже пропускают эти каталоги — в `/opt/bawh` они не попадут.
+
+**Тесты:** канонические `tests/test_*.py` (stdlib `unittest`) — в репозитории.
+Временные/ручные/диагностические скрипты — только локально или в Cloud, без push в git.
 
 ---
 
