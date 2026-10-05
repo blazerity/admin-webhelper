@@ -18,14 +18,23 @@
   const KIND_LABELS = {
     notebook: "Ноутбук",
     desktop: "СБ",
+    vds: "VDS",
+    server: "Сервер",
+    firewall: "Firewall",
     other: "Прочее",
   };
+  const KIND_ORDER = ["notebook", "desktop", "vds", "server", "firewall", "other"];
   const TYPE_ICONS = {
     notebook: `<span class="device-type-icon" title="Ноутбук" aria-label="Ноутбук"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M2 20h20"></path><path d="M8 20h8"></path></svg></span>`,
     desktop: `<span class="device-type-icon" title="СБ" aria-label="СБ"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="1.5"></rect><path d="M8 20h8"></path><path d="M12 16v4"></path></svg></span>`,
+    vds: `<span class="device-type-icon" title="VDS" aria-label="VDS"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8"></path><path d="M12 17v4"></path><path d="m15 8 5-5"></path><path d="M16 3h5v5"></path></svg></span>`,
+    server: `<span class="device-type-icon" title="Сервер" aria-label="Сервер"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2"></rect><rect x="2" y="14" width="20" height="8" rx="2"></rect><circle cx="6" cy="6" r="0.8" fill="currentColor" stroke="none"></circle><circle cx="6" cy="18" r="0.8" fill="currentColor" stroke="none"></circle></svg></span>`,
+    firewall: `<span class="device-type-icon" title="Сетевое устройство" aria-label="Сетевое устройство"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10" width="18" height="10" rx="2"></rect><path d="M7 10V7a5 5 0 0 1 10 0v3"></path><circle cx="8" cy="15" r="0.8" fill="currentColor" stroke="none"></circle><circle cx="12" cy="15" r="0.8" fill="currentColor" stroke="none"></circle><circle cx="16" cy="15" r="0.8" fill="currentColor" stroke="none"></circle></svg></span>`,
     other: `<span class="device-type-icon muted" title="Прочее" aria-label="Прочее"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5"></path><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"></circle></svg></span>`,
   };
   const FILTER_PARAM_KEYS = ["status", "type", "fav"];
+  const VIEW_KEY = "bawh.map.view";
+  const RESTORE_KEY = "bawh.map.restore";
 
   const mapRoot = document.getElementById("sector-map");
   const filtersRoot = document.getElementById("map-filters");
@@ -54,9 +63,12 @@
   let favorites = loadFavorites();
   /** @type {Set<string>} */
   const selectedIds = new Set();
-  /** @type {Set<string>|null} null — поиск неактивен; Set — показывать только эти id */
-  let searchMatchIds = null;
+  /** @type {string} */
+  let searchQuery = "";
+  /** @type {string} */
+  let searchSectorId = "";
   let favOnly = false;
+  let restoringView = false;
 
   function loadFavorites() {
     try {
@@ -232,15 +244,164 @@
     }
   }
 
-  function applyFilters() {
+  function searchIsActive() {
+    return searchQuery.length >= 2 || Boolean(searchSectorId);
+  }
+
+  function resolveKind(kind) {
+    return KIND_LABELS[kind] ? kind : "other";
+  }
+
+  function cardMatchesSearch(card, query) {
+    if (query.length < 2) {
+      return true;
+    }
+    const hay = [
+      card.dataset.hostname,
+      card.dataset.ip,
+      card.dataset.mac,
+      card.dataset.serial,
+      card.textContent,
+    ]
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(query);
+  }
+
+  function collapseEl(panel) {
+    return panel.querySelector(".collapse");
+  }
+
+  function setPanelExpanded(panel, expanded) {
+    const body = collapseEl(panel);
+    const btn = panel.querySelector(".sector-toggle");
+    if (!body || !btn) {
+      return;
+    }
+    const Collapse = window.bootstrap && window.bootstrap.Collapse;
+    if (Collapse) {
+      const instance = Collapse.getOrCreateInstance(body, { toggle: false });
+      if (expanded) {
+        instance.show();
+      } else {
+        instance.hide();
+      }
+    } else {
+      body.classList.toggle("show", expanded);
+    }
+    btn.classList.toggle("collapsed", !expanded);
+    btn.setAttribute("aria-expanded", expanded ? "true" : "false");
+  }
+
+  function getExpandedSectorIds() {
+    return Array.from(mapRoot.querySelectorAll(".sector-panel"))
+      .filter((panel) => {
+        const btn = panel.querySelector(".sector-toggle");
+        return btn && btn.getAttribute("aria-expanded") === "true";
+      })
+      .map((panel) => String(panel.dataset.sectorId || ""));
+  }
+
+  function saveMapView(deviceId) {
+    try {
+      sessionStorage.setItem(
+        VIEW_KEY,
+        JSON.stringify({
+          url: `${window.location.pathname}${window.location.search}`,
+          scrollY: window.scrollY,
+          expanded: getExpandedSectorIds(),
+          deviceId: deviceId ? String(deviceId) : null,
+        })
+      );
+      sessionStorage.setItem(RESTORE_KEY, "1");
+    } catch (_err) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function restoreMapView() {
+    if (sessionStorage.getItem(RESTORE_KEY) !== "1") {
+      return;
+    }
+    sessionStorage.removeItem(RESTORE_KEY);
+    let state = null;
+    try {
+      state = JSON.parse(sessionStorage.getItem(VIEW_KEY) || "null");
+    } catch (_err) {
+      return;
+    }
+    if (!state || typeof state !== "object") {
+      return;
+    }
+
+    restoringView = true;
+    const expanded = new Set(
+      Array.isArray(state.expanded) ? state.expanded.map(String) : []
+    );
+    let returnedCard = null;
+    if (state.deviceId) {
+      returnedCard = mapRoot.querySelector(
+        `[data-device-card][data-device-id="${state.deviceId}"]`
+      );
+      if (returnedCard) {
+        const panel = returnedCard.closest(".sector-panel");
+        if (panel && panel.dataset.sectorId) {
+          expanded.add(String(panel.dataset.sectorId));
+        }
+        returnedCard.classList.add("is-returned");
+        window.setTimeout(() => {
+          returnedCard.classList.remove("is-returned");
+        }, 2400);
+      }
+    }
+
+    mapRoot.querySelectorAll(".sector-panel").forEach((panel) => {
+      setPanelExpanded(panel, expanded.has(String(panel.dataset.sectorId)));
+    });
+
+    const y = Number(state.scrollY);
+    const applyScroll = () => {
+      window.scrollTo(0, Number.isFinite(y) ? y : 0);
+    };
+    applyScroll();
+    window.setTimeout(applyScroll, 50);
+    window.setTimeout(applyScroll, 360);
+    restoringView = false;
+  }
+
+  function renderSectorKindCounts(panel) {
+    const host = panel.querySelector("[data-sector-kinds]");
+    if (!host) {
+      return;
+    }
+    const counts = {};
+    panel.querySelectorAll("[data-device-card]").forEach((card) => {
+      const kind = resolveKind(card.dataset.type);
+      counts[kind] = (counts[kind] || 0) + 1;
+    });
+    host.innerHTML = KIND_ORDER.filter((kind) => counts[kind])
+      .map((kind) => {
+        const label = KIND_LABELS[kind];
+        return `<span class="sector-kind-stat" title="${escapeHtml(label)}">${
+          TYPE_ICONS[kind] || TYPE_ICONS.other
+        }<span>${counts[kind]}</span></span>`;
+      })
+      .join("");
+  }
+
+  function applyFilters(options) {
+    const opts = options || {};
     const statuses = selectedValues("status");
     const types = selectedValues("type");
-    const searchActive = searchMatchIds !== null;
+    const query = searchQuery;
+    const searchActive = searchIsActive();
     let anyVisibleSector = false;
 
     mapRoot.querySelectorAll(".sector-panel").forEach((panel) => {
       const cards = panel.querySelectorAll("[data-device-card]");
       let visibleCount = 0;
+      const sectorOk =
+        !searchSectorId || String(panel.dataset.sectorId) === searchSectorId;
 
       cards.forEach((card) => {
         const deviceId = Number(card.dataset.deviceId);
@@ -248,8 +409,7 @@
           statuses.length === 0 || statuses.includes(card.dataset.status);
         const typeOk =
           types.length === 0 || types.includes(card.dataset.type);
-        const searchOk =
-          !searchActive || searchMatchIds.has(String(card.dataset.deviceId));
+        const searchOk = !searchActive || (sectorOk && cardMatchesSearch(card, query));
         const favOk = !favOnly || favorites.has(deviceId);
         const show = statusOk && typeOk && searchOk && favOk;
         card.classList.toggle("d-none", !show);
@@ -263,13 +423,15 @@
       const hasDevices = cards.length > 0;
       const filtering =
         statuses.length > 0 || types.length > 0 || searchActive || favOnly;
-      const hidePanel = hasDevices && visibleCount === 0 && filtering;
+      const hidePanel =
+        (hasDevices && visibleCount === 0 && filtering) ||
+        (searchSectorId && !sectorOk);
       const hideEmptySector = !hasDevices && (searchActive || favOnly);
       panel.classList.toggle("d-none", hidePanel || hideEmptySector);
       if (emptyFilterHint) {
         emptyFilterHint.classList.toggle(
           "d-none",
-          !(hasDevices && visibleCount === 0 && filtering)
+          !(hasDevices && visibleCount === 0 && filtering && sectorOk)
         );
       }
       if (emptyHint) {
@@ -279,6 +441,12 @@
         if (hasDevices || !(searchActive || favOnly)) {
           anyVisibleSector = true;
         }
+      }
+
+      if (!restoringView && opts.expandMatches && searchActive && !hidePanel) {
+        setPanelExpanded(panel, visibleCount > 0);
+      } else if (!restoringView && opts.collapseAll) {
+        setPanelExpanded(panel, false);
       }
     });
 
@@ -294,13 +462,17 @@
     }
   }
 
-  function setSearchMatchIds(ids) {
-    if (ids === null || ids === undefined) {
-      searchMatchIds = null;
-    } else {
-      searchMatchIds = new Set(Array.from(ids, (id) => String(id)));
-    }
-    applyFilters();
+  function setSearch(query, sectorId) {
+    const nextQuery = String(query || "").trim().toLowerCase();
+    const nextSector = sectorId ? String(sectorId) : "";
+    const wasActive = searchIsActive();
+    searchQuery = nextQuery;
+    searchSectorId = nextSector;
+    const isActive = searchIsActive();
+    applyFilters({
+      expandMatches: isActive,
+      collapseAll: wasActive && !isActive,
+    });
   }
 
   function toggleFilterButton(btn) {
@@ -377,7 +549,7 @@
   }
 
   function syncKindUi(card, kind) {
-    const resolved = KIND_LABELS[kind] ? kind : "other";
+    const resolved = resolveKind(kind);
     const kindWrap = card.querySelector(".device-card-kind");
     if (!kindWrap) {
       return;
@@ -486,17 +658,23 @@
 
   function createDeviceCardElement(device) {
     const status = device.status || "unknown";
-    const kind = KIND_LABELS[device.kind] ? device.kind : "other";
+    const kind = resolveKind(device.kind);
     const href = device.url || `/devices/${device.id}`;
     const hostname = device.hostname || "без имени";
     const hasName = Boolean(device.hostname);
     const ip = device.ip || "";
+    const mac = device.mac || "";
+    const serial = device.serial || "";
     const statusShort = STATUS_SHORT[status] || STATUS_SHORT.unknown;
     const col = document.createElement("div");
     col.dataset.deviceCard = "";
     col.dataset.deviceId = String(device.id);
     col.dataset.status = status;
     col.dataset.type = kind;
+    col.dataset.hostname = device.hostname || "";
+    col.dataset.ip = ip;
+    col.dataset.mac = mac;
+    col.dataset.serial = serial;
     col.innerHTML = `
       <div class="device-card-shell">
         <article class="device-card ${escapeHtml(status)}">
@@ -523,6 +701,15 @@
           <a class="device-card-body text-decoration-none" href="${escapeHtml(href)}" data-device-link>
             <div class="device-card-name${hasName ? "" : " is-empty"}" title="${escapeHtml(hostname)}">${escapeHtml(hostname)}</div>
             <div class="device-card-ip font-monospace">${escapeHtml(ip)}</div>
+            ${
+              serial || mac
+                ? `<div class="device-card-meta font-monospace">${
+                    serial ? `<span title="Серийный номер">${escapeHtml(serial)}</span>` : ""
+                  }${serial && mac ? `<span class="device-card-meta-sep">·</span>` : ""}${
+                    mac ? `<span title="MAC">${escapeHtml(mac)}</span>` : ""
+                  }</div>`
+                : ""
+            }
           </a>
         </article>
       </div>
@@ -568,6 +755,12 @@
       if (totalEl) {
         totalEl.textContent = String(sector.total);
       }
+      const subnetsEl = panel.querySelector("[data-sector-subnets]");
+      if (subnetsEl && Array.isArray(sector.subnets)) {
+        const labels = sector.subnets.filter(Boolean);
+        subnetsEl.textContent = labels.join(" · ");
+        subnetsEl.hidden = labels.length === 0;
+      }
 
       (sector.devices || []).forEach((device) => {
         let card = panel.querySelector(
@@ -579,10 +772,22 @@
           card = createDeviceCardElement(device);
           row.appendChild(card);
         }
-        const nextKind = device.kind || "other";
+        const nextKind = resolveKind(device.kind);
         const kindChanged = card.dataset.type !== nextKind;
         card.dataset.status = device.status;
         card.dataset.type = nextKind;
+        if (device.hostname != null) {
+          card.dataset.hostname = device.hostname || "";
+        }
+        if (device.ip) {
+          card.dataset.ip = device.ip;
+        }
+        if (device.mac != null) {
+          card.dataset.mac = device.mac || "";
+        }
+        if (device.serial != null) {
+          card.dataset.serial = device.serial || "";
+        }
         updateStatusChip(card, device.status);
         if (kindChanged) {
           syncKindUi(card, nextKind);
@@ -605,6 +810,8 @@
           }
         }
       });
+
+      renderSectorKindCounts(panel);
     });
 
     applyFilters();
@@ -714,14 +921,30 @@
 
   mapRoot.querySelectorAll("[data-device-card]").forEach(bindCardControls);
 
+  mapRoot.addEventListener("click", (event) => {
+    const link = event.target.closest("[data-device-link]");
+    if (!link || !mapRoot.contains(link)) {
+      return;
+    }
+    const card = link.closest("[data-device-card]");
+    saveMapView(card && card.dataset.deviceId);
+  });
+
   window.MapFilters = {
-    setSearchMatchIds,
+    setSearch,
   };
 
   applyUrlToFilters();
   applyFilters();
   updateBulkBar();
   refreshSummary();
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+      sessionStorage.removeItem(RESTORE_KEY);
+      return;
+    }
+    restoreMapView();
+  });
   window.setInterval(refreshStatuses, REFRESH_MS);
   window.setInterval(refreshSummary, REFRESH_MS * 4);
 })();

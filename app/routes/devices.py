@@ -19,8 +19,9 @@ from app.run_display import run_launch_label, run_status_label, run_when_label
 from app.services.account_service import device_account_sightings
 from app.services import batch_service
 from app.services.command_presets import list_command_presets
+from app.services.device_kind import kind_counts
+from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
-from app.services.search_service import search_devices
 from app.services import script_service
 from app.services import watchlist_service
 from app.utils import parse_optional_int, utcnow
@@ -131,6 +132,8 @@ def map_status_payload() -> dict:
                 "id": device.id,
                 "ip": device.ip,
                 "hostname": device.hostname,
+                "mac": device.mac,
+                "serial": device.serial_number,
                 "status": device.last_status,
                 "kind": device.kind,
                 "url": url_for("devices.detail", device_id=device.id),
@@ -148,6 +151,11 @@ def map_status_payload() -> dict:
                 "offline": offline,
                 "unknown": unknown,
                 "total": len(devices),
+                "subnets": list(getattr(sector, "subnet_labels", []) or []),
+                "kinds": [
+                    {"kind": kind, "label": label, "count": count}
+                    for kind, label, count in getattr(sector, "kind_stats", [])
+                ],
                 "devices": devices,
             }
         )
@@ -170,7 +178,10 @@ def _load_visible_sectors():
         return []
 
     loaded = (
-        Sector.query.options(selectinload(Sector.devices))
+        Sector.query.options(
+            selectinload(Sector.devices),
+            selectinload(Sector.ranges),
+        )
         .filter(Sector.id.in_([sector.id for sector in allowed]))
         .all()
     )
@@ -180,6 +191,8 @@ def _load_visible_sectors():
         visible = [device for device in sector.devices if device.last_seen is not None]
         visible.sort(key=lambda device: device.ip)
         sector.visible_devices = visible
+        sector.kind_stats = kind_counts(visible)
+        sector.subnet_labels = sector_subnet_labels(sector, visible)
     return sectors
 
 
@@ -190,9 +203,6 @@ def map():
     sectors = _load_visible_sectors()
     query = (request.args.get("q") or "").strip()
     sector_id = parse_optional_int(request.args.get("sector_id"))
-    search_results = (
-        search_devices(current_user, query, sector_id=sector_id) if query else []
-    )
     map_scripts = []
     if user_can_run_scripts(current_user):
         map_scripts = [
@@ -205,7 +215,6 @@ def map():
         search_sectors=accessible_sectors(current_user),
         search_query=query,
         search_sector_id=sector_id,
-        search_results=search_results,
         map_scripts=map_scripts,
     )
 

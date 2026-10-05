@@ -152,6 +152,58 @@ def resolve_to_ipv4(host: str, timeout_s: float = 2.0) -> str:
     return assert_public_ipv4(infos[0][4][0])
 
 
+def cidr_to_wildcard(cidr: str | None) -> str | None:
+    """192.168.15.0/24 → 192.168.15.* ; /16 → 192.168.*.* ; /32 → сам адрес."""
+    raw = (cidr or "").strip()
+    if not raw:
+        return None
+    try:
+        network = ipaddress.ip_network(raw, strict=False)
+    except ValueError:
+        return None
+    if not isinstance(network, ipaddress.IPv4Network):
+        return str(network)
+    octets = str(network.network_address).split(".")
+    prefix = network.prefixlen
+    if prefix >= 32:
+        return str(network.network_address)
+    if prefix >= 24:
+        return f"{octets[0]}.{octets[1]}.{octets[2]}.*"
+    if prefix >= 16:
+        return f"{octets[0]}.{octets[1]}.*.*"
+    if prefix >= 8:
+        return f"{octets[0]}.*.*.*"
+    return "*.*.*.*"
+
+
+def sector_subnet_labels(sector, devices=None) -> list[str]:
+    """Подсети сектора для шапки карты: сначала CIDR секторов, иначе /24 устройств."""
+    labels: list[str] = []
+    seen: set[str] = set()
+    for item in getattr(sector, "ranges", None) or []:
+        label = cidr_to_wildcard(getattr(item, "cidr", None))
+        if label and label not in seen:
+            seen.add(label)
+            labels.append(label)
+    if labels:
+        return labels
+    for device in devices or []:
+        ip = (getattr(device, "ip", None) or "").strip()
+        parts = ip.split(".")
+        if len(parts) != 4:
+            continue
+        try:
+            if not all(0 <= int(part) <= 255 for part in parts):
+                continue
+        except ValueError:
+            continue
+        label = f"{parts[0]}.{parts[1]}.{parts[2]}.*"
+        if label not in seen:
+            seen.add(label)
+            labels.append(label)
+    return labels
+
+
 def normalize_mac(value: str | None) -> str | None:
     """Приводит MAC к AA:BB:CC:DD:EE:FF. Мусор возвращает как None."""
     if not value:
