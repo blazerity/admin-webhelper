@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.0.1)
+# Архитектура bAWH (актуально для v1.0.3)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -10,7 +10,7 @@
 LDAP-вход, отчёт по сроку паролей AD, watchlist и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.0.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.0.3` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -79,7 +79,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.0.1)
+  VERSION                      # semver (1.0.3)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -313,7 +313,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `login_service_status.py` | CRUD сервисов экрана входа + ICMP status |
 | `notification_service.py` | in-app уведомления |
 | `log_archive_service.py` | месячный tar.gz ротированных логов |
-| `update_service.py` | git pull → backup → pip → `flask init-db` → systemd restart |
+| `update_service.py` | git pull → backup → pip → `flask init-db` → systemd restart (фон + `app.app_context()`) |
 
 ---
 
@@ -498,6 +498,7 @@ systemd-unit `bawh-scheduler` (sudo-учётка: Параметры → Упр�
 | --- | --- | --- |
 | `ThreadPoolExecutor` | `ping_service` | параллельный ICMP+discovery; запись в БД — в главном потоке |
 | `ThreadPoolExecutor` | `script_service.enqueue_run` | фоновый PsExec/ping/tracert; UI поллит `/scripts/runs/<id>/status` (~1.5 с, `run_log.js`) |
+| `threading.Thread` | `update_service.begin_update` / `begin_rollback` | фон, чтобы Gunicorn не упёрся в таймаут; поток с `app.app_context()` — sudo-учётка из Параметров / `UPDATE_SUDO_USER` |
 
 **Нет** WebSocket / SSE / Celery / общей очереди сообщений.
 
@@ -564,8 +565,10 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → distinct online
 
 ### E. Self-update
 
-Admin UI → `update_service`: backup → git → pip → `flask init-db` →
-опциональный restart `bawh-web` + `bawh-scheduler` (sudoers).
+Admin UI → `update_service` (фоновый поток + `app.app_context()`):
+backup → git → pip → `flask init-db` → опциональный restart
+`bawh-web` + `bawh-scheduler` (sudo-учётка из Параметров / sudoers).
+Ошибка перезапуска не должна помечать уже выполненную замену кода как failed.
 
 ---
 
