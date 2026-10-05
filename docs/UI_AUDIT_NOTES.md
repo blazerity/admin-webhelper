@@ -1,52 +1,53 @@
 # UI-аудит bAWH
 
-Рабочие заметки к [`UI_GUIDEBOOK.md`](UI_GUIDEBOOK.md).  
-Источники: ручной разбор + субагент [Duplicate functions audit](bc-1b283f6c-3b21-50f3-95ce-6d89b31c63f8).  
-Ожидаются отчёты: баги UI, соответствие гайдлайну.
+Рабочие заметки к [`UI_GUIDEBOOK.md`](UI_GUIDEBOOK.md).
+
+Источники:
+- [Duplicate functions audit](bc-1b283f6c-3b21-50f3-95ce-6d89b31c63f8)
+- [UI bugs audit](bc-e4f62fa3-aa91-5fc8-b508-1831caf85414)
+- ожидает: соответствие гайдлайну
 
 ---
 
-## Дубли функций (§10 гайдбука)
+## Critical bugs (роль ≠ UI)
 
-### Консолидировать
-
-| # | Дубль | Канон | Файлы |
+| # | Проблема | Файл | Фикс |
 | --- | --- | --- | --- |
-| A | ICMP «Проверить сейчас» на Обзоре и на Опросах | Вкладка **Опросы**; на Обзоре — убрать или deep-link | `detail.html`, `_poll_actions.html`, `device_check.js` |
-| B | Тумблер `schedule_enabled` на dashboard **и** в settings (pwd + sector) | Тумблер только на **dashboard**; settings = cron/получатели | `password_expiry/*`, `sector_daily_report/*` |
-| C | «Опросить сейчас» (железо) на Обзоре и на Оборудовании | Вкладка **Оборудование** | `detail.html` |
-| D | SMTP спрятан под «Пароли AD», секторный отчёт только ссылается | Общий раздел (**Параметры** / «Почта») + deep-link | settings обоих модулей, `admin/settings.html` |
-| E | Narrative `bawh-scheduler` в 4 местах | Health/control в **Параметры**; на dashboard — статус + ссылка | dashboards, `admin/settings.html` |
+| B1 | Operator не видит запуск скрипта на карточке; copy «только администратору» | `_command_actions.html` | Скрипты — `user_can_run_scripts`; CLI/пресеты — admin |
+| B2 | password_viewer видит admin-кнопки (настройки, прогон, пауза, напомнить) → 403 | `password_expiry/dashboard.html` | Мутации / settings-link за `is_admin` |
+| B3 | Вкладка Опросы: ping/tracert/check без `can_run_diagnostics` | `_poll_actions.html` | Рендер только при праве diagnostics |
+| B4 | Bulk Ping на карте виден viewer → 403 | `map.html` / `devices.map` | Передать `can_run_diagnostics`, скрыть кнопку |
 
-### Оставить (object-scoped / deep-link)
+## Medium (copy / мёртвый UI / a11y)
 
-- Скрипт: библиотека · карточка · bulk на карте  
-- Bulk ping vs check на одном устройстве  
-- Dashboard ↔ Settings («Настройки модуля» / «К отчёту»)  
-- Hardware poll: все машины (Параметры) vs одна (карточка)  
-- Уведомления только в колокольчике  
+- Пустой список скриптов: устаревший текст про «backend передаст…»
+- Пустое железо: обещание кнопки «Опросить» не-admin
+- `sectors/detail.html`: select/fav без `map.js`
+- Фильтр типов карты по умолчанию прячет инфраструктуру
+- Live CSV «Действия» не синхронизирует `q`
+- Terminal input: `outline: none` без focus ring
+- Operator: «Изменить скрипт» вместо «Запуск»
+- Stale copy «После мержа A3…» в Параметрах
+- Онлайн vs «доступен» — разные словари статусов
 
-### Путаница лейблов
+## Дубли функций (§10)
 
-| Лейбл | Действие | Риск |
+| # | Дубль | Канон |
 | --- | --- | --- |
-| Проверить сейчас | ICMP → `device_history` | дубль входа |
-| Ping (лог) | ICMP → run/log | путают с «Проверить» |
-| Автообновление (карта) | refresh UI, не poll сети | спутать с опросом |
+| D1 | ICMP «Проверить сейчас» Обзор + Опросы | Канон — вкладка Опросы |
+| D2 | Тумблер schedule на dashboard + settings | Канон — только dashboard |
+| D3 | «Опросить железо» Обзор + Оборудование | Канон — Оборудование |
+| D4 | SMTP под «Пароли AD» | Общий раздел настроек |
+| D5 | Narrative планировщика в 4 местах | Канон — Параметры |
+
+Object-scoped (скрипт с карты/карточки, bulk vs single, deep-link dashboard↔settings) — оставить.
 
 ---
 
-## Баги / роли (ручной разбор, ждут подтверждения субагента)
+## Кандидаты в финальные 5 улучшений
 
-1. `_command_actions.html`: UI гейтится `is_admin`, хотя operator может запускать published-скрипты (backend + map bulk уже разрешают). Произвольная команда — admin-only (верно).
-2. Лишняя `)` в тексте «по расписанию `<code>…</code>).`» на обоих report dashboards.
-
----
-
-## Предварительный топ-5 улучшений
-
-1. ICMP: один вход проверки на карточке + явные имена Ping(лог)/Tracert.  
-2. Один тумблер расписания отчёта — только dashboard.  
-3. Железо: опрос только на вкладке Оборудование; на Обзоре — снимок + ссылка.  
-4. SMTP вынести из «Пароли AD» в общий раздел настроек.  
-5. Карточка → Команды: скрипты для operator+, произвольная команда только admin; убрать ложный copy.
+1. Выровнять role-gates: карточка команд, polls, bulk ping, password dashboard (B1–B4).  
+2. ICMP на карточке: один канонический вход + ясные лейблы Ping(лог)/Tracert (D1 + B3).  
+3. Тумблер расписания отчётов — только на dashboard (D2).  
+4. Железо: опрос только на вкладке Оборудование; Обзор — снимок + ссылка (D3).  
+5. SMTP вынести из «Пароли AD» в общий раздел; плюс почистить ложный copy (D4, medium).
