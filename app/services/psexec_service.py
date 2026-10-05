@@ -362,6 +362,7 @@ def _streaming_pipe(on_output, secret: str):
         def __init__(self, tree, name):
             self._parts: list[bytes] = []
             self._parts_lock = threading.Lock()
+            self._drop_clixml = False
             super().__init__(tree, name)
 
         def handle_output(self, output):
@@ -369,9 +370,15 @@ def _streaming_pipe(on_output, secret: str):
                 return
             with self._parts_lock:
                 self._parts.append(output)
+                dropping = self._drop_clixml
+            if dropping:
+                return
             text = _scrub(_decode(output), secret)
-            if text:
-                on_output(text)
+            keep, drop_rest = _split_powershell_clixml(text)
+            if drop_rest:
+                self._drop_clixml = True
+            if keep:
+                on_output(keep)
 
         def get_output(self):
             with self._parts_lock:
@@ -443,16 +450,42 @@ def _decode(data) -> str:
     return best_text
 
 
+# PowerShell 5.1 при неинтерактивном запуске (PsExec / EncodedCommand)
+# дописывает в stderr сериализацию Information/Warning/Progress.
+_CLIXML_MARKER = "#< CLIXML"
+_CLIXML_ROOT = 'xmlns="http://schemas.microsoft.com/powershell'
+
+
+def _split_powershell_clixml(text: str) -> tuple[str, bool]:
+    """Отрезает CLIXML-дамп. True — дальше по каналу тоже XML, его отбрасываем."""
+    if not text:
+        return "", False
+    idx = text.find(_CLIXML_MARKER)
+    if idx == -1:
+        idx = text.find("<Objs ")
+        if idx == -1 or _CLIXML_ROOT not in text[idx : idx + 240]:
+            return text, False
+    return text[:idx].rstrip("\r\n"), True
+
+
+def _strip_powershell_clixml(text: str) -> str:
+    """Оставляет человекочитаемый вывод, без `#< CLIXML` и XML после него."""
+    keep, _drop = _split_powershell_clixml(text)
+    return keep
+
+
 def _combine(stdout, stderr) -> str:
     out = _decode(stdout)
     err = _decode(stderr)
     if not err:
-        return out
-    if not out:
-        return err
-    if out.endswith("\n"):
-        return out + err
-    return out + "\n" + err
+        merged = out
+    elif not out:
+        merged = err
+    elif out.endswith("\n"):
+        merged = out + err
+    else:
+        merged = out + "\n" + err
+    return _strip_powershell_clixml(merged)
 
 
 def _scrub(text: str, secret: str) -> str:
