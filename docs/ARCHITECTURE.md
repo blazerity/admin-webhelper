@@ -18,7 +18,8 @@ LDAP-вход, отчёт по сроку паролей AD, watchlist и in-app
 Gunicorn + Nginx · Bootstrap 5 (vendorized).
 
 **Нет в репозитории:** Alembic / Flask-Migrate, Redis, Celery, WebSocket,
-Telegram, S3, SPA-фреймворка, Pydantic, каталога `tests/`, pytest.
+Telegram, S3, SPA-фреймворка, Pydantic. Идентичность устройств — unittest
+в `tests/test_device_identity.py` (без pytest в requirements).
 
 ---
 
@@ -209,7 +210,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | --- | --- | --- | --- |
 | `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Операторы сайта после LDAP. Флаги: `is_admin`, `is_viewer`, `is_operator`, `is_password_viewer`. Группы — для `sector_access`. |
 | `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR) и ACL (subject = username или LDAP group CN). |
-| `Device`, `DeviceHistory` | `devices`, `device_history` | `device.py` | Машины + журнал опросов. Идентичность: `serial_number` (WMI), иначе hostname; IP — последний адрес; `current_account_id` — кто за ПК. `hostname` — имя ОС (WMI), PTR только запасной. `fingerprint_kind` / `fingerprint_detail` — TCP/SNMP-отпечаток серого адреса. |
+| `Device`, `DeviceHistory` | `devices`, `device_history` | `device.py` | Машины + журнал опросов. Идентичность: **только** `serial_number` (WMI). `hostname` — отображение (имя ОС), не ключ. IP — последний адрес, без unique; без SN — заглушка на этом IP. `current_account_id` — кто за ПК. `fingerprint_kind` / `fingerprint_detail` — TCP/SNMP-отпечаток серого адреса. |
 | `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов опроса. |
 | `EndpointAccount`, `DeviceAccountHistory` | `endpoint_accounts`, `device_account_history` | `account.py` | УЗ на конечных точках (**не** путать с `users`). |
 | `ActionKind` | `action_kinds` | `action.py` | Справочник типов (`ACTION_KIND_SEED` / `seed_action_kinds`). |
@@ -582,6 +583,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 ## 12. Соглашения по домену и коду
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
+- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP-адреса обновляет IP/сектор/MAC у неё. Hostname и PTR **не** ключи слияния: одинаковое имя при разных SN — две карточки. Без SN можно переиспользовать только запись с тем же IP и пустым SN; зонд без SN не забирает строку, у которой SN уже есть. Призрак без SN на старом IP после появления SN на новом — известная дыра (не сливать автоматически).
 - **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames`.
 - **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI.
 - **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
@@ -679,6 +681,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
+| Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; `tests/test_device_identity.py` |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Скрипты / PsExec | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |

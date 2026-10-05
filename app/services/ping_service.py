@@ -14,11 +14,12 @@
    отпечаток — не отдельный проход по всей сети.
 4. Снова главный поток:
    * офлайн по уже известному IP → статус и device_history;
-   * онлайн → serial+MAC+УЗ (WMI) / hostname (WMI, иначе PTR) / IP
-     как ключ идентичности, обновление или создание одной машины,
-     история сохраняется при смене адреса и сектора. MAC сначала из ARP,
-     иначе из WMI. Имя: Win32_ComputerSystem, PTR только если WMI молчит
-     и у строки ещё нет имени (PTR не затирает уже записанное OS-имя).
+   * онлайн → ключ идентичности только serial_number (WMI). Hostname
+     на карте, не для слияния. Без SN можно переиспользовать строку
+     с тем же IP и пустым серийником (камеры, Linux, WMI не ответил).
+     Смена DHCP-адреса при том же SN обновляет IP/сектор у той же
+     строки. MAC сначала из ARP, иначе из WMI. Имя: Win32_ComputerSystem,
+     PTR только если WMI молчит и у строки ещё нет имени.
      Текущая УЗ пишется в endpoint_accounts / device_account_history.
 
 Позже ту же функцию run_network_poll / poll_all_sectors вызовет задача Celery.
@@ -36,7 +37,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
@@ -491,7 +492,8 @@ def _probe_all(ips: list[str], stats: dict[str, int]) -> list[_Probe]:
     if wmi_creds is None:
         logger.warning(
             "Учётка WMI не задана: серийник, имя и MAC по WMI не запрашиваются "
-            "(Параметры → Учётка WMI или DISCOVERY_* в .env)."
+            "(Параметры → Учётка WMI или DISCOVERY_* в .env). "
+            "Без серийника устройство не склеивается по имени — только заглушка по IP."
         )
     else:
         logger.info(
@@ -565,7 +567,7 @@ def _probe(
 
 
 def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
-    """Найти машину по serial → hostname → IP и записать онлайн + историю."""
+    """Найти машину по serial (иначе IP без SN) и записать онлайн + историю."""
     from app.services.account_service import apply_logged_on_user
 
     device = _resolve_device(
@@ -656,10 +658,15 @@ def _resolve_device(
     serial_number: str | None,
     sector_id: int,
 ) -> Device:
-    """Ключ идентичности: serial, иначе hostname, иначе текущий IP.
+    """Ключ идентичности — только serial_number.
 
-    При совпадении по serial/hostname IP и сектор обновляются у той же
-    строки — история опросов не рвётся при смене адреса.
+    Hostname на карте (отображение), PTR/DNS в слиянии не участвуют.
+    При том же SN смена IP обновляет эту строку — DHCP не плодит дубли.
+    Без серийника можно переиспользовать только запись с тем же IP
+    и пустым SN (камера, Linux, WMI не ответил). Строку с чужим SN
+    не трогаем: иначе чужой хост на старом адресе перезапишет карточку.
+    SN позже на новом IP: если строка с этим SN уже есть — она;
+    призрак без SN на старом IP остаётся (это дыра варианта 1).
     """
     if serial_number:
         found = db.session.scalar(
@@ -668,30 +675,13 @@ def _resolve_device(
         if found is not None:
             return found
 
-    if hostname:
-        found = _find_by_hostname(hostname)
-        if found is not None:
-            # Если у найденной по имени уже другой serial — это другая машина
-            # с тем же DNS-именем (редко). Тогда не склеиваем.
-            if not found.serial_number or not serial_number:
-                return found
-            if found.serial_number == serial_number:
-                return found
-
-    found = db.session.scalar(select(Device).where(Device.ip == ip))
+    found = db.session.scalars(
+        select(Device)
+        .where(Device.ip == ip, Device.serial_number.is_(None))
+        .order_by(Device.id)
+    ).first()
     if found is not None:
-        # IP занял кто-то без своего serial/hostname — переиспользуем строку.
-        # Если у строки уже есть чужой serial, а у зонда тоже другой/пустой —
-        # всё равно обновляем эту «точку» только когда зонд без идентичности
-        # или serial совпал; иначе создаём новую и оставляем старую офлайн.
-        if serial_number and found.serial_number and found.serial_number != serial_number:
-            pass
-        elif hostname and found.hostname and not discovery_service.hostnames_match(
-            found.hostname, hostname
-        ) and (found.serial_number or serial_number):
-            pass
-        else:
-            return found
+        return found
 
     device = Device(
         ip=ip,
@@ -702,33 +692,6 @@ def _resolve_device(
     )
     db.session.add(device)
     return device
-
-
-def _find_by_hostname(hostname: str) -> Device | None:
-    """Точное имя или то же короткое имя без DNS-суффикса."""
-    key = discovery_service.hostname_key(hostname)
-    if not key:
-        return None
-    # Сначала полное совпадение без регистра.
-    found = db.session.scalar(
-        select(Device).where(func.lower(Device.hostname) == hostname.strip().rstrip(".").lower())
-    )
-    if found is not None:
-        return found
-    # Короткое имя и варианты с суффиксом: n14002, n14002.example.com
-    candidates = db.session.scalars(
-        select(Device).where(
-            Device.hostname.is_not(None),
-            or_(
-                func.lower(Device.hostname) == key,
-                Device.hostname.ilike(f"{key}.%"),
-            ),
-        )
-    ).all()
-    for device in candidates:
-        if discovery_service.hostnames_match(device.hostname, hostname):
-            return device
-    return None
 
 
 def _parse_response_time_ms(output: str) -> int | None:

@@ -1,8 +1,10 @@
 """Устройства и история опросов.
 
 devices — текущее состояние; device_history — каждая проверка.
-Уникальность машины: serial_number (WMI service tag), иначе hostname.
-IP — только последний известный адрес, без unique.
+Уникальность машины: только serial_number (WMI service tag).
+Hostname — отображение, не ключ слияния.
+IP — последний известный адрес, без unique: без SN можно держать
+заглушку на этом IP (камера / Linux / WMI не ответил).
 current_account_id — УЗ, которую последний опрос видел на машине.
 """
 
@@ -26,7 +28,7 @@ class Device(TimestampMixin, db.Model):
     ip = db.Column(db.String(45), nullable=False, index=True)
     hostname = db.Column(db.String(255), nullable=True, index=True)
     # Имя с машины (WMI), не PTR. PTR — запасной, пока WMI не ответил.
-    # Service tag / серийник (Win32_BIOS). Главный ключ идентичности.
+    # Service tag / серийник (Win32_BIOS). Единственный ключ идентичности.
     serial_number = db.Column(db.String(64), nullable=True, unique=True, index=True)
     # Нормализованный AA:BB:CC:DD:EE:FF; пусто, если ARP не видел.
     mac = db.Column(db.String(17), nullable=True, index=True)

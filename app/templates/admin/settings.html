@@ -90,7 +90,7 @@
   </form>
 </div>
 <div class="panel content-card mb-3">
-  <p class="text-muted">Глобальная учётка для чтения серийника, имени машины, MAC и текущей УЗ по WMI после ping. Имя на карте: сначала обратный DNS (PTR), если записи нет — Win32_ComputerSystem. Пароль хранится только как шифротекст Fernet (ключ — FERNET_KEY). Если поля пустые и в .env нет DISCOVERY_*, WMI не вызывается: машина склеивается по PTR-имени, MAC — из ARP в том же L2.</p>
+  <p class="text-muted">Глобальная учётка для чтения серийника, имени машины, MAC и текущей УЗ по WMI после ping. Имя на карте — с самой машины (Win32_ComputerSystem); PTR только запасной и не участвует в слиянии. Идентичность устройства — только серийник: смена IP при том же SN обновляет ту же карточку. Если поля пустые и в .env нет DISCOVERY_*, WMI не вызывается: без SN остаётся заглушка по текущему IP, MAC — из ARP в том же L2. Пароль хранится только как шифротекст Fernet (ключ — FERNET_KEY).</p>
   <form method="post" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form" value="discovery">

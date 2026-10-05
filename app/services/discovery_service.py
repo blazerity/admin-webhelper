@@ -17,8 +17,8 @@
   (Win32_NetworkAdapterConfiguration) и Win32_ComputerSystem
   (Name / DNSHostName / UserName). Учётка: сначала из Параметров
   (шифротекст в app_settings), иначе DISCOVERY_* в .env. Без неё
-  возвращаем пустой инвентарь, идентичность строится по PTR-hostname,
-  MAC — только из ARP.
+  возвращаем пустой инвентарь; идентичность без серийника — только
+  заглушка по текущему IP, не по PTR-имени. MAC — только из ARP.
 
 Scapy здесь не используем. Ему нужен захват пакетов и дополнительные
 права (raw socket / Npcap). Для первой версии достаточно прочитать
@@ -159,8 +159,8 @@ def lookup_wmi_inventory(
 
     creds лучше передать с главного потока опроса: в ThreadPoolExecutor
     нет Flask app context, и читать app_settings/current_app оттуда нельзя.
-    Без учётки — пустой инвентарь; идентичность тогда по PTR-hostname,
-    MAC — только из ARP, если сегмент общий.
+    Без учётки — пустой инвентарь; без серийника устройство не склеиваем
+    по имени, только по текущему IP с пустым SN. MAC — из ARP, если сегмент общий.
     """
     ip = assert_public_ipv4(ip)
     if creds is None:
