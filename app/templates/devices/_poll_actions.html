@@ -1,4 +1,5 @@
 {% if device is defined and device %}
+{% if can_run_diagnostics|default(false) %}
 <div class="device-actions">
   <div class="device-actions-group">
     <p class="device-actions-label">Статус в инвентаре</p>
@@ -9,13 +10,14 @@
         <button class="btn btn-primary w-100" type="submit" title="ICMP и запись в историю опросов">Проверить сейчас</button>
       </form>
     </div>
+    <p class="small text-muted mb-0">Быстрый ICMP с сервера — результат попадёт в историю ниже.</p>
   </div>
   <div class="device-actions-group mt-3">
     <p class="device-actions-label">Диагностика с журналом</p>
     <div class="device-actions-row">
       <form method="post" action="{{ url_for('diagnostics.ping_device', device_id=device.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-primary w-100" type="submit">Ping (лог)</button>
+        <button class="btn btn-outline-primary w-100" type="submit" title="ICMP с полным логом в журнале запусков">Ping (лог)</button>
       </form>
       <form method="post" action="{{ url_for('diagnostics.tracert_device', device_id=device.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -24,4 +26,7 @@
     </div>
   </div>
 </div>
+{% else %}
+<p class="small text-muted mb-0">Проверка доступности и трассировка доступны оператору и администратору.</p>
+{% endif %}
 {% endif %}

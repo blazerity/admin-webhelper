@@ -6,14 +6,16 @@
   {"id": "netstat", "label": "netstat -ano", "command": "netstat -ano"}
 ] %}
 {% set available_scripts = scripts if scripts is defined and scripts else [] %}
+{% set can_scripts = current_user.is_authenticated and (current_user.is_admin or current_user.is_operator) %}
+{% set can_command = current_user.is_authenticated and current_user.is_admin %}
 <div class="device-actions">
-  {% if current_user.is_authenticated and current_user.is_admin %}
+  {% if can_command %}
   <div class="device-actions-group">
     <p class="device-actions-label">Пресеты</p>
     <div
       class="command-presets"
       id="command-presets"
-      data-presets-url="/api/command-presets"
+      data-presets-url="{{ url_for('devices.command_presets_api') }}"
       role="group"
       aria-label="Пресеты команд"
     >
@@ -37,12 +39,14 @@
       <button class="btn btn-warning w-100" type="submit">Выполнить команду</button>
     </form>
   </div>
+  {% endif %}
 
+  {% if can_scripts %}
   <div class="device-actions-group">
     <p class="device-actions-label">Скрипт из библиотеки</p>
     <form
       method="post"
-      action="/devices/{{ device.id }}/scripts/run"
+      action="{{ url_for('devices.run_script_on_device', device_id=device.id) }}"
       class="device-script-form"
       id="device-script-form"
     >
@@ -55,7 +59,7 @@
         <option value="{{ script.id }}">{{ script.name }}</option>
         {% endfor %}
         {% else %}
-        <option value="">Список скриптов пока недоступен</option>
+        <option value="">Нет доступных скриптов</option>
         {% endif %}
       </select>
       <button class="btn btn-primary w-100" type="submit" {% if not available_scripts %}disabled{% endif %}>Запустить скрипт</button>
@@ -64,17 +68,21 @@
       {% if available_scripts %}
       После запуска откроется страница выполнения.
       {% else %}
-      Библиотека:
-      <a href="{{ url_for('scripts.list_scripts') }}">открыть список скриптов</a>
-      (селект появится, когда backend передаст список в карточку).
+      В библиотеке нет доступных скриптов.
+      <a href="{{ url_for('scripts.list_scripts') }}">Открыть список скриптов</a>
       {% endif %}
     </p>
   </div>
+  {% elif can_command %}
+  {# admin without scripts branch already covered; noop #}
   {% else %}
-  <p class="small text-muted mb-0">Удалённая команда и скрипты доступны только администратору.</p>
+  <p class="small text-muted mb-0">
+    Запуск скриптов доступен оператору и администратору.
+    Произвольная команда — только администратору.
+  </p>
   {% endif %}
 </div>
-{% if current_user.is_authenticated and current_user.is_admin %}
+{% if can_command %}
 <script>
 (() => {
   const presetsRoot = document.getElementById("command-presets");

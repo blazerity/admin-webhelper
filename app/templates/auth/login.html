@@ -4,6 +4,7 @@
 <div class="{% if show_service_status %}login-layout{% else %}login-card-wrap{% endif %}">
   <div class="panel login-card">
     <h1 class="page-title">Вход</h1>
+    <p class="page-subtitle">Учётная запись домена</p>
     <form method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
@@ -23,11 +24,11 @@
     <ul class="login-status-list" id="login-status-list" data-status-url="{{ url_for('login_services.status') }}">
       {% for service in login_services %}
       <li class="login-status-item" data-service-id="{{ service.id }}">
-        <span class="status-dot unknown" aria-hidden="true"></span>
+        <span class="status-dot unknown" data-role="dot" aria-hidden="true"></span>
         <div class="login-status-meta">
           <span class="login-status-name">{{ service.name }}</span>
         </div>
-        <span class="login-status-latency" data-role="latency">…</span>
+        <span class="login-status-latency" data-role="latency" aria-live="polite">…</span>
       </li>
       {% endfor %}
     </ul>

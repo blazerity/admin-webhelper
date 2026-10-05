@@ -73,12 +73,25 @@
     row = document.createElement("tr");
     row.dataset.runId = String(run.id);
     row.innerHTML = `
-      <td><a href="${escapeHtml(run.url || `/scripts/runs/${run.id}`)}">${escapeHtml(run.hostname || run.ip || `запуск #${run.id}`)}</a></td>
+      <td data-role="device-cell"></td>
       <td class="font-monospace">${escapeHtml(run.ip || "—")}</td>
       <td>${escapeHtml(runTypeLabel(run.run_type))}</td>
       <td><span class="batch-run-status" data-status=""></span></td>
       <td class="text-end"><a class="btn btn-sm btn-ghost" href="${escapeHtml(run.url || `/scripts/runs/${run.id}`)}">Открыть</a></td>
     `;
+    const deviceCell = row.querySelector("[data-role=device-cell]");
+    if (deviceCell) {
+      const label = run.hostname || run.ip || `запуск #${run.id}`;
+      if (run.device_id) {
+        const link = document.createElement("a");
+        link.className = "entity-link entity-device";
+        link.href = `/devices/${run.device_id}`;
+        link.textContent = label;
+        deviceCell.appendChild(link);
+      } else {
+        deviceCell.textContent = label;
+      }
+    }
     runsBody.appendChild(row);
     return row;
   }
@@ -87,16 +100,33 @@
     const row = ensureRow(run);
     if (!row) return;
     row.dataset.runStatus = run.status || "";
+    if (run.device_id) row.dataset.deviceId = String(run.device_id);
     const statusEl = row.querySelector(".batch-run-status");
     if (statusEl) {
       statusEl.dataset.status = run.status || "";
       statusEl.textContent = statusLabel(run.status);
     }
-    const nameLink = row.querySelector("td:first-child a");
-    if (nameLink) {
+    const deviceCell = row.querySelector("[data-role=device-cell]") || row.querySelector("td:first-child");
+    if (deviceCell) {
       const label = run.hostname || run.ip || `запуск #${run.id}`;
-      nameLink.textContent = label;
-      if (run.url) nameLink.setAttribute("href", run.url);
+      const existing = deviceCell.querySelector("a.entity-device, a");
+      if (run.device_id) {
+        if (existing && existing.classList.contains("entity-device")) {
+          existing.textContent = label;
+          existing.setAttribute("href", `/devices/${run.device_id}`);
+        } else {
+          deviceCell.innerHTML = "";
+          const link = document.createElement("a");
+          link.className = "entity-link entity-device";
+          link.href = `/devices/${run.device_id}`;
+          link.textContent = label;
+          deviceCell.appendChild(link);
+        }
+      } else if (existing) {
+        existing.textContent = label;
+      } else {
+        deviceCell.textContent = label;
+      }
     }
     const ipCell = row.querySelector("td.font-monospace");
     if (ipCell && run.ip) ipCell.textContent = run.ip;

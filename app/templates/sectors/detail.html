@@ -7,7 +7,7 @@
   <div>
     <p class="mb-1"><a href="{{ url_for('sectors.list_sectors') }}">← Сектора</a></p>
     <h1 class="page-title">{{ sector.name }}</h1>
-    {% if sector.description %}<p class="page-subtitle">{{ sector.description }}</p>{% endif %}
+    <p class="page-subtitle">{{ sector.description or 'CIDR и устройства сектора' }}</p>
   </div>
   {% if current_user.is_admin %}
   <a class="btn btn-outline-primary" href="{{ url_for('sectors.edit_sector', sector_id=sector.id) }}">Изменить</a>
@@ -18,7 +18,7 @@
 </div>
 <div class="device-card-grid">
   {% for device in devices|default(sector.devices) %}
-  <div data-device-card data-device-id="{{ device.id }}" data-status="{{ device.last_status }}" data-type="{{ device.kind }}">{{ device_card(device) }}</div>
+  <div data-device-card data-device-id="{{ device.id }}" data-status="{{ device.last_status }}" data-type="{{ device.kind }}">{{ device_card(device, interactive=false) }}</div>
   {% endfor %}
 </div>
 {% if not devices|default(sector.devices) %}

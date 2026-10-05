@@ -302,7 +302,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_service.py` | оркестрация прогона |
 | `password_ad_client.py` | LDAP: пользователи и days-left |
 | `password_mailer.py` | SMTP |
-| `password_expiry_settings.py` | настройки UI/DB + fallback на `.env` |
+| `password_expiry_settings.py` | SMTP общий (UI: Параметры → Почта), bind LDAP модуля, пороги; fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure scheduler |
@@ -619,6 +619,9 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 ## 13. Frontend
 
+Канонические правила UI/UX (IA, токены, адаптив, разделение «работа vs конфиг») —
+в [`docs/UI_GUIDEBOOK.md`](UI_GUIDEBOOK.md). Ниже — карта файлов.
+
 **Шаблоны** (`app/templates/`): каркас `base.html` (навигация: карта, действия, УЗ,
 скрипты, пароли AD, отчёт по секторам, настройки). Домены: `accounts/`, `actions/`,
 `admin/`, `auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
@@ -728,6 +731,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | [README.md](../README.md) | Установка на Debian, минимальный `.env`, службы, обновление |
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
+| [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
 
 ---
 

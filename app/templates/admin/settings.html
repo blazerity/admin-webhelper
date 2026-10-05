@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Параметры</h1>
-    <p class="page-subtitle">Учётки PsExec и WMI, интервал и журнал опроса сети</p>
+    <p class="page-subtitle">Почта, учётки PsExec и WMI, интервал и журнал опроса сети</p>
   </div>
 </div>
 
@@ -62,8 +62,55 @@
     </div>
   </dl>
   {% else %}
-  <p class="text-muted mb-0">Данные health пока не переданы backend-ом. После мержа A3 здесь появится статус `bawh-scheduler`.</p>
+  <p class="text-muted mb-0">Данные health пока недоступны.</p>
   {% endif %}
+</div>
+
+<div class="panel content-card mb-3" id="smtp">
+  <h2 class="h5 mb-2">Почта (SMTP)</h2>
+  <p class="text-muted mb-3">
+    Общая рассылка для модулей «Пароли AD» и «Отчёт по секторам».
+    Если поля пусты — берутся <code>SMTP_*</code> из .env. Пароль хранится зашифрованным.
+  </p>
+  {% set smtp_cfg = smtp if smtp is defined else none %}
+  <form method="post" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="smtp">
+    <div class="col-md-6">
+      <label class="form-label" for="smtp_host">SMTP host</label>
+      <input class="form-control" id="smtp_host" name="smtp_host" value="{{ smtp_cfg.host_override if smtp_cfg else '' }}" placeholder="{{ (smtp_cfg.host if smtp_cfg else '') or 'mail.example.com' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label" for="smtp_port">Порт</label>
+      <input class="form-control" id="smtp_port" name="smtp_port" value="{{ (smtp_cfg.port_override if smtp_cfg else none) or (smtp_cfg.port if smtp_cfg else 25) }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="smtp_from">From</label>
+      <input class="form-control" id="smtp_from" name="smtp_from" value="{{ smtp_cfg.from_override if smtp_cfg else '' }}" placeholder="{{ (smtp_cfg.from_address if smtp_cfg else '') or 'noreply@example.com' }}">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="smtp_user">Логин SMTP</label>
+      <input class="form-control" id="smtp_user" name="smtp_user" value="{{ smtp_cfg.username_override if smtp_cfg else '' }}" placeholder="{{ (smtp_cfg.username if smtp_cfg else '') or 'пусто = From' }}">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="smtp_password">Пароль SMTP</label>
+      <input class="form-control" type="password" id="smtp_password" name="smtp_password" value="" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if smtp_cfg and smtp_cfg.has_password else 'не задан' }}">
+    </div>
+    <div class="col-md-12">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="1" id="smtp_use_starttls" name="smtp_use_starttls" {% if smtp_cfg and smtp_cfg.use_starttls %}checked{% endif %}>
+        <label class="form-check-label" for="smtp_use_starttls">STARTTLS</label>
+      </div>
+    </div>
+    <div class="col-12 d-flex gap-2 flex-wrap">
+      <button class="btn btn-primary" type="submit">Сохранить SMTP</button>
+    </div>
+  </form>
+  <form method="post" class="mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="test_smtp">
+    <button class="btn btn-outline-primary" type="submit" {% if not smtp_cfg or not smtp_cfg.configured %}disabled{% endif %}>Проверить SMTP</button>
+  </form>
 </div>
 
 <div class="panel content-card mb-3">

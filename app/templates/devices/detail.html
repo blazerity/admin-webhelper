@@ -14,13 +14,13 @@
     <div class="page-header">
       <div>
         <p class="mb-1"><a href="{{ url_for('devices.map') }}" id="device-back-to-map">← К карте</a></p>
-        <h1 class="page-title">Карточка устройства</h1>
+        <h1 class="page-title">{{ device.hostname or device.ip }}</h1>
         <p class="page-subtitle">
           {% if tab == 'overview' %}Обзор объекта в инвентаре сети
           {% elif tab == 'accounts' %}Учётные записи на этом устройстве
-          {% elif tab == 'commands' %}Командная строка и скрипты
+          {% elif tab == 'commands' %}Команды и скрипты
           {% elif tab == 'hardware' %}Процессор, память, диски и версия Windows
-          {% else %}Результаты опросов доступности
+          {% else %}Опросы доступности
           {% endif %}
         </p>
       </div>
@@ -32,9 +32,6 @@
       id="device-object"
       data-device-id="{{ device.id }}"
       data-status="{{ device.last_status }}"
-      data-check-url="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}"
-      data-csrf-token="{{ csrf_token() }}"
-      data-can-check="{{ '1' if can_run_diagnostics|default(false) else '0' }}"
     >
       <div class="device-object-media">
         {{ device_portrait(device) }}
@@ -51,30 +48,26 @@
           </div>
         </div>
         {% if can_run_diagnostics|default(false) %}
-        <div class="device-check-bar">
-          <button type="button" class="btn btn-sm btn-primary" id="device-check-btn" data-device-check>
-            Проверить сейчас
-          </button>
-          <p class="device-check-hint mb-0" id="device-check-hint" aria-live="polite">
-            ICMP с сервера · результат попадёт в историю опросов
-          </p>
-        </div>
+        <p class="device-check-hint mb-0">
+          <a href="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">Проверить доступность</a>
+          — на вкладке «Опросы»
+        </p>
         {% endif %}
         <div class="device-watch-bar">
           {% if watching|default(false) %}
-          <form method="post" action="/devices/{{ device.id }}/unwatch" class="device-watch-form">
+          <form method="post" action="{{ url_for('devices.unwatch_device', device_id=device.id) }}" class="device-watch-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-sm btn-outline-secondary" type="submit">Не следить</button>
           </form>
           <p class="device-watch-hint mb-0">Алерт, если offline дольше {{ offline_minutes|default(15) }} мин</p>
           {% else %}
-          <form method="post" action="/devices/{{ device.id }}/watch" class="device-watch-form">
+          <form method="post" action="{{ url_for('devices.watch_device', device_id=device.id) }}" class="device-watch-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label class="visually-hidden" for="offline_minutes">Минут offline до алерта</label>
             <input class="form-control form-control-sm device-watch-minutes" id="offline_minutes"
                    name="offline_minutes" type="number" min="1" max="1440"
                    value="{{ offline_minutes|default(15) }}" title="Минут offline до алерта">
-            <button class="btn btn-sm btn-primary" type="submit">Следить</button>
+            <button class="btn btn-sm btn-outline-primary" type="submit">Следить</button>
           </form>
           <p class="device-watch-hint mb-0">Уведомление, если устройство offline дольше порога</p>
           {% endif %}
@@ -126,14 +119,9 @@
       <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
         <div>
           <h2 class="panel-title mb-1">Оборудование</h2>
-          <p class="panel-hint mb-0">WMI-снимок: процессор, ОЗУ, диски, версия Windows. Отдельный опрос, обычно в полдень.</p>
+          <p class="panel-hint mb-0">Краткий WMI-снимок. Полная история и опрос — на вкладке «Оборудование».</p>
         </div>
-        {% if current_user.is_admin %}
-        <form method="post" action="{{ url_for('devices.poll_device_hardware', device_id=device.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-sm btn-outline-primary" type="submit">Опросить сейчас</button>
-        </form>
-        {% endif %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">К оборудованию</a>
       </div>
       {% if device.hardware_checked_at %}
       <dl class="device-object-meta device-hardware-meta">
@@ -163,7 +151,13 @@
         </div>
       </dl>
       {% else %}
-      <p class="text-muted mb-0">Ещё не опрашивали. Плановый сбор — около полудня (WMI), либо кнопка «Опросить сейчас».</p>
+      <p class="text-muted mb-0">
+        Ещё не опрашивали. Плановый сбор — около полудня (WMI).
+        {% if current_user.is_admin %}
+        Опрос одной машины — на вкладке
+        <a href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>.
+        {% endif %}
+      </p>
       {% endif %}
     </div>
 
@@ -341,7 +335,14 @@
       <p class="text-muted small mb-0 mt-2">WMI Caption: <span class="font-monospace">{{ device.os_caption }}</span></p>
       {% endif %}
       {% else %}
-      <p class="text-muted mb-0 mt-3">Снимка ещё нет.</p>
+      <p class="text-muted mb-0 mt-3">
+        Снимка ещё нет.
+        {% if current_user.is_admin %}
+        Нажмите «Опросить сейчас» или дождитесь планового сбора около полудня.
+        {% else %}
+        Плановый сбор — около полудня (WMI).
+        {% endif %}
+      </p>
       {% endif %}
     </div>
 
@@ -385,11 +386,11 @@
       <a class="settings-nav-link{% if tab == 'accounts' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='accounts') }}">Учётные записи</a>
       <a class="settings-nav-link{% if tab == 'commands' %} active{% endif %}"
-         href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Командная строка и скрипты</a>
+         href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Команды</a>
       <a class="settings-nav-link{% if tab == 'hardware' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>
       <a class="settings-nav-link{% if tab == 'polls' %} active{% endif %}"
-         href="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">Результаты опросов</a>
+         href="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">Опросы</a>
     </nav>
   </aside>
 </div>
@@ -414,7 +415,4 @@
   }
 })();
 </script>
-{% if tab == 'overview' and can_run_diagnostics|default(false) %}
-<script src="{{ url_for('static', filename='js/device_check.js') }}"></script>
-{% endif %}
 {% endblock %}

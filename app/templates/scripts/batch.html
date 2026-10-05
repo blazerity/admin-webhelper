@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/status.html" import device_entity_link %}
 {% block title %}Пачка {{ batch_id }}{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -78,9 +79,13 @@
         </thead>
         <tbody id="batch-runs">
           {% for run in runs %}
-          <tr data-run-id="{{ run.id }}" data-run-status="{{ run.status }}">
+          <tr data-run-id="{{ run.id }}" data-run-status="{{ run.status }}" data-device-id="{{ run.device_id or '' }}">
             <td>
-              <a href="{{ run.url }}">{{ run.hostname or run.ip or ('запуск #' ~ run.id) }}</a>
+              {% if run.device_id %}
+              {{ device_entity_link(run.device_id, run.hostname or run.ip or ('#' ~ run.id)) }}
+              {% else %}
+              {{ run.hostname or run.ip or ('запуск #' ~ run.id) }}
+              {% endif %}
             </td>
             <td class="font-monospace">{{ run.ip or '—' }}</td>
             <td>{{ 'Ping' if run.run_type == 'ping' else ('Скрипт' if run.run_type == 'script' else (run.run_type or '—')) }}</td>

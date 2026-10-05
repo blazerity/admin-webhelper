@@ -5,8 +5,9 @@
   <div>
     <h1 class="page-title">Пароли AD — настройки</h1>
     <p class="page-subtitle">
-      Учётка AD для чтения каталога, SMTP и пороги модуля.
-      Сервер LDAP (host / base / domain) — общий из .env bAWH.
+      Учётка AD для чтения каталога и пороги модуля.
+      Почта (SMTP) — в <a href="{{ url_for('admin.settings') }}#smtp">Параметры → Почта</a>.
+      Включение расписания — на <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
     </p>
   </div>
   <a class="btn btn-outline-secondary" href="{{ url_for('password_expiry.dashboard') }}">К отчёту</a>
@@ -55,50 +56,17 @@
 </div>
 
 <div class="panel content-card mb-3">
-  <h2 class="h5 mb-2">SMTP</h2>
-  <p class="text-muted mb-3">
-    Параметры рассылки модуля. Если поля пусты — берутся <code>SMTP_*</code> из .env.
-    Пароль SMTP хранится зашифрованным.
+  <h2 class="h5 mb-2">Почта (SMTP)</h2>
+  <p class="text-muted mb-0">
+    {% if smtp.configured %}
+      Используется {{ smtp.host }}:{{ smtp.port }}, From {{ smtp.from_address }}.
+    {% else %}
+      SMTP не настроен.
+    {% endif %}
+    Общие параметры — в
+    <a href="{{ url_for('admin.settings') }}#smtp">Параметры → Почта</a>
+    (или <code>SMTP_*</code> в <code>.env</code>).
   </p>
-  <form method="post" class="row g-3">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="form" value="smtp">
-    <div class="col-md-6">
-      <label class="form-label" for="smtp_host">SMTP host</label>
-      <input class="form-control" id="smtp_host" name="smtp_host" value="{{ smtp.host_override }}" placeholder="{{ smtp.host or 'mail.example.com' }}">
-    </div>
-    <div class="col-md-2">
-      <label class="form-label" for="smtp_port">Порт</label>
-      <input class="form-control" id="smtp_port" name="smtp_port" value="{{ smtp.port_override or smtp.port }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label" for="smtp_from">From</label>
-      <input class="form-control" id="smtp_from" name="smtp_from" value="{{ smtp.from_override }}" placeholder="{{ smtp.from_address or 'noreply@example.com' }}">
-    </div>
-    <div class="col-md-6">
-      <label class="form-label" for="smtp_user">Логин SMTP (учётка отправки)</label>
-      <input class="form-control" id="smtp_user" name="smtp_user" value="{{ smtp.username_override }}" placeholder="{{ smtp.username or 'пусто = From' }}">
-    </div>
-    <div class="col-md-6">
-      <label class="form-label" for="smtp_password">Пароль SMTP</label>
-      <input class="form-control" type="password" id="smtp_password" name="smtp_password" value="" autocomplete="new-password" placeholder="{{ 'задан' if smtp.has_password else 'не задан' }}">
-      <div class="form-text">Пустое поле сохраняет прежний пароль.</div>
-    </div>
-    <div class="col-md-12">
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" value="1" id="smtp_use_starttls" name="smtp_use_starttls" {% if smtp.use_starttls %}checked{% endif %}>
-        <label class="form-check-label" for="smtp_use_starttls">STARTTLS</label>
-      </div>
-    </div>
-    <div class="col-12 d-flex gap-2 flex-wrap">
-      <button class="btn btn-primary" type="submit">Сохранить SMTP</button>
-    </div>
-  </form>
-  <form method="post" class="mt-3">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="form" value="test_smtp">
-    <button class="btn btn-outline-primary" type="submit" {% if not smtp.configured %}disabled{% endif %}>Проверить SMTP</button>
-  </form>
 </div>
 
 <div class="panel content-card">
@@ -140,17 +108,16 @@
         <input class="form-control" id="admin_recipients" name="admin_recipients" value="{{ settings.admin_recipients|join(', ') }}">
       </div>
       <div class="col-md-12">
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" value="1" id="schedule_enabled" name="schedule_enabled" {% if settings.schedule_enabled %}checked{% endif %}>
-          <label class="form-check-label" for="schedule_enabled">
-            Сервис отчётов включён (расписание + служба <code>bawh-scheduler</code>)
-          </label>
-        </div>
-        <div class="form-text">
-          Тот же тумблер, что сверху на странице отчёта. При включении поднимается
-          <code>bawh-scheduler</code> через sudo-учётку из
-          <a href="{{ url_for('admin.settings') }}#service-control">Параметры → Управление службами</a>.
-        </div>
+        <p class="form-text mb-0">
+          Расписание сейчас:
+          {% if settings.schedule_enabled %}
+            <span class="text-success">включено</span>
+          {% else %}
+            <span class="text-muted">выключено</span>
+          {% endif %}
+          — переключается на
+          <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
+        </p>
       </div>
     </div>
     <button class="btn btn-primary mt-3" type="submit">Сохранить</button>
