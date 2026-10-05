@@ -289,13 +289,21 @@ def kind_short_label(kind: str) -> str:
 
 # Карточка устройства: какие разделы/поля показывать по типу.
 _KINDS_WITH_ACCOUNTS = frozenset({KIND_NOTEBOOK, KIND_DESKTOP})
+_KINDS_WITH_MAC = frozenset(
+    {KIND_NOTEBOOK, KIND_DESKTOP, KIND_CAMERA, KIND_PRINTER, KIND_ROUTER}
+)
 _KINDS_WITH_HARDWARE = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER})
 _KINDS_WITH_COMMANDS = frozenset({KIND_NOTEBOOK, KIND_DESKTOP, KIND_SERVER})
 
 
 def kind_shows_accounts(kind: str) -> bool:
-    """УЗ и MAC — только ноутбуки и СБ."""
+    """УЗ на карточке — только ноутбуки и СБ."""
     return kind in _KINDS_WITH_ACCOUNTS
+
+
+def kind_shows_mac(kind: str) -> bool:
+    """MAC — ноутбуки/СБ и периферия (камера, МФУ, MikroTik), если опрашивается."""
+    return kind in _KINDS_WITH_MAC
 
 
 def kind_shows_hardware(kind: str) -> bool:
