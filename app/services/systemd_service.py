@@ -13,7 +13,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from flask import current_app
+from flask import current_app, has_app_context
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +56,20 @@ def systemctl_path() -> str | None:
 
 
 def resolve_sudo_credentials() -> tuple[str, str]:
-    """Sudo-учётка из Параметров (логин + пароль)."""
-    try:
-        from app.services.settings_service import get_update_sudo_credentials
+    """Sudo-учётка из Параметров (логин + пароль).
 
-        creds = get_update_sudo_credentials()
-        return creds.username, creds.password
-    except Exception:  # noqa: BLE001 — UI/фон не должны падать из‑за БД
-        return str(current_app.config.get("UPDATE_SUDO_USER") or "").strip(), ""
+    Без app context (фон без обёртки) не читаем current_app — иначе
+    RuntimeError перечёркивает уже выполненное обновление.
+    """
+    if has_app_context():
+        try:
+            from app.services.settings_service import get_update_sudo_credentials
+
+            creds = get_update_sudo_credentials()
+            return creds.username, creds.password
+        except Exception:  # noqa: BLE001 — UI/фон не должны падать из‑за БД
+            return str(current_app.config.get("UPDATE_SUDO_USER") or "").strip(), ""
+    return str(os.environ.get("UPDATE_SUDO_USER") or "").strip(), ""
 
 
 def get_unit_status(unit: str = SCHEDULER_UNIT) -> UnitStatus:

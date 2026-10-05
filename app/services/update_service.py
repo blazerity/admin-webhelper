@@ -246,9 +246,7 @@ def begin_update() -> None:
                 keep=keep,
                 on_progress=lambda message: _write_operation(root, "running", message),
             )
-            message = result.message
-            if result.changed and restart:
-                message = f"{message} {schedule_restart(root, result.message)}".strip()
+            message = _with_restart(root, result.message, result.changed and restart)
             _write_operation(root, "success", message, result.backup_id)
         except UpdateError as exc:
             logger.warning("update failed: %s", exc)
@@ -259,7 +257,7 @@ def begin_update() -> None:
         finally:
             lock.release()
 
-    threading.Thread(target=job, name="bawh-update", daemon=True).start()
+    _start_background(job, name="bawh-update")
 
 
 def begin_rollback(backup_id: str) -> None:
@@ -283,9 +281,7 @@ def begin_rollback(backup_id: str) -> None:
                 keep=keep,
                 on_progress=lambda message: _write_operation(root, "running", message),
             )
-            message = result.message
-            if result.changed and restart:
-                message = f"{message} {schedule_restart(root, result.message)}".strip()
+            message = _with_restart(root, result.message, result.changed and restart)
             _write_operation(root, "success", message, result.backup_id)
         except UpdateError as exc:
             logger.warning("rollback failed: %s", exc)
@@ -296,7 +292,7 @@ def begin_rollback(backup_id: str) -> None:
         finally:
             lock.release()
 
-    threading.Thread(target=job, name="bawh-rollback", daemon=True).start()
+    _start_background(job, name="bawh-rollback")
 
 
 def perform_update(
@@ -666,6 +662,31 @@ def align_git_head(root: Path, url: str, branch: str) -> None:
             logger.warning("git reset after update failed: %s", _tail(moved.stderr))
     except UpdateError as exc:
         logger.warning("git head was not moved: %s", exc)
+
+
+def _start_background(job, *, name: str) -> None:
+    """Поток вне HTTP-запроса: нужен настоящий app, не прокси current_app."""
+    app = current_app._get_current_object()
+
+    def runner() -> None:
+        with app.app_context():
+            job()
+
+    threading.Thread(target=runner, name=name, daemon=True).start()
+
+
+def _with_restart(root: Path, message: str, restart: bool) -> str:
+    """Перезапуск не должен перечёркивать уже выполненную замену кода."""
+    if not restart:
+        return message
+    try:
+        return f"{message} {schedule_restart(root, message)}".strip()
+    except Exception:
+        logger.exception("service restart was not scheduled")
+        return (
+            f"{message} Службы сами не перезапустились. "
+            "Выполните: sudo systemctl restart bawh-scheduler bawh-web."
+        )
 
 
 def schedule_restart(root: Path, previous: str) -> str:
