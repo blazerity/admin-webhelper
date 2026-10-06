@@ -67,6 +67,7 @@ _SKIP_DIRS = {
     "tools",
     "tmp",
     "temp",
+    "certs",
 }
 _REASON_LABELS = {
     "before-update": "перед обновлением",
@@ -839,6 +840,7 @@ def _ensure_report_units_for_enabled_schedules() -> None:
     from app.services.systemd_service import (
         PASSWORD_REPORTS_UNIT,
         PC_REPORTS_UNIT,
+        VNC_UNIT,
         SystemdError,
         ensure_unit_running,
     )
@@ -858,6 +860,16 @@ def _ensure_report_units_for_enabled_schedules() -> None:
         logger.warning("pc reports unit after update: %s", exc)
     except Exception:
         logger.exception("pc reports unit after update failed")
+
+    try:
+        from app.services.vnc_settings import get_vnc_settings
+
+        if get_vnc_settings().gateway_enabled:
+            ensure_unit_running(VNC_UNIT)
+    except SystemdError as exc:
+        logger.warning("vnc unit after update: %s", exc)
+    except Exception:
+        logger.exception("vnc unit after update failed")
 
 
 def restart_command(systemctl: str, sudo_user: str = "", *, with_password: bool = False) -> list[str]:

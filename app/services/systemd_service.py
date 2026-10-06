@@ -9,6 +9,7 @@
   bawh-scheduler           — опрос сети / железа / архив логов
   bawh-password-reports    — рассылка отчётов о паролях AD
   bawh-pc-reports          — рассылка отчётов о ПК
+  bawh-vnc                 — WebSocket-прокси для noVNC
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ SCHEDULER_UNIT = "bawh-scheduler"
 WEB_UNIT = "bawh-web"
 PASSWORD_REPORTS_UNIT = "bawh-password-reports"
 PC_REPORTS_UNIT = "bawh-pc-reports"
+VNC_UNIT = "bawh-vnc"
 
 # Порядок для systemctl restart — должен совпадать с sudoers.
 RESTART_UNITS = (
@@ -34,6 +36,7 @@ RESTART_UNITS = (
     WEB_UNIT,
     PASSWORD_REPORTS_UNIT,
     PC_REPORTS_UNIT,
+    VNC_UNIT,
 )
 
 

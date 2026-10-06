@@ -1,0 +1,15 @@
+[Unit]
+Description=Лёгкий VNC WebSocket-прокси bAWH (noVNC)
+After=network.target
+# Без PostgreSQL: билет проверяется SECRET_KEY из .env
+
+[Service]
+User=bawh
+Group=bawh
+WorkingDirectory=/opt/bawh
+EnvironmentFile=/opt/bawh/.env
+ExecStart=/opt/bawh/.venv/bin/python -m app.vnc_worker
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

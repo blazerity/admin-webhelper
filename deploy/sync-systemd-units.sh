@@ -11,7 +11,7 @@ if [[ ! -d "$DEPLOY_DIR" ]]; then
   exit 1
 fi
 
-for unit in bawh-web bawh-scheduler bawh-password-reports bawh-pc-reports; do
+for unit in bawh-web bawh-scheduler bawh-password-reports bawh-pc-reports bawh-vnc; do
   src="$DEPLOY_DIR/${unit}.service"
   if [[ ! -f "$src" ]]; then
     echo "Нет unit-файла $src" >&2

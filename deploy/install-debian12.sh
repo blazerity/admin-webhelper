@@ -268,6 +268,7 @@ install_sources() {
         --exclude tmp \
         --exclude temp \
         --exclude logs \
+        --exclude certs \
         --exclude backups \
         --exclude '*.db' \
         --exclude '*.pyc' \
@@ -497,24 +498,26 @@ PY
 
 prepare_database() {
   step_begin "Схема приложения" "flask init-db — таблицы и справочники"
-  mkdir -p "$INSTALL_DIR/logs"
-  chown bawh:bawh "$INSTALL_DIR/logs"
+  mkdir -p "$INSTALL_DIR/logs" "$INSTALL_DIR/certs"
+  chown bawh:bawh "$INSTALL_DIR/logs" "$INSTALL_DIR/certs"
+  chmod 700 "$INSTALL_DIR/certs"
   runuser -u bawh -- env LANG="${LANG}" LC_ALL="${LC_ALL}" \
     bash -c "cd '$INSTALL_DIR' && exec .venv/bin/flask --app wsgi init-db"
   step_ok "схема создана"
 }
 
 install_systemd() {
-  step_begin "systemd-службы" "web, опрос сети, отчёты о паролях и о ПК"
+  step_begin "systemd-службы" "web, опрос сети, VNC-шлюз, отчёты о паролях и о ПК"
   bash "$INSTALL_DIR/deploy/sync-systemd-units.sh" "$INSTALL_DIR"
-  systemctl enable --now bawh-web bawh-scheduler
+  chmod 755 "$INSTALL_DIR/deploy/apply-nginx-tls.sh" 2>/dev/null || true
+  systemctl enable --now bawh-web bawh-scheduler bawh-vnc
   # Службы отчётов поднимает тумблер в UI; unit'ы уже установлены.
-  systemctl restart bawh-web bawh-scheduler
+  systemctl restart bawh-web bawh-scheduler bawh-vnc
   step_ok "службы запущены"
 }
 
 install_update_sudoers() {
-  step_begin "Sudoers для обновления из UI" "passwordless restart web / scheduler / reports"
+  step_begin "Sudoers для обновления из UI" "passwordless restart web / scheduler / vnc / reports / nginx TLS"
   local src="$INSTALL_DIR/deploy/bawh-update.sudoers"
   local dest=/etc/sudoers.d/bawh-update
   if [[ ! -f "$src" ]]; then
@@ -616,10 +619,11 @@ print_summary() {
   printf '\n'
   printf '%sСледующий шаг:%s заполните LDAP в %s/.env\n' "$C_YELLOW$C_BOLD" "$C_RESET" "$INSTALL_DIR"
   printf '  (LDAP_HOST, LDAP_BASE_DN, LDAP_DOMAIN) и перезапустите:\n'
-  printf '    systemctl restart bawh-web bawh-scheduler bawh-password-reports bawh-pc-reports\n'
+  printf '    systemctl restart bawh-web bawh-scheduler bawh-vnc bawh-password-reports bawh-pc-reports\n'
   printf '\n'
   printf '%sPsExec:%s учётка на странице /admin/settings (на пользователя).\n' "$C_DIM" "$C_RESET"
-  printf '%sHTTP:%s  пока без TLS оставьте SESSION_COOKIE_SECURE=0.\n\n' "$C_DIM" "$C_RESET"
+  printf '%sVNC:%s   рабочий стол в браузере — карточка устройства; агент TightVNC на ПК.\n' "$C_DIM" "$C_RESET"
+  printf '%sHTTPS:%s сертификат загружается в Параметры; пока HTTP оставьте SESSION_COOKIE_SECURE=0.\n\n' "$C_DIM" "$C_RESET"
 }
 
 main() {

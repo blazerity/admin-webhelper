@@ -10,6 +10,7 @@ instance/
 logs/*
 !logs/.gitkeep
 backups/
+certs/
 dist/
 build/
 *.egg-info/

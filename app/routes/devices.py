@@ -9,6 +9,7 @@ from app.authz import (
     admin_required,
     filter_accessible_devices,
     get_visible_device_or_404,
+    user_can_connect_vnc,
     user_can_run_diagnostics,
     user_can_run_script,
     user_can_run_scripts,
@@ -437,6 +438,47 @@ def detail(device_id: int):
         command_presets=command_presets,
         scripts=scripts,
         can_run_diagnostics=user_can_run_diagnostics(current_user),
+        can_connect_vnc=user_can_connect_vnc(current_user) and device.shows_commands,
+    )
+
+
+@bp.get("/devices/<int:device_id>/vnc")
+@login_required
+def vnc_session(device_id: int):
+    """Экспериментальный стол в браузере (noVNC через Debian)."""
+    device = get_visible_device_or_404(device_id)
+    if device.sector is None:
+        abort(404)
+    if not user_can_connect_vnc(current_user):
+        abort(403)
+    if not device.shows_commands:
+        abort(404)
+
+    from app.services.vnc_settings import get_vnc_settings
+    from app.services.vnc_token import VncTokenError, mint_ticket
+
+    settings = get_vnc_settings(include_password=True)
+    try:
+        token = mint_ticket(
+            device_id=device.id,
+            user_id=current_user.id,
+            ip=device.ip,
+            port=settings.port,
+        )
+    except VncTokenError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("devices.detail", device_id=device.id))
+
+    ws_scheme = "wss" if request.is_secure else "ws"
+    ws_url = f"{ws_scheme}://{request.host}/vnc/ws?token={token}"
+    return render_template(
+        "devices/vnc.html",
+        device=device,
+        ws_url=ws_url,
+        vnc_port=settings.port,
+        vnc_password=settings.password,
+        has_vnc_password=settings.password_set,
+        gateway_enabled=settings.gateway_enabled,
     )
 
 

@@ -62,7 +62,7 @@
           <nav class="app-nav" aria-label="Основное меню">
             {% set ep = request.endpoint or '' %}
             {% set settings_active = ep.startswith('sectors.') or ep.startswith('admin.') or ep.startswith('login_services.') or ep == 'password_expiry.settings_page' or ep == 'sector_daily_report.settings_page' %}
-            <a class="app-nav-link{% if ep == 'devices.map' or ep == 'devices.detail' %} active{% endif %}" href="{{ url_for('devices.map') }}">Карта сети</a>
+            <a class="app-nav-link{% if ep == 'devices.map' or ep == 'devices.detail' or ep == 'devices.vnc_session' %} active{% endif %}" href="{{ url_for('devices.map') }}">Карта сети</a>
             <a class="app-nav-link{% if ep.startswith('actions.') %} active{% endif %}" href="{{ url_for('actions.list_actions') }}">Действия</a>
             <a class="app-nav-link{% if ep.startswith('accounts.') %} active{% endif %}" href="{{ url_for('accounts.list_accounts') }}">Учётные записи</a>
             {% if current_user.is_admin or current_user.is_operator %}

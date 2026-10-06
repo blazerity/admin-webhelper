@@ -89,6 +89,11 @@ class Config:
     MAX_LOG_CHARS = 200_000
     MAX_REMOTE_COMMAND_CHARS = 4_000
 
+    # Лёгкий VNC-прокси (процесс bawh-vnc). Flask сюда не слушает.
+    VNC_LISTEN_HOST = os.environ.get("VNC_LISTEN_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    VNC_LISTEN_PORT = int(os.environ.get("VNC_LISTEN_PORT", "6080"))
+    VNC_MAX_SESSIONS = int(os.environ.get("VNC_MAX_SESSIONS", "4"))
+
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = _flag("SESSION_COOKIE_SECURE", "0")
