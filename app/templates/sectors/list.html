@@ -13,16 +13,16 @@
 <div class="panel content-card p-0 overflow-hidden">
   <div class="table-responsive">
     <table class="table">
-      <thead><tr><th>Название</th><th>Диапазоны</th><th></th></tr></thead>
+      <thead><tr><th>Название</th><th class="text-end">Диап.</th>{% if current_user.is_admin %}<th class="text-end">Действия</th>{% endif %}</tr></thead>
       <tbody>
       {% for sector in sectors %}
         <tr>
-          <td><a href="{{ url_for('sectors.detail', sector_id=sector.id) }}">{{ sector.name }}</a></td>
-          <td>{{ sector.ranges|length }}</td>
-          <td class="text-end">{% if current_user.is_admin %}<a href="{{ url_for('sectors.edit_sector', sector_id=sector.id) }}">Изменить</a>{% endif %}</td>
+          <td class="text-break"><a href="{{ url_for('sectors.detail', sector_id=sector.id) }}">{{ sector.name }}</a></td>
+          <td class="text-end text-nowrap">{{ sector.ranges|length }}</td>
+          {% if current_user.is_admin %}<td class="text-end text-nowrap"><a href="{{ url_for('sectors.edit_sector', sector_id=sector.id) }}">Изменить</a></td>{% endif %}
         </tr>
       {% else %}
-        <tr><td colspan="3" class="text-muted">Секторов нет.</td></tr>
+        <tr><td colspan="{{ 3 if current_user.is_admin else 2 }}" class="text-muted">Секторов нет.</td></tr>
       {% endfor %}
       </tbody>
     </table>

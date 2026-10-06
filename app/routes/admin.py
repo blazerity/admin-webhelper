@@ -602,8 +602,10 @@ def duplicates():
             else:
                 flash(
                     f"Найдено групп: {scan.group_count} "
-                    f"(уверенных {len(scan.confirmed)}, "
-                    f"предположительных {len(scan.suspected)}; "
+                    f"(дубли SN {len(scan.confirmed)}, "
+                    f"призраки {len(scan.ghosts)}, "
+                    f"история IP {len(scan.ip_history)}, "
+                    f"предположительно {len(scan.suspected)}; "
                     f"устройств в группах: {scan.device_count}).",
                     "info",
                 )

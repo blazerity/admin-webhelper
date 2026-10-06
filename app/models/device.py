@@ -3,8 +3,9 @@
 devices — текущее состояние; device_history — каждая проверка.
 Уникальность машины: только serial_number (WMI service tag).
 Hostname — отображение, не ключ слияния.
-IP — последний известный адрес, без unique: без SN можно держать
-заглушку на этом IP (камера / Linux / WMI не ответил).
+IP на карточке — «основной» (последний успешный онлайн-зонд).
+device_addresses — все виденные IP/MAC одной машины (Wi‑Fi + Ethernet и т.п.).
+Без SN можно держать заглушку на текущем IP (камера / Linux / WMI не ответил).
 current_account_id — УЗ, которую последний опрос видел на машине.
 """
 
@@ -99,6 +100,12 @@ class Device(TimestampMixin, db.Model):
         cascade="all, delete-orphan",
         order_by="DeviceHardwareHistory.collected_at.desc()",
     )
+    addresses = db.relationship(
+        "DeviceAddress",
+        back_populates="device",
+        cascade="all, delete-orphan",
+        order_by="DeviceAddress.last_seen.desc()",
+    )
 
     @property
     def kind(self) -> str:
@@ -160,6 +167,41 @@ class Device(TimestampMixin, db.Model):
 
     def __repr__(self) -> str:
         return f"<Device {self.ip} {self.last_status}>"
+
+
+class DeviceAddress(db.Model):
+    """Сетевой адрес устройства (один из интерфейсов: Ethernet, Wi‑Fi, VPN).
+
+    Карточка ``devices`` хранит основной IP/MAC; здесь — все адреса, с которых
+    машина отвечала. Один serial → одна карточка, несколько строк адресов.
+    """
+
+    __tablename__ = "device_addresses"
+    __table_args__ = (
+        db.UniqueConstraint("device_id", "ip", name="uq_device_addresses_device_ip"),
+        db.Index("ix_device_addresses_ip", "ip"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    device_id = db.Column(
+        db.Integer,
+        db.ForeignKey("devices.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    ip = db.Column(db.String(45), nullable=False)
+    mac = db.Column(db.String(17), nullable=True)
+    last_seen = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_status = db.Column(
+        db.String(16),
+        nullable=False,
+        default=DeviceStatus.UNKNOWN,
+    )
+
+    device = db.relationship("Device", back_populates="addresses")
+
+    def __repr__(self) -> str:
+        return f"<DeviceAddress {self.ip} device={self.device_id}>"
 
 
 class DeviceHistory(db.Model):

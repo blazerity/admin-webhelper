@@ -34,7 +34,7 @@ from app.services.device_kind import hostname_sort_key, kind_counts
 from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
 from app.services import script_service
-from app.utils import normalize_page, parse_optional_int, utcnow
+from app.utils import as_utc, normalize_page, parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
 
@@ -486,10 +486,19 @@ def detail(device_id: int):
         if device.shows_commands and user_can_run_scripts(current_user)
         else []
     )
+    device_addresses = sorted(
+        device.addresses,
+        key=lambda row: (
+            0 if row.ip == device.ip else 1,
+            -(as_utc(row.last_seen).timestamp() if row.last_seen else 0),
+            row.id or 0,
+        ),
+    )
 
     return render_template(
         "devices/detail.html",
         device=device,
+        device_addresses=device_addresses,
         tab=tab,
         show_all=show_all,
         has_more=has_more,

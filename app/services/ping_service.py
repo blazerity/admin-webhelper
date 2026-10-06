@@ -13,15 +13,22 @@
    имени и нет WMI-серийника) тот же воркер делает короткий TCP/SNMP
    отпечаток — не отдельный проход по всей сети.
 4. Снова главный поток:
-   * офлайн по уже известному IP → статус и device_history;
+   * офлайн по уже известному IP → статус адреса и device_history;
+     если у машины есть другой онлайн-интерфейс — основной IP
+     переключается на него, карточка остаётся online;
    * онлайн → ключ идентичности только serial_number (WMI). Hostname
      на карте, не для слияния. Без SN можно переиспользовать строку
      с тем же IP и пустым серийником (камеры, Linux, WMI не ответил).
      Смена DHCP-адреса при том же SN обновляет IP/сектор у той же
      строки. Другие карточки с этим IP (короткая аренда VPN) → offline.
+     При появлении SN сливаются призраки без SN с тем же IP или
+     WMI-hostname. Все виденные IP пишутся в device_addresses
+     (Ethernet + Wi‑Fi одной машины).
      MAC сначала из ARP, иначе из WMI. Имя: Win32_ComputerSystem,
      PTR только если WMI молчит и у строки ещё нет имени.
      Текущая УЗ пишется в endpoint_accounts / device_account_history.
+5. После прохода — опрос железа для впервые созданных Windows-карточек
+   (не ждать полуденный cron).
 
 Позже ту же функцию run_network_poll / poll_all_sectors вызовет задача Celery.
 Менять разбор пинга и запись истории для этого не нужно.
@@ -284,11 +291,20 @@ def poll_all_sectors() -> dict[str, int]:
     scanned — сколько адресов пинговали и попытались записать;
     online / offline — из них, чья запись в БД прошла
       (offline считается только для уже известных машин);
-    errors — битый диапазон сектора, сбой рабочего потока или ошибка COMMIT.
+    errors — битый диапазон сектора, сбой рабочего потока или ошибка COMMIT;
+    discovered — сколько новых карточек создано;
+    hardware_polled — сколько из них прошли опрос железа сразу после.
 
     Для журнала прогонов и защиты от параллели вызывайте run_network_poll.
     """
-    stats = {"scanned": 0, "online": 0, "offline": 0, "errors": 0}
+    stats = {
+        "scanned": 0,
+        "online": 0,
+        "offline": 0,
+        "errors": 0,
+        "discovered": 0,
+        "hardware_polled": 0,
+    }
     assignments = _collect_assignments(stats)
     if not assignments:
         return stats
@@ -301,14 +317,18 @@ def poll_all_sectors() -> dict[str, int]:
         probes,
         key=lambda item: 0 if item.result.status == DeviceStatus.ONLINE else 1,
     )
+    new_device_ids: list[int] = []
     for probe in ordered:
         stats["scanned"] += 1
         sector_id = assignments[probe.ip]
         if probe.result.status == DeviceStatus.ONLINE:
-            if not _save_online_probe(probe, sector_id):
+            ok, created_id = _save_online_probe(probe, sector_id)
+            if not ok:
                 stats["errors"] += 1
                 continue
             stats["online"] += 1
+            if created_id is not None:
+                new_device_ids.append(created_id)
             continue
         updated = _save_offline_probe(probe)
         if updated is None:
@@ -318,14 +338,64 @@ def poll_all_sectors() -> dict[str, int]:
         if updated:
             stats["offline"] += 1
 
+    stats["discovered"] = len(new_device_ids)
+    if new_device_ids:
+        stats["hardware_polled"] = _poll_hardware_for_discovered(new_device_ids)
+
     logger.info(
-        "Опрос секторов: проверено %s, онлайн %s, офлайн %s, ошибок %s",
+        "Опрос секторов: проверено %s, онлайн %s, офлайн %s, "
+        "новых %s, железо сразу %s, ошибок %s",
         stats["scanned"],
         stats["online"],
         stats["offline"],
+        stats["discovered"],
+        stats["hardware_polled"],
         stats["errors"],
     )
     return stats
+
+
+def _poll_hardware_for_discovered(device_ids: list[int]) -> int:
+    """Сразу после появления карточки — опрос железа (SN/CPU/ОЗУ/диски/ОС).
+
+    Не ждём полуденный cron: иначе смена IP на следующий день до железа
+    оставляет «пустую» карточку и плодит призраков.
+    """
+    from app.services.hardware_poll_service import (
+        HardwarePollError,
+        HardwarePollInProgressError,
+        is_windows_hardware_target,
+        run_hardware_poll,
+    )
+
+    unique_ids = list(dict.fromkeys(int(item) for item in device_ids))
+    if not unique_ids:
+        return 0
+    devices = list(
+        db.session.scalars(select(Device).where(Device.id.in_(unique_ids)))
+    )
+    targets = [
+        device.id
+        for device in devices
+        if is_windows_hardware_target(device) and device.hardware_checked_at is None
+    ]
+    if not targets:
+        return 0
+    try:
+        result = run_hardware_poll(mode="on_discover", device_ids=targets)
+    except HardwarePollInProgressError:
+        logger.info(
+            "Опрос железа для новых устройств отложен: уже выполняется (%s id)",
+            len(targets),
+        )
+        return 0
+    except HardwarePollError as exc:
+        logger.warning("Опрос железа для новых устройств пропущен: %s", exc)
+        return 0
+    except Exception:
+        logger.exception("Сбой опроса железа для новых устройств %s", targets)
+        return 0
+    return int(result.collected or 0)
 
 
 def count_poll_runs() -> int:
@@ -567,16 +637,30 @@ def _probe(
     )
 
 
-def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
-    """Найти машину по serial (иначе IP без SN) и записать онлайн + историю."""
-    from app.services.account_service import apply_logged_on_user
+def _save_online_probe(probe: _Probe, sector_id: int) -> tuple[bool, int | None]:
+    """Найти машину по serial (иначе IP без SN) и записать онлайн + историю.
 
-    device = _resolve_device(
+    Возвращает (ok, created_device_id). created_device_id — только если
+    в этом вызове создали новую строку devices.
+    """
+    from app.services.account_service import apply_logged_on_user
+    from app.services.device_identity_service import absorb_ghosts, upsert_device_address
+
+    existing = _find_existing_device(
         ip=probe.ip,
+        serial_number=probe.serial_number,
+    )
+    created = existing is None
+    device = existing or Device(
+        ip=probe.ip,
+        sector_id=sector_id,
         hostname=probe.hostname,
         serial_number=probe.serial_number,
-        sector_id=sector_id,
+        last_status=DeviceStatus.UNKNOWN,
     )
+    if created:
+        db.session.add(device)
+
     device.ip = probe.ip
     device.sector_id = sector_id
     device.last_status = DeviceStatus.ONLINE
@@ -598,10 +682,26 @@ def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
     try:
         # Сначала id новой строки, потом история с внешним ключом.
         db.session.flush()
+        created_id = device.id if created else None
+
+        upsert_device_address(
+            device,
+            ip=probe.ip,
+            mac=probe.mac,
+            status=DeviceStatus.ONLINE,
+        )
+
         # VPN/DHCP: этот SN сейчас на адресе — остальные карточки с тем же IP
         # больше здесь не живут (иначе опрос железа снимет чужой ПК).
         if probe.serial_number:
             _displace_other_ip_holders(device, probe.ip)
+            absorb_ghosts(
+                device,
+                ip=probe.ip,
+                hostname=probe.hostname if probe.hostname_from_wmi else None,
+                hostname_trusted=bool(probe.hostname_from_wmi),
+            )
+
         db.session.add(
             DeviceHistory(
                 device_id=device.id,
@@ -622,8 +722,8 @@ def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
     except Exception:
         logger.exception("Не удалось сохранить онлайн-опрос %s", probe.ip)
         db.session.rollback()
-        return False
-    return True
+        return False, None
+    return True, created_id
 
 
 def _save_offline_probe(probe: _Probe) -> bool | None:
@@ -631,19 +731,25 @@ def _save_offline_probe(probe: _Probe) -> bool | None:
 
     True — обновили хотя бы одну строку; False — пустой адрес, ничего не создаём;
     None — ошибка COMMIT.
+
+    Учитывает device_addresses: один интерфейс offline не роняет карточку,
+    если другой интерфейс той же машины ещё online.
     """
-    devices = db.session.scalars(select(Device).where(Device.ip == probe.ip)).all()
+    from app.services.device_identity_service import mark_address_offline
+
+    devices = mark_address_offline(probe.ip)
     if not devices:
         return False
     now = utcnow()
     for device in devices:
-        device.last_status = DeviceStatus.OFFLINE
-        device.last_response_time_ms = None
+        # mark_address_offline уже мог оставить ONLINE на другом интерфейсе.
+        if device.last_status == DeviceStatus.OFFLINE:
+            device.last_response_time_ms = None
         db.session.add(
             DeviceHistory(
                 device_id=device.id,
                 timestamp=now,
-                status=DeviceStatus.OFFLINE,
+                status=device.last_status or DeviceStatus.OFFLINE,
                 response_time_ms=None,
             )
         )
@@ -656,23 +762,12 @@ def _save_offline_probe(probe: _Probe) -> bool | None:
     return True
 
 
-def _resolve_device(
+def _find_existing_device(
     *,
     ip: str,
-    hostname: str | None,
     serial_number: str | None,
-    sector_id: int,
-) -> Device:
-    """Ключ идентичности — только serial_number.
-
-    Hostname на карте (отображение), PTR/DNS в слиянии не участвуют.
-    При том же SN смена IP обновляет эту строку — DHCP не плодит дубли.
-    Без серийника можно переиспользовать только запись с тем же IP
-    и пустым SN (камера, Linux, WMI не ответил). Строку с чужим SN
-    не трогаем: иначе чужой хост на старом адресе перезапишет карточку.
-    SN позже на новом IP: если строка с этим SN уже есть — она;
-    призрак без SN на старом IP остаётся (это дыра варианта 1).
-    """
+) -> Device | None:
+    """Найти карточку без создания. Ключ — serial, иначе IP без SN."""
     if serial_number:
         found = db.session.scalar(
             select(Device).where(Device.serial_number == serial_number)
@@ -680,23 +775,11 @@ def _resolve_device(
         if found is not None:
             return found
 
-    found = db.session.scalars(
+    return db.session.scalars(
         select(Device)
         .where(Device.ip == ip, Device.serial_number.is_(None))
         .order_by(Device.id)
     ).first()
-    if found is not None:
-        return found
-
-    device = Device(
-        ip=ip,
-        sector_id=sector_id,
-        hostname=hostname,
-        serial_number=serial_number,
-        last_status=DeviceStatus.UNKNOWN,
-    )
-    db.session.add(device)
-    return device
 
 
 def _displace_other_ip_holders(owner: Device, ip: str) -> None:

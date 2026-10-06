@@ -387,6 +387,8 @@ def _poll_targets(
     if not pending:
         return
 
+    from app.services.device_identity_service import absorb_ghosts, upsert_device_address
+
     target_ids = [item[0].device_id for item in pending]
     live_serials = {
         discovery_service.normalize_serial(serial)
@@ -435,6 +437,7 @@ def _poll_targets(
         if owner.id != probed.id:
             result.mismatched += 1
             devices[owner.id] = owner
+        live_serial_norm = discovery_service.normalize_serial(live_serial)
         change = HardwareChange(
             device_id=owner.id,
             ip=target.ip,
@@ -451,6 +454,29 @@ def _poll_targets(
                 if len(result.changes) < _MAX_STORED_CHANGES:
                     result.changes.append(change)
             continue
+
+        if live_serial_norm and not discovery_service.normalize_serial(owner.serial_number):
+            owner.serial_number = live_serial_norm
+            by_serial[live_serial_norm] = owner
+        if live_hostname and not owner.hostname:
+            owner.hostname = live_hostname
+
+        upsert_device_address(
+            owner,
+            ip=target.ip,
+            mac=None,
+            status=DeviceStatus.ONLINE,
+        )
+        owner.ip = target.ip
+        owner.last_status = DeviceStatus.ONLINE
+        owner.last_seen = now
+        if live_serial_norm:
+            absorb_ghosts(
+                owner,
+                ip=target.ip,
+                hostname=live_hostname,
+                hostname_trusted=bool(live_hostname),
+            )
         changed = apply_hardware_snapshot(owner, snapshot, collected_at=now)
         result.collected += 1
         if changed:

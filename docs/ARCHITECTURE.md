@@ -231,7 +231,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | --- | --- | --- | --- |
 | `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Операторы сайта после LDAP. Флаги: `is_admin`, `is_viewer`, `is_operator`, `is_password_viewer`. Группы — для `sector_access`. |
 | `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR) и ACL (subject = username или LDAP group CN). |
-| `Device`, `DeviceHistory` | `devices`, `device_history` | `device.py` | Машины + журнал опросов. Идентичность: **только** `serial_number` (WMI). `hostname` — отображение (имя ОС), не ключ. IP — последний адрес, без unique; без SN — заглушка на этом IP. `current_account_id` — кто за ПК. `fingerprint_kind` / `fingerprint_detail` — TCP/SNMP-отпечаток серого адреса. Снимок железа (`cpu_name`, `ram_gb`, `disk_gb`, `os_*`, `hardware_checked_at`) пишет **отдельный** WMI-опрос, не ICMP. |
+| `Device`, `DeviceAddress`, `DeviceHistory` | `devices`, `device_addresses`, `device_history` | `device.py` | Машины + адреса интерфейсов + журнал опросов. Идентичность: **только** `serial_number` (WMI). `hostname` — отображение, не ключ. `devices.ip` — основной (последний онлайн); `device_addresses` — все виденные IP/MAC (Wi‑Fi + Ethernet). Без SN — заглушка на текущем IP. Снимок железа — отдельный WMI-опрос; при первом появлении карточки — сразу (`on_discover`). |
 | `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов ICMP-опроса. |
 | `HardwarePollRun`, `DeviceHardwareHistory` | `hardware_poll_runs`, `device_hardware_history` | `hardware.py` | Журнал ежедневного опроса железа Windows и история смены CPU/ОЗУ/дисков/ОС. |
 | `EndpointAccount`, `DeviceAccountHistory` | `endpoint_accounts`, `device_account_history` | `account.py` | УЗ на конечных точках (**не** путать с `users`). |
@@ -637,7 +637,9 @@ backup → git → pip → `flask init-db` → опциональный restart
 ## 12. Соглашения по домену и коду
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
-- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё. Другие карточки, у которых ещё записан этот IP, становятся offline (короткая аренда VPN). Hostname и PTR **не** ключи слияния: одинаковое имя при разных SN — две карточки. Без SN можно переиспользовать только запись с тем же IP и пустым SN; зонд без SN не забирает строку, у которой SN уже есть. Призрак без SN на старом IP после появления SN на новом — известная дыра (не сливать автоматически).
+- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё и пишет адрес в `device_addresses` (несколько интерфейсов: Ethernet + Wi‑Fi). Hostname и PTR **не** ключи слияния. Без SN можно переиспользовать только запись с тем же IP и пустым SN. Призрак без SN на старом IP после появления SN на новом (или совпадения WMI-hostname) **сливается** в карточку с SN (`device_identity_service.absorb_ghosts`). Один IP у разных SN — разные машины (история аренды), не дубль.
+- **Опрос железа при первом обнаружении:** после сетевого опроса новые Windows-карточки сразу проходят `hardware-poll` (`mode=on_discover`), не дожидаясь полуденного cron — чтобы SN/конфиг не «отставали» от смены IP на следующий день.
+- **Дубли (UI):** Настройки → Удаление дублей. Уверенные — одинаковый SN; призраки — IP с SN + без SN; история IP — разные SN на одном адресе (без авто-галочек); предположительно — MAC/hostname без авто-удаления.
 - **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames` (чужой SN на том же IP имя не пишет).
 - **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI. Ноутбуки: `BN***` (`bn` + 3 или 5 цифр) и префикс `n…`; СБ — `w…`.
 - **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
@@ -756,9 +758,10 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
 | Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Настройки → Опросы ПК и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
-| Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
+| Идентичность устройств | `ping_service._find_existing_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
-| Дубли устройств | `device_dedup_service`, GET/POST `/admin/duplicates` (Настройки → Удаление дублей) |
+| Дубли устройств | `device_dedup_service` (SN / призраки / история IP / suspected), GET/POST `/admin/duplicates` |
+| Идентичность / призраки | `device_identity_service` (`device_addresses`, `absorb_ghosts`), опрос сети + железо `on_discover` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |

@@ -125,6 +125,39 @@
           </div>
           {% endif %}
         </dl>
+        {% if device_addresses %}
+        <div class="mt-3">
+          <h3 class="h6 mb-2">Сетевые адреса</h3>
+          <p class="text-muted small mb-2">
+            Все IP/MAC, с которых машина отвечала (Ethernet, Wi‑Fi и т.п.).
+            Основной на карточке — последний успешный онлайн-зонд.
+          </p>
+          <div class="table-responsive">
+            <table class="table table-sm mb-0">
+              <thead>
+                <tr>
+                  <th>IP</th>
+                  <th>MAC</th>
+                  <th>Статус</th>
+                  <th>Видели</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for addr in device_addresses %}
+                <tr>
+                  <td class="font-monospace">{{ addr.ip }}</td>
+                  <td class="font-monospace small">{{ addr.mac or '—' }}</td>
+                  <td>{{ status_badge(addr.last_status) }}</td>
+                  <td class="small">{% if addr.last_seen %}{{ addr.last_seen|dt }}{% else %}—{% endif %}</td>
+                  <td class="small">{% if addr.ip == device.ip %}<span class="badge text-bg-primary">основной</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
       </div>
     </article>
 
