@@ -3,6 +3,12 @@
 Та же учётка, что для перезапуска после обновления из git:
 логин/пароль в app_settings (или UPDATE_SUDO_USER + sudoers).
 С паролем — su -P; без пароля — sudo -n (deploy/bawh-update.sudoers).
+
+Службы:
+  bawh-web                 — Gunicorn
+  bawh-scheduler           — опрос сети / железа / архив логов
+  bawh-password-reports    — рассылка отчётов о паролях AD
+  bawh-pc-reports          — рассылка отчётов о ПК
 """
 
 from __future__ import annotations
@@ -19,6 +25,16 @@ logger = logging.getLogger(__name__)
 
 SCHEDULER_UNIT = "bawh-scheduler"
 WEB_UNIT = "bawh-web"
+PASSWORD_REPORTS_UNIT = "bawh-password-reports"
+PC_REPORTS_UNIT = "bawh-pc-reports"
+
+# Порядок для systemctl restart — должен совпадать с sudoers.
+RESTART_UNITS = (
+    SCHEDULER_UNIT,
+    WEB_UNIT,
+    PASSWORD_REPORTS_UNIT,
+    PC_REPORTS_UNIT,
+)
 
 
 class SystemdError(RuntimeError):
@@ -40,7 +56,7 @@ class UnitStatus:
 
 @dataclass(frozen=True)
 class EnsureResult:
-    """Итог ensure_scheduler_running: что сделали и текущий статус."""
+    """Итог ensure_unit_running: что сделали и текущий статус."""
 
     status: UnitStatus
     started: bool
@@ -112,13 +128,9 @@ def get_unit_status(unit: str = SCHEDULER_UNIT) -> UnitStatus:
     )
 
 
-def ensure_scheduler_running() -> EnsureResult:
-    """Включить и запустить bawh-scheduler, если ещё не active.
-
-    Расписания отчётов живут в этом процессе. Выключение тумблера отчёта
-    не останавливает службу — опрос сети тоже идёт через неё.
-    """
-    status = get_unit_status(SCHEDULER_UNIT)
+def ensure_unit_running(unit: str) -> EnsureResult:
+    """Включить и запустить unit, если ещё не active."""
+    status = get_unit_status(unit)
     if not status.available:
         return EnsureResult(
             status=status,
@@ -132,7 +144,7 @@ def ensure_scheduler_running() -> EnsureResult:
             status=status,
             started=False,
             enabled=False,
-            message=f"Служба {SCHEDULER_UNIT} уже запущена ({status.active_state}).",
+            message=f"Служба {unit} уже запущена ({status.active_state}).",
         )
 
     systemctl = systemctl_path()
@@ -140,18 +152,18 @@ def ensure_scheduler_running() -> EnsureResult:
 
     enabled_now = False
     if not status.enabled:
-        _run_systemctl(systemctl, "enable", SCHEDULER_UNIT)
+        _run_systemctl(systemctl, "enable", unit)
         enabled_now = True
 
-    _run_systemctl(systemctl, "start", SCHEDULER_UNIT)
-    refreshed = get_unit_status(SCHEDULER_UNIT)
+    _run_systemctl(systemctl, "start", unit)
+    refreshed = get_unit_status(unit)
     if not refreshed.active:
         raise SystemdError(
-            f"Не удалось запустить {SCHEDULER_UNIT}: "
+            f"Не удалось запустить {unit}: "
             f"состояние {refreshed.active_state}. "
             "Проверьте sudo-учётку в Параметры → Управление службами."
         )
-    parts = [f"Служба {SCHEDULER_UNIT} запущена."]
+    parts = [f"Служба {unit} запущена."]
     if enabled_now:
         parts.append("Unit включён в автозагрузку.")
     return EnsureResult(
@@ -162,12 +174,91 @@ def ensure_scheduler_running() -> EnsureResult:
     )
 
 
+def ensure_scheduler_running() -> EnsureResult:
+    """Совместимость: поднять bawh-scheduler (опрос сети)."""
+    return ensure_unit_running(SCHEDULER_UNIT)
+
+
+def stop_unit(unit: str) -> EnsureResult:
+    """Остановить unit (тумблер отчёта выключен). Не disable — автозагрузка
+    остаётся; при следующем enable/start из тумблера поднимется снова.
+    """
+    status = get_unit_status(unit)
+    if not status.available:
+        return EnsureResult(
+            status=status,
+            started=False,
+            enabled=False,
+            message=status.detail or "systemd недоступен",
+        )
+    if not status.active:
+        return EnsureResult(
+            status=status,
+            started=False,
+            enabled=False,
+            message=f"Служба {unit} уже остановлена ({status.active_state}).",
+        )
+    systemctl = systemctl_path()
+    assert systemctl is not None
+    _run_systemctl(systemctl, "stop", unit)
+    refreshed = get_unit_status(unit)
+    return EnsureResult(
+        status=refreshed,
+        started=False,
+        enabled=False,
+        message=f"Служба {unit} остановлена.",
+    )
+
+
+def sync_unit_files(install_dir: str | Path | None = None) -> None:
+    """Скопировать unit-файлы из deploy/ и daemon-reload.
+
+    Нужно после обновления из git, чтобы появились новые службы отчётов.
+    """
+    root = Path(install_dir or _default_install_dir())
+    script = root / "deploy" / "sync-systemd-units.sh"
+    if not script.is_file():
+        raise SystemdError(f"Нет скрипта синхронизации unit'ов: {script}")
+
+    sudo_user, sudo_password = resolve_sudo_credentials()
+    # Скрипт сам делает cp + daemon-reload; запускаем от root через sudo/su.
+    result = _run_privileged_script(
+        str(script),
+        [str(root)],
+        sudo_user=sudo_user,
+        sudo_password=sudo_password,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise SystemdError(
+            f"Синхронизация systemd unit'ов завершилась с кодом "
+            f"{result.returncode}. {detail}".strip()
+            + " Проверьте sudo-учётку и deploy/bawh-update.sudoers."
+        )
+
+
 def run_service_restart(
     systemctl: str,
     sudo_user: str = "",
     sudo_password: str = "",
 ) -> subprocess.CompletedProcess:
-    """Перезапуск bawh-scheduler и bawh-web (как после обновления)."""
+    """Перезапуск web + опрос + службы отчётов (как после обновления)."""
+    return _run_privileged(
+        systemctl,
+        ["restart", *RESTART_UNITS],
+        sudo_user=sudo_user,
+        sudo_password=sudo_password,
+        timeout=120,
+    )
+
+
+def run_core_service_restart(
+    systemctl: str,
+    sudo_user: str = "",
+    sudo_password: str = "",
+) -> subprocess.CompletedProcess:
+    """Fallback: только bawh-scheduler + bawh-web (старый sudoers)."""
     return _run_privileged(
         systemctl,
         ["restart", SCHEDULER_UNIT, WEB_UNIT],
@@ -186,10 +277,25 @@ def restart_command(
     """Команда перезапуска служб (совместимость с update_service)."""
     return _build_privileged_command(
         systemctl,
-        ["restart", SCHEDULER_UNIT, WEB_UNIT],
+        ["restart", *RESTART_UNITS],
         sudo_user=sudo_user,
         with_password=with_password,
     )
+
+
+def restart_units_hint() -> str:
+    return "sudo systemctl restart " + " ".join(RESTART_UNITS)
+
+
+def _default_install_dir() -> Path:
+    if has_app_context():
+        try:
+            root = current_app.root_path
+            # app/ → корень репозитория /opt/bawh
+            return Path(root).resolve().parent
+        except Exception:  # noqa: BLE001
+            pass
+    return Path(os.environ.get("BAWH_ROOT") or "/opt/bawh")
 
 
 def _looks_like_systemd_missing(state: str) -> bool:
@@ -292,6 +398,44 @@ def _run_privileged(
     )
 
 
+def _run_privileged_script(
+    script: str,
+    args: list[str],
+    *,
+    sudo_user: str = "",
+    sudo_password: str = "",
+    timeout: int = 60,
+) -> subprocess.CompletedProcess:
+    """Запуск deploy/sync-systemd-units.sh от root."""
+    bash = "/usr/bin/bash"
+    password = sudo_password or ""
+    if password:
+        user = (sudo_user or "root").strip() or "root"
+        remote_args = " ".join(_shell_quote(a) for a in [script, *args])
+        if user == "root":
+            remote = f"{bash} {remote_args}"
+        else:
+            remote = (
+                f"printf '%s\\n' \"$BAWH_SU_PASS\" | "
+                f"sudo -S -p '' {bash} {remote_args}"
+            )
+        command = ["su", "-P", "-w", "BAWH_SU_PASS", user, "-c", remote]
+        return _run_su_with_password(command, password, timeout=timeout)
+
+    command = ["sudo", "-n"]
+    user = (sudo_user or "").strip()
+    if user:
+        command.extend(["-u", user])
+    command.extend([bash, script, *args])
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
 def _run_su_with_password(
     command: list[str],
     password: str,
@@ -344,7 +488,6 @@ def _run_su_with_password(
                     os.write(master, (password + "\n").encode())
                     password_sent = True
             if proc.poll() is not None:
-                # Дочитать хвост
                 while True:
                     ready, _, _ = select.select([master], [], [], 0.05)
                     if not ready:

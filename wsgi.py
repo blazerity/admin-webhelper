@@ -1,6 +1,8 @@
 """Точка входа Gunicorn / локального flask run.
 
-Опрос сети — отдельный процесс `python -m app.scheduler_worker`.
+Опрос сети — `python -m app.scheduler_worker`.
+Отчёты о паролях — `python -m app.password_report_worker`.
+Отчёты о ПК — `python -m app.pc_report_worker`.
 """
 
 from app import create_app

@@ -327,8 +327,9 @@
 <div class="panel content-card mb-3 service-control-panel" id="service-control">
   <h2 class="h5 mb-1">Управление службами</h2>
   <p class="text-muted mb-3">
-    Linux-учётка для <code>systemctl</code>: запуск <code>bawh-scheduler</code> при включении
-    тумблеров отчётов и перезапуск служб после обновления из git.
+    Linux-учётка для <code>systemctl</code>: запуск служб отчётов
+    (<code>bawh-password-reports</code>, <code>bawh-pc-reports</code>) при включении
+    тумблеров и перезапуск всех служб после обновления из git.
   </p>
   <form method="post" class="mb-0" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -349,7 +350,8 @@
     <p class="text-muted small mb-0">
       Обычно <code>root</code>. Пароль шифруется Fernet (<code>FERNET_KEY</code>) и передаётся в
       <code>su</code> — отдельный sudoers не нужен. Без пароля — <code>sudo -n</code> и
-      <code>deploy/bawh-update.sudoers</code> (restart / start / enable scheduler).
+      <code>deploy/bawh-update.sudoers</code> (restart всех служб / start / enable / stop
+      scheduler и служб отчётов / sync-systemd-units.sh).
       Пустой логин очищает учётку.
     </p>
   </form>

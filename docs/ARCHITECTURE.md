@@ -55,9 +55,11 @@ HTTP / CLI / scheduler
 | --- | --- | --- |
 | Веб (prod) | `wsgi.py` → `create_app()` → Gunicorn `wsgi:app` | Только HTTP. Опрос здесь **запрещён**. |
 | Веб (dev) | `python wsgi.py` (:8000) или `flask --app wsgi run` | То же. |
-| Планировщик | `python -m app.scheduler_worker` | `create_app()` + `start_scheduler(app)`; HTTP не слушает. |
+| Планировщик | `python -m app.scheduler_worker` | `create_app()` + `start_scheduler(app)`; опрос сети/железа. |
+| Отчёты паролей | `python -m app.password_report_worker` | `start_password_report_scheduler(app)`. |
+| Отчёты о ПК | `python -m app.pc_report_worker` | `start_pc_report_scheduler(app)`. |
 | Flask CLI | `flask --app wsgi …` | `poll`, `hardware-poll`, `archive-logs`, `password-expiry [--dry-run]`, `sector-daily-report [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
-| Docker | `Dockerfile` | Опциональный web-only образ; scheduler — отдельно. |
+| Docker | `Dockerfile` | Опциональный web-only образ; scheduler/отчёты — отдельно. |
 
 Фабрика: `app/__init__.py` → `create_app(config_name)`.
 
@@ -118,6 +120,8 @@ flowchart TB
   subgraph entry["Точки входа"]
     WSGI["wsgi.py<br/>Gunicorn"]
     SCHED["app.scheduler_worker<br/>bawh-scheduler"]
+    PWD_W["app.password_report_worker<br/>bawh-password-reports"]
+    PC_W["app.pc_report_worker<br/>bawh-pc-reports"]
     CLI["flask CLI<br/>poll · hardware-poll · archive-logs · password-expiry · sector-daily-report · refresh-hostnames · init-db"]
   end
 
@@ -308,7 +312,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_settings.py` | SMTP общий (UI: Параметры → Почта), bind LDAP модуля, пороги; fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
-| `report_toggle_service.py` | тумблер расписания отчётов + ensure scheduler |
+| `report_toggle_service.py` | тумблер расписания отчётов + ensure своей службы |
 | `systemd_service.py` | `systemctl` start/enable/restart через sudo-учётку |
 
 ### Отчёты о ПК (бывш. «Отчёт по секторам»)
@@ -405,7 +409,7 @@ List, `export.csv`, detail (только видимые по ACL).
 | Method | Path | Auth |
 | --- | --- | --- |
 | GET | `/` | `password_viewer` |
-| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-scheduler` |
+| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-password-reports` |
 | GET/POST | `/settings`, POST `/run`, `/pause`, `/notify` | admin |
 
 ### Отчёты о ПК — prefix `/pc-reports` (legacy `/sector-daily-report` → 301)
@@ -413,7 +417,7 @@ List, `export.csv`, detail (только видимые по ACL).
 | Method | Path | Auth |
 | --- | --- | --- |
 | GET | `/` | admin — дашборд парка ПК + диаграммы + тумблер |
-| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-scheduler` |
+| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-pc-reports` |
 | GET/POST | `/settings`, POST `/run` | admin |
 | GET | `/export.csv` | admin — CSV парка / кандидатов / пробелов |
 
@@ -485,19 +489,35 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 
 ## 10. Фоновые задачи
 
-### Процесс `bawh-scheduler` (APScheduler)
+### Процесс `bawh-scheduler` (APScheduler) — опрос
 
 | Job | Триггер | Действие |
 | --- | --- | --- |
 | `poll-devices` | Interval из `app_settings` / `POLL_INTERVAL_SECONDS` | `run_network_poll` |
 | `hardware-poll` | cron из настроек (default `0 12 * * *`, локальный TZ) | `run_hardware_poll` (если включено) |
 | `archive-logs` | daily ~00:20 UTC | `log_archive_service` |
-| `password-expiry` | cron из настроек модуля | `run_password_expiry` (если включено) |
-| `sector-daily-report` | cron из настроек модуля (default `0 7 * * *`) | `run_sector_daily_report` (если включено) |
 
-Интервал опроса и cron отчётов подхватываются без перезапуска процесса.
-Тумблер «Сервис отчётов» на UI включает job и при необходимости поднимает
-systemd-unit `bawh-scheduler` (sudo-учётка: Параметры → Управление службами).
+Интервал опроса и cron железа подхватываются без перезапуска процесса.
+
+### Процесс `bawh-password-reports` — пароли AD
+
+| Job | Триггер | Действие |
+| --- | --- | --- |
+| `password-expiry` | cron из настроек модуля | `run_password_expiry` (если включено) |
+| `password-expiry-refresh` | каждые ~30 с | перечитать cron/тумблер из БД |
+
+Тумблер «Сервис отчётов» на UI модуля включает job и поднимает
+systemd-unit `bawh-password-reports` (sudo-учётка: Параметры → Управление службами).
+Выключение тумблера останавливает только эту службу — опрос сети не затрагивается.
+
+### Процесс `bawh-pc-reports` — отчёты о ПК
+
+| Job | Триггер | Действие |
+| --- | --- | --- |
+| `sector-daily-report` | cron из настроек модуля (default `0 7 * * *`) | `run_sector_daily_report` (если включено) |
+| `sector-daily-refresh` | каждые ~30 с | перечитать cron/тумблер из БД |
+
+Аналогично: тумблер → `bawh-pc-reports`. Отчёты **не** зависят от прогона опроса сети.
 
 ### Внутри веб-процесса
 
@@ -584,7 +604,9 @@ fingerprint windows) → `lookup_wmi_hardware` → снимок на `devices` +
 
 Admin UI → `update_service` (фоновый поток + `app.app_context()`):
 backup → git → pip → `flask init-db` → опциональный restart
-`bawh-web` + `bawh-scheduler` (sudo-учётка из Параметров / sudoers).
+`bawh-web` + `bawh-scheduler` + при включённых тумблерах
+`bawh-password-reports` / `bawh-pc-reports` (sudo-учётка из Параметров / sudoers).
+Перед restart — `deploy/sync-systemd-units.sh` (unit-файлы + sudoers).
 Ошибка перезапуска не должна помечать уже выполненную замену кода как failed.
 
 ---
@@ -663,13 +685,17 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | `deploy/install-debian12.sh` | Установка одной командой → PG, venv, `flask init-db`, nginx, systemd |
 | `deploy/bawh-web.service` | Gunicorn `127.0.0.1:8000`, `EnvironmentFile=/opt/bawh/.env` |
-| `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` |
+| `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` (опрос / железо / архив) |
+| `deploy/bawh-password-reports.service` | `python -m app.password_report_worker` |
+| `deploy/bawh-pc-reports.service` | `python -m app.pc_report_worker` |
+| `deploy/sync-systemd-units.sh` | cp unit'ов + sudoers + `daemon-reload` |
 | `deploy/nginx-bawh.conf` | :80 → gunicorn |
-| `deploy/bawh-update.sudoers` | passwordless restart + start/enable `bawh-scheduler` |
+| `deploy/bawh-update.sudoers` | passwordless restart всех служб + start/enable/stop отчётов + sync |
 | `deploy/logrotate-bawh` | logrotate |
 | `Dockerfile` | опционально, только web |
 
-Два процесса обязательны: **web** и **scheduler**. Один `.env` на оба (общий `FERNET_KEY`).
+Обязательны **web** и **scheduler**. Службы отчётов поднимаются тумблерами
+в UI. Один `.env` на все процессы (общий `FERNET_KEY`).
 
 ---
 

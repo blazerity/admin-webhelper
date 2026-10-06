@@ -218,7 +218,7 @@ MAC: ноутбуки / СБ / прочее всегда; камера / МФУ 
 Общий паттерн для «Пароли AD» и «Отчёты о ПК»:
 
 - `.report-service-toggle` (+ `.is-on`)
-- Тумблер schedule + статус `bawh-scheduler`
+- Тумблер schedule + статус своей службы (`bawh-password-reports` / `bawh-pc-reports`)
 - Primary «Запустить сейчас» + outline «Тестовый прогон»
 - Дашборд ПК: KPI + Chart.js (vendor) + таблицы кандидатов/пробелов; экспорт CSV — outline-primary
 

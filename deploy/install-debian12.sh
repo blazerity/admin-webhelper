@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Установка bAWH на Debian 12: пакеты, PostgreSQL, venv, systemd, Nginx.
-# Каталог /opt/bawh совпадает с deploy/bawh-web.service и bawh-scheduler.service.
+# Каталог /opt/bawh совпадает с deploy/bawh-*.service.
 # В консоли — баннер, прогресс-бар по шагам и спиннер ожидания PostgreSQL/health.
 #
 # С чистого сервера:
@@ -505,16 +505,16 @@ prepare_database() {
 }
 
 install_systemd() {
-  step_begin "systemd-службы" "bawh-web (Gunicorn) и bawh-scheduler"
-  cp "$INSTALL_DIR/deploy/bawh-web.service" "$INSTALL_DIR/deploy/bawh-scheduler.service" /etc/systemd/system/
-  systemctl daemon-reload
+  step_begin "systemd-службы" "web, опрос сети, отчёты о паролях и о ПК"
+  bash "$INSTALL_DIR/deploy/sync-systemd-units.sh" "$INSTALL_DIR"
   systemctl enable --now bawh-web bawh-scheduler
+  # Службы отчётов поднимает тумблер в UI; unit'ы уже установлены.
   systemctl restart bawh-web bawh-scheduler
   step_ok "службы запущены"
 }
 
 install_update_sudoers() {
-  step_begin "Sudoers для обновления из UI" "passwordless restart bawh-web / bawh-scheduler"
+  step_begin "Sudoers для обновления из UI" "passwordless restart web / scheduler / reports"
   local src="$INSTALL_DIR/deploy/bawh-update.sudoers"
   local dest=/etc/sudoers.d/bawh-update
   if [[ ! -f "$src" ]]; then
@@ -616,7 +616,7 @@ print_summary() {
   printf '\n'
   printf '%sСледующий шаг:%s заполните LDAP в %s/.env\n' "$C_YELLOW$C_BOLD" "$C_RESET" "$INSTALL_DIR"
   printf '  (LDAP_HOST, LDAP_BASE_DN, LDAP_DOMAIN) и перезапустите:\n'
-  printf '    systemctl restart bawh-web bawh-scheduler\n'
+  printf '    systemctl restart bawh-web bawh-scheduler bawh-password-reports bawh-pc-reports\n'
   printf '\n'
   printf '%sPsExec:%s учётка на странице /admin/settings (на пользователя).\n' "$C_DIM" "$C_RESET"
   printf '%sHTTP:%s  пока без TLS оставьте SESSION_COOKIE_SECURE=0.\n\n' "$C_DIM" "$C_RESET"
