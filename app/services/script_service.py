@@ -353,6 +353,8 @@ def execute_run(app, run_id: int) -> None:
                     return
                 _cancel_events[run_id] = cancel_event
                 run.status = RunStatus.RUNNING
+                if run.run_type in {RunType.SCRIPT, RunType.COMMAND} and not (run.log_text or "").strip():
+                    run.log_text = "Подключение к компьютеру, запуск…\n"
                 db.session.commit()
 
             run = db.session.get(ScriptRun, run_id)

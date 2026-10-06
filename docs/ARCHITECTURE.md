@@ -297,7 +297,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Модуль | Роль |
 | --- | --- |
-| `psexec_service.py` | pypsexec-сессии, cancel/close. PowerShell: файл в `ADMIN$\Temp` + `cmd.exe` (не `-EncodedCommand`, иначе `STATUS_PIPE_BROKEN`); CLIXML из журнала вырезается |
+| `psexec_service.py` | pypsexec-сессии, cancel/close. PowerShell: файл в `ADMIN$\Temp` + `cmd.exe -File` (не `-EncodedCommand`, иначе `STATUS_PIPE_BROKEN`); stdout в канал сразу (`on_output` → живой журнал); CLIXML вырезается |
 | `script_service.py` | CRUD/тело скриптов; enqueue на ThreadPoolExecutor в веб-процессе |
 | `batch_service.py` | bulk ping/script + статус batch |
 | `command_presets.py` | статические пресеты команд |
