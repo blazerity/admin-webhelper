@@ -383,6 +383,18 @@ try {
 
 - служба `bawh-vnc` запущена (Параметры → VNC);
 - Nginx проксирует `/vnc/ws` (шаблон `deploy/nginx-bawh.conf`);
-- на ПК слушает 5900, файрвол пускает Debian;
+- на ПК слушает **тот же порт**, что в Параметрах (обычно **5900**, не 5909);
+- `$BawhServerIp` — адрес Debian, с которого он ходит на ПК (`ip -4 addr`, не IP самой машины);
 - пароль агента совпадает с полем на странице стола / Параметрами (до 8 символов);
 - билет живёт 90 секунд — обновите страницу стола, если долго ждали.
+
+Лог шлюза: `journalctl -u bawh-vnc -n 80 --no-pager`.
+`vnc session … ip:port` значит TCP открылся; дальше должна быть строка `vnc greeting … RFB 003.008`.
+Если `not RFB` — на порту не TightVNC (часто порт в Параметрах не 5900).
+Если после `RFB` сразу `tcp closed` — пароль или старый ACL TightVNC (`IpAccessControl`).
+На уже поставленном агенте ACL можно снять и перезапустить службу:
+
+```powershell
+Remove-ItemProperty HKLM:\SOFTWARE\TightVNC\Server -Name IpAccessControl -ErrorAction SilentlyContinue
+Restart-Service tvnserver
+```
