@@ -26,7 +26,7 @@ sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsS
 sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo BAWH_SERVER_NAME=bawh.example.com bash
 ```
 
-Установщик кладёт код в `/opt/bawh`, поднимает PostgreSQL, Nginx, `bawh-web` и `bawh-scheduler`, пишет секреты в `/opt/bawh/.env`. В консоли показывает прогресс по шагам (пакеты → код → venv → БД → службы → Nginx → health).
+Установщик кладёт код в `/opt/bawh`, поднимает PostgreSQL, Nginx, `bawh-web` и `bawh-scheduler`, пишет секреты в `/opt/bawh/.env`. Unit'ы отчётов (`bawh-password-reports`, `bawh-pc-reports`) ставятся сразу, запускаются тумблером в UI. В консоли показывает прогресс по шагам (пакеты → код → venv → БД → службы → Nginx → health).
 
 После установки заполните LDAP в `/opt/bawh/.env` и перезапустите службы:
 
@@ -63,11 +63,13 @@ sudo systemctl restart bawh-web bawh-scheduler
 | Юнит | Назначение |
 | --- | --- |
 | `bawh-web` | Gunicorn (`127.0.0.1:8000`), снаружи — Nginx :80 |
-| `bawh-scheduler` | периодический опрос сети |
+| `bawh-scheduler` | опрос сети / железа / архив логов |
+| `bawh-password-reports` | рассылка отчётов о паролях AD (тумблер в UI) |
+| `bawh-pc-reports` | рассылка отчётов о ПК (тумблер в UI) |
 
 ```bash
-sudo systemctl status bawh-web bawh-scheduler
-journalctl -u bawh-web -u bawh-scheduler -f
+sudo systemctl status bawh-web bawh-scheduler bawh-password-reports bawh-pc-reports
+journalctl -u bawh-web -u bawh-scheduler -u bawh-password-reports -u bawh-pc-reports -f
 ```
 
 ## Обновление
@@ -105,7 +107,9 @@ flask --app wsgi run --debug
 
 Таблицы и недостающие колонки подтягиваются при старте (`ensure_schema` + справочники).
 Переустановка кода без очистки Postgres безопасна: новые колонки (например роли
-`is_viewer` / `is_operator`) добавятся сами. Планировщик отдельно: `python -m app.scheduler_worker`.
+`is_viewer` / `is_operator`) добавятся сами. Фоновые процессы отдельно:
+`python -m app.scheduler_worker`, `python -m app.password_report_worker`,
+`python -m app.pc_report_worker`.
 
 Имена на карте — с самой машины (WMI), не reverse DNS. Если карточки показывают общее PTR-имя, на сервере с доступом в LAN:
 

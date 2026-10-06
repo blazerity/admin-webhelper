@@ -692,17 +692,21 @@ def _with_restart(root: Path, message: str, restart: bool) -> str:
         return f"{message} {schedule_restart(root, message)}".strip()
     except Exception:
         logger.exception("service restart was not scheduled")
+        from app.services.systemd_service import restart_units_hint
+
         return (
             f"{message} Службы сами не перезапустились. "
-            "Выполните: sudo systemctl restart bawh-scheduler bawh-web."
+            f"Выполните: {restart_units_hint()}."
         )
 
 
 def schedule_restart(root: Path, previous: str) -> str:
-    """Перезапуск служб после ответа странице. На Windows службы systemd нет."""
+    """Синхронизация unit'ов и перезапуск служб после ответа странице."""
+    from flask import has_app_context
+
     from app.services.systemd_service import (
         resolve_sudo_credentials,
-        run_service_restart,
+        restart_units_hint,
         systemctl_path,
     )
 
@@ -711,15 +715,96 @@ def schedule_restart(root: Path, previous: str) -> str:
         return "Перезапустите процесс приложения, чтобы подхватить новую версию."
 
     sudo_user, sudo_password = resolve_sudo_credentials()
+    app = None
+    if has_app_context():
+        from flask import current_app
+
+        app = current_app._get_current_object()
 
     def _later() -> None:
         time.sleep(2)
-        result = run_service_restart(systemctl, sudo_user, sudo_password)
-        if result.returncode != 0:
-            hint = "sudo systemctl restart bawh-scheduler bawh-web"
+        try:
+            if app is not None:
+                with app.app_context():
+                    _run_post_update_restart(
+                        root, previous, systemctl, sudo_user, sudo_password
+                    )
+            else:
+                _run_post_update_restart(
+                    root, previous, systemctl, sudo_user, sudo_password
+                )
+        except Exception:
+            logger.exception("post-update service restart failed")
+            hint = restart_units_hint()
             if sudo_user:
-                hint = f"su - {sudo_user} -c '{systemctl} restart bawh-scheduler bawh-web'"
-            detail = _tail(result.stderr or result.stdout)
+                hint = (
+                    f"su - {sudo_user} -c '{systemctl} restart "
+                    "bawh-scheduler bawh-web bawh-password-reports bawh-pc-reports'"
+                )
+            _write_operation(
+                root,
+                "success",
+                previous
+                + " Службы сами не перезапустились. "
+                + f"Выполните: {hint}. "
+                + "Проверьте sudo-учётку в Параметры → Управление службами "
+                + "(логин/пароль Linux или правило deploy/bawh-update.sudoers).",
+            )
+
+    threading.Thread(target=_later, name="bawh-restart", daemon=True).start()
+    return (
+        "Службы bawh-web, bawh-scheduler, bawh-password-reports и "
+        "bawh-pc-reports будут синхронизированы и перезапущены через несколько секунд."
+    )
+
+
+def _run_post_update_restart(
+    root: Path,
+    previous: str,
+    systemctl: str,
+    sudo_user: str,
+    sudo_password: str,
+) -> None:
+    """Скопировать unit-файлы, перезапустить все службы, поднять отчёты по тумблеру."""
+    from app.services.systemd_service import (
+        SystemdError,
+        restart_units_hint,
+        run_service_restart,
+        sync_unit_files,
+    )
+
+    sync_ok = False
+    try:
+        sync_unit_files(root)
+        sync_ok = True
+    except SystemdError as exc:
+        logger.warning("sync systemd units after update: %s", exc)
+    except Exception:
+        logger.exception("sync systemd units after update failed")
+
+    result = run_service_restart(systemctl, sudo_user, sudo_password)
+    if result.returncode != 0:
+        # Старый sudoers мог разрешать только bawh-scheduler bawh-web.
+        legacy = _run_legacy_restart(systemctl, sudo_user, sudo_password)
+        if legacy.returncode != 0:
+            hint = restart_units_hint()
+            if sudo_user:
+                hint = (
+                    f"su - {sudo_user} -c '{systemctl} restart "
+                    "bawh-scheduler bawh-web bawh-password-reports bawh-pc-reports'"
+                )
+            detail = _tail(
+                result.stderr or result.stdout or legacy.stderr or legacy.stdout
+            )
+            extra = ""
+            if not sync_ok:
+                extra = (
+                    " Также обновите sudoers: "
+                    "sudo cp /opt/bawh/deploy/bawh-update.sudoers "
+                    "/etc/sudoers.d/bawh-update && sudo chmod 440 "
+                    "/etc/sudoers.d/bawh-update && "
+                    "sudo bash /opt/bawh/deploy/sync-systemd-units.sh /opt/bawh."
+                )
             _write_operation(
                 root,
                 "success",
@@ -728,11 +813,51 @@ def schedule_restart(root: Path, previous: str) -> str:
                 + f"Выполните: {hint}. "
                 + "Проверьте sudo-учётку в Параметры → Управление службами "
                 + "(логин/пароль Linux или правило deploy/bawh-update.sudoers). "
-                + detail,
+                + detail
+                + extra,
             )
+            return
 
-    threading.Thread(target=_later, name="bawh-restart", daemon=True).start()
-    return "Службы bawh-scheduler и bawh-web будут перезапущены через несколько секунд."
+    _ensure_report_units_for_enabled_schedules()
+
+
+def _run_legacy_restart(
+    systemctl: str,
+    sudo_user: str,
+    sudo_password: str,
+) -> subprocess.CompletedProcess:
+    """Fallback: restart только web+scheduler (старый sudoers)."""
+    from app.services.systemd_service import run_core_service_restart
+
+    return run_core_service_restart(systemctl, sudo_user, sudo_password)
+
+
+def _ensure_report_units_for_enabled_schedules() -> None:
+    """После обновления поднять службы отчётов, если тумблеры включены."""
+    from app.services.password_expiry_settings import get_password_expiry_settings
+    from app.services.sector_daily_report_settings import get_sector_daily_report_settings
+    from app.services.systemd_service import (
+        PASSWORD_REPORTS_UNIT,
+        PC_REPORTS_UNIT,
+        SystemdError,
+        ensure_unit_running,
+    )
+
+    try:
+        if get_password_expiry_settings().schedule_enabled:
+            ensure_unit_running(PASSWORD_REPORTS_UNIT)
+    except SystemdError as exc:
+        logger.warning("password reports unit after update: %s", exc)
+    except Exception:
+        logger.exception("password reports unit after update failed")
+
+    try:
+        if get_sector_daily_report_settings().schedule_enabled:
+            ensure_unit_running(PC_REPORTS_UNIT)
+    except SystemdError as exc:
+        logger.warning("pc reports unit after update: %s", exc)
+    except Exception:
+        logger.exception("pc reports unit after update failed")
 
 
 def restart_command(systemctl: str, sudo_user: str = "", *, with_password: bool = False) -> list[str]:

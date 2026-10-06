@@ -2,11 +2,14 @@
 
 Этот модуль нельзя запускать внутри Gunicorn. У веб-сервера несколько
 процессов-воркеров, и каждый выполнил бы start_scheduler: сеть пинговали
-бы параллельно, а история в БД задвоилась. Опрос живёт в отдельном
-процессе ОС — app/scheduler_worker.py.
+бы параллельно, а история в БД задвоилась.
+
+Опрос сети/железа и архив логов — app/scheduler_worker.py (bawh-scheduler).
+Отчёты о паролях AD — app/password_report_worker.py (bawh-password-reports).
+Отчёты о ПК — app/pc_report_worker.py (bawh-pc-reports).
 
 Позже вместо APScheduler может появиться Celery beat. Задача beat
-вызовет ту же start_scheduler или напрямую run_network_poll.
+вызовет ту же start_* или напрямую run_network_poll / run_*_report.
 Сама проверка хостов от очереди не зависит и не переписывается.
 
 Команда `flask poll` регистрируется здесь, а create_app вызывает
@@ -46,14 +49,20 @@ from app.services.settings_service import get_poll_interval_seconds
 
 logger = logging.getLogger(__name__)
 
-# Ключ в app.extensions: один планировщик на объект приложения.
+# Ключи в app.extensions: один планировщик на процесс.
 SCHEDULER_EXT_KEY = "bawh_scheduler"
+PASSWORD_REPORT_EXT_KEY = "bawh_password_report_scheduler"
+PC_REPORT_EXT_KEY = "bawh_pc_report_scheduler"
 _POLL_COMMAND_KEY = "bawh_poll_command"
 JOB_ID = "poll-devices"
 ARCHIVE_JOB_ID = "archive-logs"
 PASSWORD_EXPIRY_JOB_ID = "password-expiry"
+PASSWORD_REFRESH_JOB_ID = "password-expiry-refresh"
 SECTOR_DAILY_JOB_ID = "sector-daily-report"
+SECTOR_REFRESH_JOB_ID = "sector-daily-refresh"
 HARDWARE_POLL_JOB_ID = "hardware-poll"
+# Как часто подхватывать cron/тумблер из БД без перезапуска процесса.
+_REPORT_REFRESH_SECONDS = 30
 
 
 def register_commands(app) -> None:
@@ -237,7 +246,7 @@ def register_commands(app) -> None:
 
 
 def start_scheduler(app) -> BackgroundScheduler:
-    """Фоновый APScheduler. Вернёт уже запущенный, если он есть.
+    """Фоновый APScheduler опроса сети/железа и архива логов.
 
     Часовой пояс UTC — метки в БД тоже UTC, интервал не прыгает
     на переходе на летнее время.
@@ -254,27 +263,22 @@ def start_scheduler(app) -> BackgroundScheduler:
     Задача archive-logs — раз в сутки около 00:20 UTC: суточные хвосты
     завершённых месяцев пакуются в LOG_ARCHIVE_DIR.
 
-    Задачи password-expiry, sector-daily-report и hardware-poll — cron
-    из app_settings (локальный TZ сервера). Опрос железа по умолчанию
-    в полдень: CPU, ОЗУ, диски, версия Windows через WMI.
+    Опрос железа — cron из app_settings (локальный TZ, по умолчанию полдень).
+
+    Отчёты о паролях и о ПК живут в отдельных процессах
+    (start_password_report_scheduler / start_pc_report_scheduler).
 
     Запускать только из scheduler_worker, не из воркера Gunicorn.
-    Иначе каждый веб-процесс начнёт пинговать сеть. Когда появится
-    Celery beat, он вызовет эту же функцию; run_network_poll останется прежним.
     """
     existing = app.extensions.get(SCHEDULER_EXT_KEY)
     if existing is not None and getattr(existing, "running", False):
         return existing
 
     scheduler = BackgroundScheduler(timezone="UTC")
-    # Сколько секунд сейчас стоит у задачи. Сравниваем с БД после прохода.
     scheduled_for = {"seconds": _read_interval(app)}
-    password_cron_state = {"cron": "", "enabled": False, "func": None}
-    sector_daily_cron_state = {"cron": "", "enabled": False, "func": None}
     hardware_poll_cron_state = {"cron": "", "enabled": False, "func": None}
 
     def poll_job() -> None:
-        # У планировщика нет HTTP-запроса, который открыл бы контекст сам.
         with app.app_context():
             try:
                 run_network_poll(mode="scheduled")
@@ -283,13 +287,9 @@ def start_scheduler(app) -> BackgroundScheduler:
             except Exception:
                 logger.exception("Сбой планового опроса сети")
             finally:
-                # Даже если опрос упал, интервал из формы должен примениться,
-                # а соединение с БД — вернуться в пул.
                 try:
                     db.session.rollback()
                     _apply_interval(scheduler, scheduled_for)
-                    _apply_password_expiry_schedule(scheduler, password_cron_state)
-                    _apply_sector_daily_schedule(scheduler, sector_daily_cron_state)
                     _apply_hardware_poll_schedule(scheduler, hardware_poll_cron_state)
                 except Exception:
                     logger.exception("Не удалось обновить интервал опроса")
@@ -302,44 +302,6 @@ def start_scheduler(app) -> BackgroundScheduler:
                 _run_log_archive(app)
             except Exception:
                 logger.exception("Не удалось архивировать логи")
-
-    def password_expiry_job() -> None:
-        with app.app_context():
-            try:
-                settings = get_password_expiry_settings()
-                if not settings.schedule_enabled:
-                    logger.info("Пароли AD: расписание выключено, пропуск")
-                    return
-                result = run_password_expiry(send_emails=True, mode="scheduled")
-                logger.info(
-                    "Пароли AD: scheduled exit=%s sent=%s users=%s",
-                    result.exit_code,
-                    result.sent_count,
-                    result.users_count,
-                )
-            except Exception:
-                logger.exception("Пароли AD: сбой плановой проверки")
-            finally:
-                db.session.remove()
-
-    def sector_daily_job() -> None:
-        with app.app_context():
-            try:
-                settings = get_sector_daily_report_settings()
-                if not settings.schedule_enabled:
-                    logger.info("Отчёты о ПК: расписание выключено, пропуск")
-                    return
-                result = run_sector_daily_report(send_emails=True, mode="scheduled")
-                logger.info(
-                    "Отчёты о ПК: scheduled exit=%s active=%s sent=%s",
-                    result.exit_code,
-                    result.active_total,
-                    result.sent_count,
-                )
-            except Exception:
-                logger.exception("Отчёты о ПК: сбой планового прогона")
-            finally:
-                db.session.remove()
 
     def hardware_poll_job() -> None:
         with app.app_context():
@@ -371,8 +333,6 @@ def start_scheduler(app) -> BackgroundScheduler:
                 finally:
                     db.session.remove()
 
-    password_cron_state["func"] = password_expiry_job
-    sector_daily_cron_state["func"] = sector_daily_job
     hardware_poll_cron_state["func"] = hardware_poll_job
 
     scheduler.add_job(
@@ -395,12 +355,128 @@ def start_scheduler(app) -> BackgroundScheduler:
         replace_existing=True,
     )
     with app.app_context():
-        _apply_password_expiry_schedule(scheduler, password_cron_state, force=True)
-        _apply_sector_daily_schedule(scheduler, sector_daily_cron_state, force=True)
         _apply_hardware_poll_schedule(scheduler, hardware_poll_cron_state, force=True)
     scheduler.start()
     app.extensions[SCHEDULER_EXT_KEY] = scheduler
     logger.info("Планировщик опроса запущен, интервал %s с", scheduled_for["seconds"])
+    return scheduler
+
+
+def start_password_report_scheduler(app) -> BackgroundScheduler:
+    """APScheduler только для cron рассылки паролей AD.
+
+    Расписание подхватывается из app_settings каждые ~30 с и при старте —
+    тумблер UI не зависит от опроса сети.
+    """
+    existing = app.extensions.get(PASSWORD_REPORT_EXT_KEY)
+    if existing is not None and getattr(existing, "running", False):
+        return existing
+
+    scheduler = BackgroundScheduler(timezone="UTC")
+    password_cron_state = {"cron": "", "enabled": False, "func": None}
+
+    def password_expiry_job() -> None:
+        with app.app_context():
+            try:
+                settings = get_password_expiry_settings()
+                if not settings.schedule_enabled:
+                    logger.info("Пароли AD: расписание выключено, пропуск")
+                    return
+                result = run_password_expiry(send_emails=True, mode="scheduled")
+                logger.info(
+                    "Пароли AD: scheduled exit=%s sent=%s users=%s",
+                    result.exit_code,
+                    result.sent_count,
+                    result.users_count,
+                )
+            except Exception:
+                logger.exception("Пароли AD: сбой плановой проверки")
+            finally:
+                db.session.remove()
+
+    def refresh_job() -> None:
+        with app.app_context():
+            try:
+                _apply_password_expiry_schedule(scheduler, password_cron_state)
+            except Exception:
+                logger.exception("Пароли AD: не удалось обновить расписание")
+            finally:
+                db.session.remove()
+
+    password_cron_state["func"] = password_expiry_job
+    scheduler.add_job(
+        refresh_job,
+        "interval",
+        seconds=_REPORT_REFRESH_SECONDS,
+        id=PASSWORD_REFRESH_JOB_ID,
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    with app.app_context():
+        _apply_password_expiry_schedule(scheduler, password_cron_state, force=True)
+    scheduler.start()
+    app.extensions[PASSWORD_REPORT_EXT_KEY] = scheduler
+    logger.info("Планировщик отчётов о паролях AD запущен")
+    return scheduler
+
+
+def start_pc_report_scheduler(app) -> BackgroundScheduler:
+    """APScheduler только для cron отчётов о ПК.
+
+    Расписание подхватывается из app_settings каждые ~30 с и при старте —
+    тумблер UI не зависит от опроса сети.
+    """
+    existing = app.extensions.get(PC_REPORT_EXT_KEY)
+    if existing is not None and getattr(existing, "running", False):
+        return existing
+
+    scheduler = BackgroundScheduler(timezone="UTC")
+    sector_daily_cron_state = {"cron": "", "enabled": False, "func": None}
+
+    def sector_daily_job() -> None:
+        with app.app_context():
+            try:
+                settings = get_sector_daily_report_settings()
+                if not settings.schedule_enabled:
+                    logger.info("Отчёты о ПК: расписание выключено, пропуск")
+                    return
+                result = run_sector_daily_report(send_emails=True, mode="scheduled")
+                logger.info(
+                    "Отчёты о ПК: scheduled exit=%s active=%s sent=%s",
+                    result.exit_code,
+                    result.active_total,
+                    result.sent_count,
+                )
+            except Exception:
+                logger.exception("Отчёты о ПК: сбой планового прогона")
+            finally:
+                db.session.remove()
+
+    def refresh_job() -> None:
+        with app.app_context():
+            try:
+                _apply_sector_daily_schedule(scheduler, sector_daily_cron_state)
+            except Exception:
+                logger.exception("Отчёты о ПК: не удалось обновить расписание")
+            finally:
+                db.session.remove()
+
+    sector_daily_cron_state["func"] = sector_daily_job
+    scheduler.add_job(
+        refresh_job,
+        "interval",
+        seconds=_REPORT_REFRESH_SECONDS,
+        id=SECTOR_REFRESH_JOB_ID,
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    with app.app_context():
+        _apply_sector_daily_schedule(scheduler, sector_daily_cron_state, force=True)
+    scheduler.start()
+    app.extensions[PC_REPORT_EXT_KEY] = scheduler
+    logger.info("Планировщик отчётов о ПК запущен")
     return scheduler
 
 

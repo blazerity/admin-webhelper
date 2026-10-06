@@ -77,7 +77,7 @@ class Config:
     GIT_BRANCH = os.environ.get("GIT_BRANCH", "main").strip() or "main"
     # Сколько последних копий кода хранить (активный откат не удаляется).
     UPDATE_BACKUP_KEEP = int(os.environ.get("UPDATE_BACKUP_KEEP", "5"))
-    # После удачной замены перезапустить bawh-web и bawh-scheduler через sudo.
+    # После удачной замены перезапустить web, scheduler и службы отчётов через sudo.
     UPDATE_RESTART = _flag("UPDATE_RESTART", "1")
     # Linux-пользователь для sudo -u при управлении службами (пусто — root).
     # В интерфейсе: Параметры → Управление службами. См. deploy/bawh-update.sudoers.

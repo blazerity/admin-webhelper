@@ -1,4 +1,9 @@
-"""Отдельный процесс опроса (без HTTP). Запуск: python -m app.scheduler_worker."""
+"""Отдельный процесс опроса сети/железа (без HTTP).
+
+Запуск: python -m app.scheduler_worker
+Отчёты о паролях и о ПК — отдельные процессы
+(password_report_worker / pc_report_worker).
+"""
 
 import logging
 import time

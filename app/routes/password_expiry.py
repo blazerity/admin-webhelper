@@ -27,7 +27,11 @@ from app.services.password_expiry_settings import (
     set_ldap_bind_settings,
     set_password_expiry_settings,
 )
-from app.services.report_toggle_service import apply_report_toggle, scheduler_status
+from app.services.report_toggle_service import (
+    apply_report_toggle,
+    password_reports_status,
+)
+from app.services.systemd_service import PASSWORD_REPORTS_UNIT
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +81,7 @@ def dashboard():
         section=section,
         smtp=get_smtp_settings(),
         ldap=ldap,
-        scheduler=scheduler_status(),
+        scheduler=password_reports_status(),
         can_toggle=bool(getattr(current_user, "is_admin", False)),
     )
 
@@ -85,7 +89,7 @@ def dashboard():
 @bp.route("/toggle", methods=["POST"])
 @admin_required
 def toggle_schedule():
-    """Сверх-тумблер: включить рассылку отчётов и службу bawh-scheduler."""
+    """Сверх-тумблер: включить рассылку и службу bawh-password-reports."""
     enabled = request.form.get("schedule_enabled") == "1"
 
     def _set(value: bool) -> None:
@@ -95,6 +99,7 @@ def toggle_schedule():
         enabled=enabled,
         set_enabled=_set,
         label="Пароли AD",
+        unit=PASSWORD_REPORTS_UNIT,
     )
     category = "warning" if "не удалось" in result.message else "success"
     flash(result.message, category)

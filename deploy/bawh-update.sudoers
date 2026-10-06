@@ -9,9 +9,20 @@
 # В скобках — цель sudo -u (Параметры → Управление службами; пусто или root → root).
 #
 # Нужно для:
-#   - перезапуска после «Обновить из git»
-#   - start/enable bawh-scheduler при включении тумблеров отчётов
+#   - синхронизации unit-файлов и перезапуска после «Обновить из git»
+#   - start/enable/stop служб отчётов при тумблерах
+#   - start/enable bawh-scheduler (опрос сети)
+bawh ALL=(root) NOPASSWD: /usr/bin/bash /opt/bawh/deploy/sync-systemd-units.sh *
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl restart bawh-scheduler bawh-web bawh-password-reports bawh-pc-reports
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl restart bawh-scheduler bawh-web
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl start bawh-scheduler
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable bawh-scheduler
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now bawh-scheduler
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl start bawh-password-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable bawh-password-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now bawh-password-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl stop bawh-password-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl start bawh-pc-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable bawh-pc-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now bawh-pc-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl stop bawh-pc-reports

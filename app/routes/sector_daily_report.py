@@ -13,7 +13,7 @@ from flask import Blueprint, Response, flash, redirect, render_template, request
 
 from app.authz import admin_required
 from app.services.password_expiry_settings import get_smtp_settings
-from app.services.report_toggle_service import apply_report_toggle, scheduler_status
+from app.services.report_toggle_service import apply_report_toggle, pc_reports_status
 from app.services.sector_daily_report_service import (
     INVENTORY_STALE_DAYS,
     REPLACEMENT_DISK_GB,
@@ -29,7 +29,11 @@ from app.services.sector_daily_report_settings import (
     get_sector_daily_report_settings,
     set_sector_daily_report_settings,
 )
-from app.services.systemd_service import SystemdError, ensure_scheduler_running
+from app.services.systemd_service import (
+    PC_REPORTS_UNIT,
+    SystemdError,
+    ensure_unit_running,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +57,7 @@ def dashboard():
         run=run,
         settings=settings,
         smtp=get_smtp_settings(),
-        scheduler=scheduler_status(),
+        scheduler=pc_reports_status(),
         can_toggle=True,
         replacement_ram_gb=REPLACEMENT_RAM_GB,
         replacement_disk_gb=REPLACEMENT_DISK_GB,
@@ -64,7 +68,7 @@ def dashboard():
 @bp.route("/toggle", methods=["POST"])
 @admin_required
 def toggle_schedule():
-    """Сверх-тумблер: включить рассылку отчётов и службу bawh-scheduler."""
+    """Сверх-тумблер: включить рассылку и службу bawh-pc-reports."""
     enabled = request.form.get("schedule_enabled") == "1"
 
     def _set(value: bool) -> None:
@@ -74,6 +78,7 @@ def toggle_schedule():
         enabled=enabled,
         set_enabled=_set,
         label=MODULE_LABEL,
+        unit=PC_REPORTS_UNIT,
     )
     category = "warning" if "не удалось" in result.message else "success"
     flash(result.message, category)
@@ -97,7 +102,7 @@ def settings_page():
         flash("Настройки отчёта сохранены.", "success")
         if want_enabled:
             try:
-                ensure = ensure_scheduler_running()
+                ensure = ensure_unit_running(PC_REPORTS_UNIT)
                 if ensure.started or ensure.enabled:
                     flash(ensure.message, "info")
             except SystemdError as exc:
