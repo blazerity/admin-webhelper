@@ -78,7 +78,7 @@ journalctl -u bawh-web -u bawh-scheduler -u bawh-password-reports -u bawh-pc-rep
 
 Или повторный запуск установщика из каталога с кодом / через one-liner — обновит `/opt/bawh`, зависимости и юниты; существующий `.env` не перезаписывает.
 
-Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.6.5`).
+Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.6.6`).
 
 ## Тесты
 
