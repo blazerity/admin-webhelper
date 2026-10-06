@@ -1,0 +1,97 @@
+{% extends "layouts/settings.html" %}
+{% block title %}HTTPS{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">HTTPS</h1>
+    <p class="page-subtitle">Сертификат и перенаправление на HTTPS</p>
+  </div>
+</div>
+
+<div class="panel content-card mb-0" id="tls">
+  <h2 class="h5 mb-1">HTTPS-сертификат</h2>
+  <p class="text-muted mb-3">
+    PEM-сертификат и ключ без парольной фразы. Ключ сохраняется в certs/, в базу не пишется. Для применения нужна sudo-учётка в разделе «Общие».
+  </p>
+  {% set tls_cfg = tls if tls is defined else none %}
+  {% if tls_cfg %}
+  <dl class="scheduler-health-grid mb-3">
+    <div>
+      <dt>HTTPS</dt>
+      <dd>
+        {% if tls_cfg.https_enabled %}
+        <span class="badge text-bg-success">включён</span>
+        {% else %}
+        <span class="badge text-bg-secondary">выключен</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Сертификат</dt>
+      <dd>
+        {% if tls_cfg.cert_present %}
+          {{ tls_cfg.subject or 'сохранён' }}
+          {% if tls_cfg.not_after %}<div class="small text-muted">до {{ tls_cfg.not_after }}</div>{% endif %}
+        {% else %}
+        <span class="text-muted">ещё не загружен</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>SAN / отпечаток</dt>
+      <dd>
+        {% if tls_cfg.san %}<div>{{ tls_cfg.san }}</div>{% endif %}
+        {% if tls_cfg.fingerprint %}
+        <span class="font-monospace small">{{ tls_cfg.fingerprint[:16] }}…</span>
+        {% else %}
+        <span class="text-muted">—</span>
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+  {% endif %}
+  <form method="post" class="row g-3 mb-0" enctype="multipart/form-data" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="tls">
+    <div class="col-md-6">
+      <label class="form-label" for="tls_server_name">Имя сайта</label>
+      <input class="form-control" id="tls_server_name" name="tls_server_name" value="{{ tls_cfg.server_name if tls_cfg else '' }}" placeholder="bawh.example.com" spellcheck="false">
+    </div>
+    <div class="col-md-6 d-flex align-items-end">
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" value="1" id="tls_redirect_http" name="tls_redirect_http"{% if tls_cfg and tls_cfg.redirect_http %} checked{% endif %}>
+        <label class="form-check-label" for="tls_redirect_http">Редирект HTTP → HTTPS</label>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="tls_cert_pem">Сертификат (PEM, можно с цепочкой)</label>
+      <textarea class="form-control font-monospace" id="tls_cert_pem" name="tls_cert_pem" rows="6" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="tls_key_pem">Закрытый ключ (PEM, без пароля)</label>
+      <textarea class="form-control font-monospace" id="tls_key_pem" name="tls_key_pem" rows="6" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="tls_cert_file">или файл сертификата</label>
+      <input class="form-control" id="tls_cert_file" name="tls_cert_file" type="file" accept=".pem,.crt,.cer,.txt">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="tls_key_file">или файл ключа</label>
+      <input class="form-control" id="tls_key_file" name="tls_key_file" type="file" accept=".pem,.key,.txt">
+    </div>
+    <div class="col-12">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="1" id="tls_secure_cookie" name="tls_secure_cookie"{% if tls_cfg and tls_cfg.secure_cookie %} checked{% endif %}>
+        <label class="form-check-label" for="tls_secure_cookie">
+          Записать <code>SESSION_COOKIE_SECURE=1</code> в .env (нужен перезапуск web)
+        </label>
+      </div>
+    </div>
+    <div class="col-12 d-flex flex-wrap gap-2">
+      <button class="btn btn-outline-secondary" type="submit" name="tls_action" value="save">Сохранить сертификат</button>
+      <button class="btn btn-primary" type="submit" name="tls_action" value="apply">Включить HTTPS</button>
+      <button class="btn btn-outline-danger" type="submit" name="tls_action" value="disable">Выключить HTTPS</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

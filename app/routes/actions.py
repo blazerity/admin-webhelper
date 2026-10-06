@@ -3,6 +3,7 @@
 from flask import Blueprint, jsonify, render_template, request, url_for
 from flask_login import current_user, login_required
 
+from app.services import audit_service
 from app.services.action_service import list_action_kinds, list_system_actions
 from app.services.export_service import csv_attachment, export_actions_csv
 from app.utils import format_utc, normalize_page, parse_optional_int
@@ -65,6 +66,9 @@ def list_actions():
     )
     if _wants_json():
         return jsonify(_actions_payload(result))
+    audit_entries = []
+    if getattr(current_user, "is_admin", False):
+        audit_entries = audit_service.list_audit_entries(limit=200)
     return render_template(
         "actions/list.html",
         action_kinds=kinds,
@@ -74,6 +78,7 @@ def list_actions():
         per_page=result["per_page"],
         search_query=q,
         kind_filter=kind,
+        audit_entries=audit_entries,
     )
 
 

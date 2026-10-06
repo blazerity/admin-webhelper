@@ -1,13 +1,13 @@
-{% extends "base.html" %}
+{% extends "layouts/settings.html" %}
 {% from "macros/pagination.html" import page_nav %}
 {% from "macros/status.html" import account_entity_link %}
-{% block title %}Учётные записи{% endblock %}
-{% block main_class %}app-main-wide{% endblock %}
-{% block content %}
+{% block title %}Обнаруженные УЗ{% endblock %}
+{% block settings_content %}
+{% set show_display_name = show_display_name|default(accounts|selectattr('display_name')|list|length > 0) %}
 <div class="page-header">
   <div>
-    <h1 class="page-title">Учётные записи</h1>
-    <p class="page-subtitle">Справочник УЗ, замеченных на устройствах сети</p>
+    <h1 class="page-title">Обнаруженные УЗ</h1>
+    <p class="page-subtitle">Учётные записи, замеченные на устройствах сети</p>
   </div>
   <a class="btn btn-sm btn-outline-primary" data-live-csv href="{{ url_for('accounts.export_csv', q=search_query) }}">CSV</a>
 </div>
@@ -28,7 +28,6 @@
     <button class="btn btn-primary" type="submit">Найти</button>
     <button class="btn btn-sm btn-link" type="button" data-live-reset>Сбросить</button>
   </div>
-  <p class="text-muted small mb-0 mt-2" data-live-hint>Начните вводить запрос — список обновится сразу.</p>
 </form>
 
 <div class="panel content-card p-0 overflow-hidden" data-live-panel>
@@ -40,7 +39,7 @@
       <thead>
         <tr>
           <th>Учётка</th>
-          <th>Отображаемое имя</th>
+          {% if show_display_name %}<th data-col="display-name">Отображаемое имя</th>{% endif %}
           <th>Первый раз</th>
           <th>Последний раз</th>
         </tr>
@@ -51,12 +50,12 @@
           <td>
             {{ account_entity_link(account.id, account.account_key) }}
           </td>
-          <td>{{ account.display_name or '—' }}</td>
+          {% if show_display_name %}<td>{{ account.display_name or '—' }}</td>{% endif %}
           <td class="text-nowrap">{{ account.first_seen_at|dt }}</td>
           <td class="text-nowrap">{{ account.last_seen_at|dt }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="4" class="text-muted">Пока никто не замечен на доступных устройствах.</td></tr>
+        <tr><td colspan="{{ 4 if show_display_name else 3 }}" class="text-muted">Пока никто не замечен на доступных устройствах.</td></tr>
       {% endfor %}
       </tbody>
     </table>

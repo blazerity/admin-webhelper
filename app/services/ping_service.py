@@ -38,7 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
@@ -328,13 +328,27 @@ def poll_all_sectors() -> dict[str, int]:
     return stats
 
 
-def load_recent_poll_runs(limit: int = _RECENT_POLL_RUNS_LIMIT) -> list[NetworkPollRun]:
-    """Последние прогоны опроса, новые сверху."""
-    limit = max(1, min(100, int(limit)))
+def count_poll_runs() -> int:
+    """Число записей в network_poll_runs."""
+    return int(db.session.scalar(select(func.count()).select_from(NetworkPollRun)) or 0)
+
+
+def load_recent_poll_runs(
+    limit: int = _RECENT_POLL_RUNS_LIMIT,
+    *,
+    offset: int = 0,
+) -> list[NetworkPollRun]:
+    """Последние прогоны опроса, новые сверху.
+
+    offset — для пагинации на странице настроек (CSV по-прежнему берёт limit).
+    """
+    limit = max(1, min(200, int(limit)))
+    offset = max(0, int(offset or 0))
     return list(
         db.session.scalars(
             select(NetworkPollRun)
             .order_by(NetworkPollRun.id.desc())
+            .offset(offset)
             .limit(limit)
         )
     )

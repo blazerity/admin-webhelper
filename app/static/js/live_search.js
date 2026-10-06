@@ -19,7 +19,13 @@
     kind === "accounts"
       ? "Пока никто не замечен на доступных устройствах."
       : "Событий пока нет.";
-  const emptyCols = kind === "accounts" ? 4 : 6;
+  const showDisplayName =
+    kind !== "accounts" ||
+    Boolean(
+      rows.closest("table") &&
+        rows.closest("table").querySelector("thead th[data-col='display-name']")
+    );
+  const emptyCols = kind === "accounts" ? (showDisplayName ? 4 : 3) : 6;
   const { escapeHtml, fetchJson } = window.BawhHttp;
 
   let timer = null;
@@ -130,11 +136,14 @@
     }
     return items
       .map((item) => {
-        return `<tr>${cell(
-          entityLink(item.url, item.account_key, "account")
-        )}${cell(escapeHtml(item.display_name || "—"))}${cell(
-          escapeHtml(item.first_seen_at || "—")
-        )}${cell(escapeHtml(item.last_seen_at || "—"))}</tr>`;
+        let html = `<tr>${cell(entityLink(item.url, item.account_key, "account"))}`;
+        if (showDisplayName) {
+          html += cell(escapeHtml(item.display_name || "—"));
+        }
+        html += `${cell(escapeHtml(item.first_seen_at || "—"))}${cell(
+          escapeHtml(item.last_seen_at || "—")
+        )}</tr>`;
+        return html;
       })
       .join("");
   }
