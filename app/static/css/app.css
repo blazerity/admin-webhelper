@@ -1811,6 +1811,10 @@ code {
   margin: 0;
 }
 
+.log-view.is-waiting {
+  color: #808080;
+}
+
 .terminal-form {
   display: flex;
   gap: 0.5rem;

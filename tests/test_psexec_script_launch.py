@@ -1,4 +1,4 @@
-"""PowerShell через pypsexec: файл в ADMIN$ + cmd.exe, не EncodedCommand."""
+"""PowerShell через pypsexec: файл в ADMIN$ + cmd.exe -File, stdout в канал."""
 
 from __future__ import annotations
 
@@ -45,13 +45,20 @@ class PowershellLaunchTests(unittest.TestCase):
     def tearDown(self) -> None:
         psexec_service.reset_tracked_sessions()
 
-    def test_file_cmd_redirects_powershell_stdout(self) -> None:
+    def test_file_cmd_streams_powershell_stdout(self) -> None:
         args = psexec_service._powershell_file_cmd("bawh_abc")
         self.assertTrue(args.startswith("/v:on /c "))
         self.assertIn(r"-File C:\Windows\Temp\bawh_abc.ps1", args)
-        self.assertIn(r"<nul >C:\Windows\Temp\bawh_abc.out", args)
-        self.assertIn("type C:\\Windows\\Temp\\bawh_abc.out", args)
+        self.assertIn(r"<nul 2>&1", args)
+        self.assertNotIn(".out", args)
+        self.assertNotIn(" type ", args)
         self.assertNotIn("EncodedCommand", args)
+
+    def test_wrap_powershell_keeps_user_script(self) -> None:
+        wrapped = psexec_service.wrap_powershell_script("Write-Output hi")
+        self.assertIn("AutoFlush", wrapped)
+        self.assertTrue(wrapped.endswith("Write-Output hi\n"))
+        self.assertLess(wrapped.find("AutoFlush"), wrapped.find("Write-Output hi"))
 
     def test_write_admin_file_rejects_parent_path(self) -> None:
         with self.assertRaises(psexec_service.RemoteExecError):
@@ -76,10 +83,12 @@ class PowershellLaunchTests(unittest.TestCase):
         self.assertTrue(relative.startswith(r"Temp\bawh_"))
         self.assertTrue(relative.endswith(".ps1"))
         self.assertTrue(payload.startswith(b"\xef\xbb\xbf"))
+        self.assertIn(b"AutoFlush", payload)
         self.assertIn(b"Write-Output hi", payload)
         call = FakeClient.instances[-1].calls[0]
         self.assertEqual(call["executable"], "cmd.exe")
         self.assertIn("-File", call["arguments"])
+        self.assertIn("<nul 2>&1", call["arguments"])
         self.assertNotIn("EncodedCommand", call["arguments"])
         self.assertTrue(call["use_system_account"])
 

@@ -5,7 +5,8 @@
 
 PowerShell не запускаем как executable с -EncodedCommand: powershell.exe
 закрывает named pipe PAExec (STATUS_PIPE_BROKEN / 0xc000014b). Текст кладём
-в ADMIN$\\Temp и гоняем через cmd.exe, stdout — в файл, затем type.
+в ADMIN$\\Temp и гоняем через cmd.exe -File: stdout идёт в канал cmd, журнал
+в UI дописывается по мере вывода (on_output), а не после exit.
 """
 
 import logging
@@ -228,6 +229,7 @@ def run_remote_script(
 
     PowerShell пишется в ADMIN$\\Temp и запускается через cmd.exe -File:
     powershell.exe с -EncodedCommand закрывает pipe PAExec (STATUS_PIPE_BROKEN).
+    stdout не прячем в файл — иначе журнал молчит до конца скрипта.
 
     as_system=True — процесс на целевой машине от NT AUTHORITY\\SYSTEM.
     Учётка из настроек при этом всё равно нужна, чтобы открыть SMB.
@@ -244,7 +246,7 @@ def run_remote_script(
     if kind == "powershell":
         stem = f"bawh_{uuid.uuid4().hex[:12]}"
         remote_ps1 = rf"Temp\{stem}.ps1"
-        payload = script.encode("utf-8-sig")
+        payload = wrap_powershell_script(script).encode("utf-8-sig")
 
         def prepare(client) -> None:
             _write_admin_file(client, remote_ps1, payload)
@@ -275,17 +277,37 @@ def run_remote_script(
     raise RemoteExecError(f"Неизвестный интерпретатор: {interpreter}")
 
 
+# Буфер stdout у powershell.exe на pipe — иначе Write-Output копится до exit.
+_POWERSHELL_HOST_PREAMBLE = (
+    "$ProgressPreference = 'SilentlyContinue'\r\n"
+    "try {\r\n"
+    "  $enc = New-Object System.Text.UTF8Encoding $false\r\n"
+    "  [Console]::OutputEncoding = $enc\r\n"
+    "  $sw = New-Object System.IO.StreamWriter("
+    "[Console]::OpenStandardOutput(), $enc, 16)\r\n"
+    "  $sw.AutoFlush = $true\r\n"
+    "  [Console]::SetOut($sw)\r\n"
+    "} catch {}\r\n"
+)
+
+
+def wrap_powershell_script(script: str) -> str:
+    """Префикс live-журнала + текст из библиотеки. BOM добавляет encode utf-8-sig."""
+    body = (script or "").lstrip("\ufeff")
+    if not body.endswith("\n"):
+        body += "\n"
+    return _POWERSHELL_HOST_PREAMBLE + body
+
+
 def _powershell_file_cmd(stem: str) -> str:
-    """cmd держит канал PAExec; powershell пишет в файл и не рвёт pipe."""
+    """cmd держит канал PAExec; powershell -File пишет stdout сразу в pipe."""
     ps1 = rf"C:\Windows\Temp\{stem}.ps1"
-    out = rf"C:\Windows\Temp\{stem}.out"
     return (
         "/v:on /c "
         "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass "
-        f"-File {ps1} <nul >{out} 2>&1 "
+        f"-File {ps1} <nul 2>&1 "
         "& set BAWHR=!ERRORLEVEL! "
-        f"& type {out} "
-        f"& del /f /q {ps1} {out} "
+        f"& del /f /q {ps1} "
         "& exit /b !BAWHR!"
     )
 

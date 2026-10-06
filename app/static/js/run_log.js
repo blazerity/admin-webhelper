@@ -22,9 +22,13 @@
 
   function apply(payload) {
     const next = payload.log_text || "";
+    const waiting = !payload.finished && !String(next).trim();
+    const hint = logNode.dataset.waitingHint || "Выполняется… вывод появится здесь";
+    const shown = waiting ? hint : next;
     const distance = logNode.scrollHeight - logNode.scrollTop - logNode.clientHeight;
     const stick = distance < 48;
-    if (logNode.textContent !== next) logNode.textContent = next;
+    if (logNode.textContent !== shown) logNode.textContent = shown;
+    logNode.classList.toggle("is-waiting", waiting);
     if (stick) logNode.scrollTop = logNode.scrollHeight;
     if (statusNode) statusNode.textContent = payload.status_label || payload.status;
     if (cancelNode) cancelNode.disabled = !!payload.finished;

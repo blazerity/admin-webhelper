@@ -36,7 +36,12 @@
         {% if run.device %}<span>{{ run.device.ip }}</span>{% endif %}
         <span>сессия: <span id="run-session-state">{{ {'busy': 'открыта, идёт команда', 'open': 'открыта', 'closed': 'закрыта'}.get(session_state, session_state) }}</span></span>
       </div>
-      <pre class="log-view" id="run-log">{{ run.log_text }}</pre>
+      {% set log_waiting = not run.log_text and run.status in ['pending', 'running'] %}
+      <pre
+        class="log-view{% if log_waiting %} is-waiting{% endif %}"
+        id="run-log"
+        data-waiting-hint="Выполняется… вывод появится здесь"
+      >{% if run.log_text %}{{ run.log_text }}{% elif log_waiting %}Выполняется… вывод появится здесь{% endif %}</pre>
       {% if current_user.is_admin and run.device %}
       <form method="post" action="{{ url_for('diagnostics.command_device', device_id=run.device.id) }}" class="terminal-form" id="run-command-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
