@@ -737,12 +737,7 @@ def _save_offline_probe(probe: _Probe) -> bool | None:
     """
     from app.services.device_identity_service import mark_address_offline
 
-    devices = list(db.session.scalars(select(Device).where(Device.ip == probe.ip)))
-    address_owners = mark_address_offline(probe.ip)
-    by_id = {device.id: device for device in devices}
-    for device in address_owners:
-        by_id.setdefault(device.id, device)
-    devices = list(by_id.values())
+    devices = mark_address_offline(probe.ip)
     if not devices:
         return False
     now = utcnow()
@@ -785,38 +780,6 @@ def _find_existing_device(
         .where(Device.ip == ip, Device.serial_number.is_(None))
         .order_by(Device.id)
     ).first()
-
-
-def _resolve_device(
-    *,
-    ip: str,
-    hostname: str | None,
-    serial_number: str | None,
-    sector_id: int,
-) -> Device:
-    """Ключ идентичности — только serial_number.
-
-    Hostname на карте (отображение), PTR/DNS в слиянии не участвуют.
-    При том же SN смена IP обновляет эту строку — DHCP не плодит дубли.
-    Без серийника можно переиспользовать только запись с тем же IP
-    и пустым SN (камера, Linux, WMI не ответил). Строку с чужим SN
-    не трогаем: иначе чужой хост на старом адресе перезапишет карточку.
-    SN позже на новом IP: если строка с этим SN уже есть — она;
-    призрак без SN на старом IP сливается отдельно (absorb_ghosts).
-    """
-    found = _find_existing_device(ip=ip, serial_number=serial_number)
-    if found is not None:
-        return found
-
-    device = Device(
-        ip=ip,
-        sector_id=sector_id,
-        hostname=hostname,
-        serial_number=serial_number,
-        last_status=DeviceStatus.UNKNOWN,
-    )
-    db.session.add(device)
-    return device
 
 
 def _displace_other_ip_holders(owner: Device, ip: str) -> None:

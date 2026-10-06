@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -29,6 +30,8 @@ from app.models.device import DeviceStatus
 from app.services import discovery_service
 from app.services.net_utils import normalize_mac
 from app.utils import as_utc
+
+PrecheckMode = Literal["not_keep", "no_serial", "none"]
 
 
 class DeviceDedupError(ValueError):
@@ -80,11 +83,6 @@ class DedupScanResult:
             + len(self.ip_history)
             + len(self.suspected)
         )
-
-    @property
-    def actionable_count(self) -> int:
-        """Группы, где имеет смысл авто-отмечать удаление."""
-        return len(self.confirmed) + len(self.ghosts)
 
     @property
     def device_count(self) -> int:
@@ -215,14 +213,14 @@ def _groups_by_ip(
     for ip, rows in sorted(buckets.items()):
         if len(rows) < 2:
             continue
-        with_sn = [d for d in rows if discovery_service.normalize_serial(d.serial_number)]
-        without_sn = [d for d in rows if not discovery_service.normalize_serial(d.serial_number)]
-        ids = {d.id for d in rows}
-        serials = {
-            discovery_service.normalize_serial(d.serial_number)
-            for d in with_sn
-        }
-        serials.discard(None)
+        partitioned = [
+            (device, discovery_service.normalize_serial(device.serial_number))
+            for device in rows
+        ]
+        with_sn = [device for device, serial in partitioned if serial]
+        without_sn = [device for device, serial in partitioned if not serial]
+        ids = {device.id for device in rows}
+        serials = {serial for _, serial in partitioned if serial}
 
         if with_sn and without_sn:
             ghosts.append(
@@ -285,14 +283,8 @@ def _groups_suspected(
         if len(ids) < 2:
             continue
         rows = [by_id[i] for i in ids if i in by_id]
-        serials = {
-            discovery_service.normalize_serial(d.serial_number)
-            for d in rows
-        }
-        serials.discard(None)
+        serials = _serial_set(rows)
         # Разные SN + один MAC — не предлагаем как дубль (ошибка данных / редко).
-        if len(serials) >= 2:
-            continue
         # Один SN уже в confirmed. Здесь — только пустые SN.
         if serials:
             continue
@@ -319,15 +311,8 @@ def _groups_suspected(
     for match_value, ids in sorted(host_buckets.items()):
         if len(ids) < 2:
             continue
-        # Уже учтены выше — не дублируем.
-        if ids & skip_ids:
-            continue
         rows = [by_id[i] for i in ids if i in by_id]
-        serials = {
-            discovery_service.normalize_serial(d.serial_number)
-            for d in rows
-        }
-        serials.discard(None)
+        serials = _serial_set(rows)
         if len(serials) >= 2:
             # Разные машины с одним именем — только подсказка, без галочек.
             groups.append(
@@ -356,6 +341,16 @@ def _groups_suspected(
     return tuple(groups)
 
 
+def _serial_set(rows: list[Device]) -> set[str]:
+    return {
+        serial
+        for serial in (
+            discovery_service.normalize_serial(device.serial_number) for device in rows
+        )
+        if serial
+    }
+
+
 def _build_group(
     by_id: dict[int, Device],
     *,
@@ -364,7 +359,7 @@ def _build_group(
     match_value: str,
     ids: set[int],
     confidence: str,
-    precheck: str,
+    precheck: PrecheckMode,
 ) -> DuplicateGroup:
     devices = [by_id[device_id] for device_id in sorted(ids) if device_id in by_id]
     scored = [(device, _keep_score(device)) for device in devices]
@@ -373,12 +368,11 @@ def _build_group(
     rows = []
     for device, score in scored:
         keep = device.id == keep_id
-        delete_prechecked = False
         if precheck == "not_keep":
             delete_prechecked = not keep
         elif precheck == "no_serial":
             delete_prechecked = not discovery_service.normalize_serial(device.serial_number)
-        elif precheck == "none":
+        else:
             delete_prechecked = False
         rows.append(
             _to_row(
