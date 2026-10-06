@@ -286,7 +286,9 @@ def hardware_poll_run():
     flash(
         "Опрос железа: проверено {scanned}, онлайн {online}, "
         "собрано {collected}, изменено {changed}, офлайн {offline}, "
-        "без WMI {no_wmi}, ошибок {errors}.".format(**result.as_dict()),
+        "без WMI {no_wmi}, чужой IP {mismatched}, ошибок {errors}.".format(
+            **result.as_dict()
+        ),
         "success",
     )
     return redirect(url_for("admin.settings") + "#hardware-poll")

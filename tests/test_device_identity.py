@@ -174,6 +174,25 @@ class DeviceIdentityTests(unittest.TestCase):
         self._save(_online("10.1.1.1", hostname="cam01"))
         self.assertEqual(self._count(), 1)
 
+    def test_new_serial_at_reused_ip_marks_previous_owner_offline(self) -> None:
+        """VPN: тот же адрес, другой SN — старая карточка offline, строки не сливаются."""
+        self._save(
+            _online("10.254.240.10", hostname="n13888.stepcon.ru", serial="ULTRA7")
+        )
+        self._save(
+            _online("10.254.240.10", hostname="n14001.stepcon.ru", serial="I5SN")
+        )
+        rows = self._all()
+        self.assertEqual(len(rows), 2)
+        previous = next(row for row in rows if row.serial_number == "ULTRA7")
+        current = next(row for row in rows if row.serial_number == "I5SN")
+        self.assertEqual(current.ip, "10.254.240.10")
+        self.assertEqual(current.last_status, DeviceStatus.ONLINE)
+        self.assertEqual(current.hostname, "n14001.stepcon.ru")
+        self.assertEqual(previous.ip, "10.254.240.10")
+        self.assertEqual(previous.last_status, DeviceStatus.OFFLINE)
+        self.assertEqual(previous.hostname, "n13888.stepcon.ru")
+
 
 if __name__ == "__main__":
     unittest.main()

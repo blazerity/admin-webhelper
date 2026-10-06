@@ -460,7 +460,13 @@ def poll_device_hardware(device_id: int):
         return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
 
     db.session.refresh(device)
-    if result.collected:
+    if result.mismatched:
+        flash(
+            "На этом IP сейчас другая машина (другой серийный номер или имя). "
+            "Снимок железа не записан, чтобы не смешать конфигурации.",
+            "warning",
+        )
+    elif result.collected:
         ram = f"{device.ram_gb} ГБ" if device.ram_gb is not None else "—"
         disk = f"{device.disk_gb} ГБ" if device.disk_gb is not None else "—"
         flash(
