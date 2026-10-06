@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.6.6)
+# Архитектура bAWH (актуально для v1.6.7)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.6.6` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.6.7` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -19,9 +19,8 @@ LDAP-вход, отчёт по сроку паролей AD и in-app уведо
 Gunicorn + Nginx · Bootstrap 5 (vendorized).
 
 **Нет в репозитории:** Alembic / Flask-Migrate, Redis, Celery, WebSocket,
-Telegram, S3, SPA-фреймворка, Pydantic. Идентичность устройств — unittest
-в `tests/test_device_identity.py`; опрос железа — `tests/test_hardware_poll.py`
-(без pytest в requirements).
+Telegram, S3, SPA-фреймворка, Pydantic. Каталог `tests/` тоже не в git
+(локальный `unittest`, без pytest в requirements).
 
 ---
 
@@ -84,7 +83,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.6.6)
+  VERSION                      # semver (1.6.7)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -108,7 +107,7 @@ bAWH/                          # на сервере = /opt/bawh
     templates/
     static/                    # css/, js/, vendor/bootstrap/
   deploy/                      # Debian 12: systemd, nginx, install
-  tests/                       # unittest (канонические регрессии)
+  tests/                       # локально, в gitignore
   logs/                        # runtime (в gitignore содержимое)
 ```
 
@@ -331,7 +330,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `login_service_status.py` | CRUD сервисов экрана входа + ICMP status |
 | `notification_service.py` | in-app уведомления |
 | `log_archive_service.py` | месячный tar.gz ротированных логов |
-| `update_service.py` | git pull → backup → pip → `flask init-db` → systemd restart (фон + `app.app_context()`) |
+| `update_service.py` | выбранная ветка git → backup → pip → `flask init-db` → systemd restart (фон + `app.app_context()`) |
 
 ---
 
@@ -606,7 +605,10 @@ ICMP-опрос сети **не** трогает эти поля.
 
 ### E. Self-update
 
-Admin UI → `update_service` (фоновый поток + `app.app_context()`):
+Admin UI → `update_service` (фоновый поток + `app.app_context()`).
+Ветка: `app_settings.update_git_branch` (список через `git ls-remote --heads`),
+иначе `GIT_BRANCH`. Хотфикс 1.6.7 при первом старте ставит `beta`, если
+ключ ещё пустой. Дальше:
 backup → git → pip → `flask init-db` → опциональный restart
 `bawh-web` + `bawh-scheduler` + при включённых тумблерах
 `bawh-password-reports` / `bawh-pc-reports` (sudo-учётка из Параметров / sudoers).
@@ -674,7 +676,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Poll | `POLL_INTERVAL_SECONDS`, `MIN_CIDR_PREFIX`, `MAX_HOSTS_PER_POLL`, `DISCOVERY_USERNAME/PASSWORD/DOMAIN` |
 | Crypto | `FERNET_KEY` |
 | Scripts | `SCRIPT_LIBRARY_DIR`, `SCRIPT_TIMEOUT_SECONDS` |
-| Updates | `GIT_REMOTE_URL`, `GIT_BRANCH`, `UPDATE_BACKUP_KEEP`, `UPDATE_RESTART`, `UPDATE_SUDO_USER` |
+| Updates | `GIT_REMOTE_URL`, `GIT_BRANCH` (запас, если в UI ветка не выбрана), `UPDATE_BACKUP_KEEP`, `UPDATE_RESTART`, `UPDATE_SUDO_USER` |
 | Cookies | `SESSION_COOKIE_SECURE` |
 
 Также в коде: `PROJECT_ROOT`, `MAX_LOG_CHARS`, `MAX_REMOTE_COMMAND_CHARS`.
@@ -726,8 +728,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
-| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Параметры и вкладка «Оборудование»; тесты `tests/test_hardware_poll.py`. Снимок привязан к SN, не к IP. |
-| Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline; `tests/test_device_identity.py` |
+| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Параметры и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
+| Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
@@ -759,7 +761,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 ## 19. Что коммитить и что оставлять локально / в Cloud
 
-**В git (канон):** `app/`, `deploy/`, `docs/`, `tests/` (только `unittest` регрессии продукта),
+**В git (канон):** `app/`, `deploy/`, `docs/`,
 `VERSION`, `requirements.txt`, `wsgi.py`, `.env.example`, `Dockerfile`, `README.md`.
 
 **Не коммитить** (остаются на машине разработчика или в рабочей среде Cloud Agent;
@@ -770,14 +772,16 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `.env`, `*.db`, `instance/`, `.venv/` | секреты и локальная БД |
 | `logs/*`, `backups/`, `*.log` | runtime |
 | `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
+| `tests/` | локальные unittest, в поставку не входят |
 | `scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики |
 | `debug_*`, `diagnose_*`, `diag_*`, `*_manual.py`, `smoke_*.py`, `harness_*.py`, `scratch_*.py` | диагностика и ручные прогоны |
 
 Установщик (`deploy/install-debian12.sh`) и self-update (`update_service._SKIP_DIRS`)
 тоже пропускают эти каталоги — в `/opt/bawh` они не попадут.
 
-**Тесты:** канонические `tests/test_*.py` (stdlib `unittest`) — в репозитории.
-Временные/ручные/диагностические скрипты — только локально или в Cloud, без push в git.
+**Тесты:** `tests/` в gitignore. Локально можно держать `unittest`
+(`python -m unittest discover -s tests -v`). Временные/ручные/диагностические
+скрипты — только локально или в Cloud, без push в git.
 
 ---
 

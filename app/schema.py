@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 # Одноразовый пересчёт ram_gb/disk_gb после хотфикса номиналов v1.5.1.
 HARDWARE_GB_NOMINAL_FIX_KEY = "data_fix.hw_gb_nominal_v151"
+# Хотфикс v1.6.7: пока админ не выбрал ветку в UI, обновления идут из beta.
+UPDATE_BRANCH_BETA_FIX_KEY = "data_fix.update_branch_beta_v167"
 
 
 def ensure_schema() -> None:
@@ -34,6 +36,7 @@ def ensure_schema() -> None:
 
     _ensure_columns(inspector)
     _migrate_hardware_gb_nominals(inspector)
+    _pin_update_branch_beta(inspector)
 
     count = db.session.scalar(select(func.count()).select_from(ActionKind)) or 0
     if count == 0:
@@ -93,6 +96,36 @@ def _migrate_hardware_gb_nominals(inspector) -> None:
         "ensure_schema: hardware GB nominal fix v1.5.1 — updated %s rows",
         updated,
     )
+
+
+def _pin_update_branch_beta(inspector) -> None:
+    """Первый старт v1.6.7 ставит ветку обновлений beta, если её ещё не выбирали.
+
+    Дальше ветку меняет только форма на /admin/updates. Повторный старт
+    уже выбранную ветку не затирает.
+    """
+    from app.models import AppSetting
+    from app.services.settings_service import UPDATE_GIT_BRANCH_KEY
+
+    if "app_settings" not in set(inspector.get_table_names()):
+        return
+
+    marker = db.session.get(AppSetting, UPDATE_BRANCH_BETA_FIX_KEY)
+    if marker is not None and (marker.value or "").strip() == "1":
+        return
+
+    row = db.session.get(AppSetting, UPDATE_GIT_BRANCH_KEY)
+    if row is None:
+        db.session.add(AppSetting(key=UPDATE_GIT_BRANCH_KEY, value="beta"))
+    elif not (row.value or "").strip():
+        row.value = "beta"
+
+    if marker is None:
+        db.session.add(AppSetting(key=UPDATE_BRANCH_BETA_FIX_KEY, value="1"))
+    else:
+        marker.value = "1"
+    db.session.commit()
+    logger.info("ensure_schema: update branch default beta (v1.6.7) if unset")
 
 
 def _ensure_columns(inspector) -> None:

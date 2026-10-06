@@ -25,6 +25,8 @@ Discovery: глобальная учётка WMI для опроса (серий
 
 Обновление — отдельные кнопки на /admin/updates. Замена кода
 начинается только после резервной копии, см. update_service.
+Ветку выбирают там же: список приходит из git ls-remote, значение
+хранится в app_settings и важнее GIT_BRANCH.
 """
 
 import logging
@@ -70,7 +72,15 @@ from app.services.settings_service import (
 )
 from app.services.password_expiry_settings import get_smtp_settings, set_smtp_settings
 from app.services.password_mailer import PasswordMailerError, test_smtp_connection
-from app.services.update_service import UpdateError, begin_rollback, begin_update, build_page, check_for_updates
+from app.services.update_service import (
+    UpdateError,
+    begin_rollback,
+    begin_update,
+    build_page,
+    check_for_updates,
+    refresh_remote_branches,
+    save_update_branch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -358,6 +368,19 @@ def updates():
         try:
             if kind == "check":
                 flash(check_for_updates(), "info")
+            elif kind == "branches":
+                names = refresh_remote_branches()
+                flash(f"Список веток обновлён: {len(names)}.", "info")
+            elif kind == "branch":
+                chosen = (request.form.get("branch") or "").strip()
+                flash(save_update_branch(chosen), "success")
+                audit_service.log(
+                    current_user,
+                    "update",
+                    "app",
+                    "git-branch",
+                    detail=chosen,
+                )
             elif kind == "update":
                 begin_update()
                 audit_service.log(current_user, "update", "app", "git", detail="begin_update")

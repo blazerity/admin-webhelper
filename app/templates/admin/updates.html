@@ -43,7 +43,39 @@
     <dt>Репозиторий</dt>
     <dd>{% if status.remote_url %}<code>{{ status.remote_url }}</code>{% else %}не задан{% endif %}</dd>
     <dt>Ветка</dt>
-    <dd><code>{{ status.branch }}</code></dd>
+    <dd>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <form method="post" action="{{ url_for('admin.updates') }}" class="d-flex flex-wrap gap-2 align-items-center">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="form" value="branch">
+          <select class="form-select w-auto" name="branch" aria-label="Ветка обновлений" {% if status.running or status.remote_error or not status.git_available %}disabled{% endif %}>
+            {% if status.branch and status.branch not in status.branches %}
+            <option value="{{ status.branch }}" selected>{{ status.branch }}</option>
+            {% endif %}
+            {% for name in status.branches %}
+            <option value="{{ name }}" {% if name == status.branch %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+            {% if not status.branches and not status.branch %}
+            <option value="" selected>нет веток</option>
+            {% endif %}
+          </select>
+          <button class="btn btn-outline-primary" type="submit" {% if status.running or status.remote_error or not status.git_available or not status.branch %}disabled{% endif %}>Сохранить ветку</button>
+        </form>
+        <form method="post" action="{{ url_for('admin.updates') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="form" value="branches">
+          <button class="btn btn-outline-secondary" type="submit" {% if status.running or status.remote_error or not status.git_available %}disabled{% endif %}>Список веток с Git</button>
+        </form>
+      </div>
+      <div class="text-muted mt-1">
+        Выбранная ветка важнее <code>GIT_BRANCH</code> в .env.
+        {% if status.branches_checked_at %}
+          Список веток от {{ status.branches_checked_at }}.
+        {% else %}
+          Чтобы выбрать другую ветку, сначала загрузите список с Git.
+        {% endif %}
+      </div>
+    </dd>
     <dt>На сервере git</dt>
     <dd>
       {% if status.remote_commit %}
@@ -69,7 +101,7 @@
       <input type="hidden" name="form" value="check">
       <button class="btn btn-outline-primary" type="submit" {% if status.running or status.remote_error or not status.git_available %}disabled{% endif %}>Проверить обновления</button>
     </form>
-    <form method="post" action="{{ url_for('admin.updates') }}" onsubmit="return confirm('Сначала будет сохранена копия текущего кода, затем файлы заменятся версией из git. Продолжить?');">
+    <form method="post" action="{{ url_for('admin.updates') }}" onsubmit="return confirm('Сначала будет сохранена копия текущего кода, затем файлы заменятся версией из ветки {{ status.branch }}. Продолжить?');">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form" value="update">
       <button class="btn btn-primary" type="submit" {% if status.running or status.remote_error or not status.git_available %}disabled{% endif %}>Обновить из git</button>
