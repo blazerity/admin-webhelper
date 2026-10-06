@@ -6,6 +6,7 @@
 - poll-run      POST /admin/poll-run — принудительный опрос сети
 - hardware-poll-run POST /admin/hardware-poll-run — опрос железа Windows
 - refresh-hostnames POST /admin/refresh-hostnames — WMI-имена на известных машинах
+- duplicates    GET/POST /admin/duplicates — поиск и удаление дублей устройств
 - updates       GET/POST /admin/updates
 
 Формы на страницах настроек различаются скрытым полем form:
@@ -44,6 +45,11 @@ from app.services.credential_service import (
     CredentialsNotConfigured,
     get_stored_credential,
     save_remote_admin_credentials,
+)
+from app.services.device_dedup_service import (
+    DeviceDedupError,
+    delete_devices,
+    find_duplicate_groups,
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
 from app.services.network_summary_service import get_scheduler_health
@@ -577,6 +583,72 @@ def refresh_hostnames():
         "success",
     )
     return redirect(_settings_redirect("polls"))
+
+
+@bp.route("/duplicates", methods=["GET", "POST"])
+@admin_required
+def duplicates():
+    """Поиск и выборочное удаление дублей устройств."""
+    scan = None
+    if request.method == "POST":
+        kind = (request.form.get("form") or "").strip()
+        if kind == "scan":
+            scan = find_duplicate_groups()
+            if scan.group_count == 0:
+                flash(
+                    f"Дублей не найдено (просмотрено устройств: {scan.scanned}).",
+                    "success",
+                )
+            else:
+                flash(
+                    f"Найдено групп: {scan.group_count} "
+                    f"(уверенных {len(scan.confirmed)}, "
+                    f"предположительных {len(scan.suspected)}; "
+                    f"устройств в группах: {scan.device_count}).",
+                    "info",
+                )
+        elif kind == "delete":
+            raw_ids = request.form.getlist("delete_ids")
+            try:
+                device_ids = [int(item) for item in raw_ids if str(item).strip()]
+            except ValueError:
+                flash("Некорректный список устройств.", "danger")
+                return redirect(url_for("admin.duplicates"))
+            try:
+                result = delete_devices(device_ids)
+            except DeviceDedupError as exc:
+                flash(str(exc), "warning")
+                return redirect(url_for("admin.duplicates"))
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Сбой удаления дублей устройств")
+                flash(f"Ошибка удаления: {exc}", "danger")
+                return redirect(url_for("admin.duplicates"))
+
+            detail = f"deleted={','.join(str(i) for i in result.deleted)}"
+            if result.missing:
+                detail += f" missing={','.join(str(i) for i in result.missing)}"
+            audit_service.log(
+                current_user,
+                "delete",
+                "devices",
+                "dedup",
+                detail=detail,
+            )
+            msg = f"Удалено устройств: {len(result.deleted)}."
+            if result.missing:
+                msg += f" Уже отсутствовали: {len(result.missing)}."
+            flash(msg, "success")
+            scan = find_duplicate_groups()
+            if scan.group_count:
+                flash(
+                    f"Осталось групп дублей: {scan.group_count}.",
+                    "info",
+                )
+        else:
+            flash("Неизвестная форма.", "warning")
+            return redirect(url_for("admin.duplicates"))
+
+    return render_template("admin/duplicates.html", scan=scan)
 
 
 @bp.route("/updates", methods=["GET", "POST"])

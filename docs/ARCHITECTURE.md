@@ -415,9 +415,9 @@ List, `export.csv`, detail (только видимые по ACL).
 | GET | `/admin/hardware-poll-runs/export.csv` | |
 | POST | `/admin/hardware-poll-run` | |
 | POST | `/admin/refresh-hostnames` | |
+| GET/POST | `/admin/duplicates` | Настройки → Удаление дублей |
 | GET/POST | `/admin/updates` | |
 | GET | `/admin/audit` | редирект на Настройки → Действия и аудит |
-
 ### Password expiry — prefix `/password-expiry`
 
 | Method | Path | Auth |
@@ -758,6 +758,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Настройки → Опросы ПК и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
 | Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
+| Дубли устройств | `device_dedup_service`, GET/POST `/admin/duplicates` (Настройки → Удаление дублей) |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |

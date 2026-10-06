@@ -24,6 +24,7 @@
       <a class="settings-nav-link{% if ep.startswith('accounts.') %} active{% endif %}" href="{{ url_for('accounts.list_accounts') }}">Обнаруженные УЗ</a>
       <a class="settings-nav-link{% if ep.startswith('actions.') or ep == 'admin.audit_log' %} active{% endif %}" href="{{ url_for('actions.list_actions') }}">Действия и аудит</a>
       {% if current_user.is_admin %}
+      <a class="settings-nav-link{% if ep == 'admin.duplicates' %} active{% endif %}" href="{{ url_for('admin.duplicates') }}">Удаление дублей</a>
       <a class="settings-nav-link{% if ep == 'admin.updates' %} active{% endif %}" href="{{ url_for('admin.updates') }}">Обновления</a>
       {% endif %}
     </nav>
