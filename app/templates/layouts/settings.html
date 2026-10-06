@@ -13,6 +13,7 @@
       <a class="settings-nav-link{% if ep == 'sector_daily_report.settings_page' %} active{% endif %}" href="{{ url_for('sector_daily_report.settings_page') }}">Отчёты о ПК</a>
       <a class="settings-nav-link{% if ep.startswith('login_services.') %} active{% endif %}" href="{{ url_for('login_services.list_services') }}">Экран входа</a>
       <a class="settings-nav-link{% if ep == 'admin.settings' %} active{% endif %}" href="{{ url_for('admin.settings') }}">Параметры</a>
+      <a class="settings-nav-link{% if ep == 'admin.duplicates' %} active{% endif %}" href="{{ url_for('admin.duplicates') }}">Удаление дублей</a>
       <a class="settings-nav-link{% if ep == 'admin.updates' %} active{% endif %}" href="{{ url_for('admin.updates') }}">Обновления</a>
       <a class="settings-nav-link{% if ep == 'admin.audit_log' %} active{% endif %}" href="{{ url_for('admin.audit_log') }}">Аудит</a>
       {% endif %}

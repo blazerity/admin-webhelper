@@ -1,0 +1,138 @@
+{% extends "layouts/settings.html" %}
+{% from "macros/status.html" import status_badge, device_entity_link %}
+{% block title %}Удаление дублей{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Удаление дублей из базы</h1>
+    <p class="page-subtitle">
+      Найти карточки устройств, которые похожи на дубли, и удалить лишние.
+      Опрос сам призраков без серийника не сливает — здесь это делается вручную.
+    </p>
+  </div>
+</div>
+
+<div class="panel content-card mb-3">
+  <h2 class="h5 mb-2">Поиск</h2>
+  <p class="text-muted mb-3">
+    <strong>Уверенные</strong> — один IP у нескольких карточек, одинаковый MAC
+    или одинаковый серийник.
+    <strong>Предположительные</strong> — одинаковое имя хоста (может быть
+    совпадением у разных машин). В каждой группе отмечены кандидаты на удаление;
+    рекомендованную к сохранению карточку можно тоже удалить, сняв/поставив галочки.
+  </p>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="scan">
+    <button class="btn btn-primary" type="submit">Найти дубли</button>
+  </form>
+</div>
+
+{% if scan is not none %}
+  {% if scan.group_count == 0 %}
+  <div class="panel content-card mb-3">
+    <p class="text-muted mb-0">
+      Дублей не найдено. Просмотрено устройств: {{ scan.scanned }}.
+    </p>
+  </div>
+  {% else %}
+  <form method="post" id="dedup-delete-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="delete">
+
+    {% for section in [
+      (scan.confirmed, 'Уверенные дубли', 'text-bg-danger'),
+      (scan.suspected, 'Предположительные дубли', 'text-bg-warning')
+    ] %}
+      {% set groups = section[0] %}
+      {% set title = section[1] %}
+      {% set badge_class = section[2] %}
+      {% if groups %}
+      <div class="panel content-card mb-3">
+        <h2 class="h5 mb-1">{{ title }}</h2>
+        <p class="text-muted mb-3">Групп: {{ groups|length }}</p>
+        {% for group in groups %}
+        <div class="dedup-group mb-4">
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+            <span class="badge {{ badge_class }}">{{ group.reason_label }}</span>
+            <span class="font-monospace small">{{ group.match_value }}</span>
+            <span class="text-muted small">оставить #{{ group.keep_id }}</span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th style="width:2.5rem">Удал.</th>
+                  <th>ID</th>
+                  <th>IP</th>
+                  <th>Имя</th>
+                  <th>Серийник</th>
+                  <th>MAC</th>
+                  <th>Сектор</th>
+                  <th>Тип</th>
+                  <th>Статус</th>
+                  <th>Видели</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for device in group.devices %}
+                <tr class="{% if device.keep_recommended %}table-success{% elif device.last_status == 'offline' %}table-secondary{% endif %}">
+                  <td>
+                    <input
+                      class="form-check-input"
+                      type="checkbox"
+                      name="delete_ids"
+                      value="{{ device.id }}"
+                      id="del-{{ device.id }}"
+                      {% if not device.keep_recommended %}checked{% endif %}
+                      aria-label="Удалить устройство {{ device.id }}"
+                    >
+                  </td>
+                  <td>
+                    {{ device_entity_link(device.id, '#' ~ device.id) }}
+                    {% if device.keep_recommended %}
+                    <span class="badge text-bg-success ms-1">оставить</span>
+                    {% endif %}
+                  </td>
+                  <td class="font-monospace">{{ device.ip }}</td>
+                  <td>{{ device.hostname or '—' }}</td>
+                  <td class="font-monospace small">{{ device.serial_number or '—' }}</td>
+                  <td class="font-monospace small">{{ device.mac or '—' }}</td>
+                  <td>{{ device.sector_name }}</td>
+                  <td>{{ device.kind_label }}</td>
+                  <td>{{ status_badge(device.last_status) }}</td>
+                  <td class="small">
+                    {% if device.last_seen %}
+                      {{ device.last_seen|dt }}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endfor %}
+
+    <div class="panel content-card mb-3">
+      <p class="text-muted mb-3">
+        Удаление необратимо: вместе с карточкой уходят история опросов,
+        история УЗ и снимки железа. Запуски скриптов сохраняются без привязки к устройству.
+      </p>
+      <button
+        class="btn btn-danger"
+        type="submit"
+        onclick="return confirm('Удалить отмеченные устройства из базы?');"
+      >
+        Удалить выбранные
+      </button>
+    </div>
+  </form>
+  {% endif %}
+{% endif %}
+{% endblock %}
