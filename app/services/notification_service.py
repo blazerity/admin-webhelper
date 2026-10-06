@@ -111,7 +111,7 @@ def notify_script_failed(run: ScriptRun) -> Notification | None:
     """Опционально: уведомить автора скрипта о failed run."""
     if run is None or run.status != RunStatus.FAILED:
         return None
-    if run.run_type not in {RunType.SCRIPT, RunType.COMMAND}:
+    if run.run_type not in {RunType.SCRIPT, RunType.COMMAND, RunType.VNC_ENSURE}:
         return None
     script = run.script
     if script is None or script.created_by_id is None:

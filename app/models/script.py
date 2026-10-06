@@ -16,6 +16,7 @@ class RunType:
     TRACERT = "tracert"
     COMMAND = "command"
     SCRIPT = "script"
+    VNC_ENSURE = "vnc_ensure"
 
 
 class RunStatus:

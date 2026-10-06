@@ -20,6 +20,7 @@ RUN_TYPE_LABELS = {
     RunType.TRACERT: "Трассировка",
     RunType.COMMAND: "Команда",
     RunType.SCRIPT: "Скрипт",
+    RunType.VNC_ENSURE: "Агент VNC",
 }
 
 

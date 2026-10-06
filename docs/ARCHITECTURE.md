@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.7.0)
+# Архитектура bAWH (актуально для v1.7.1)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.7.0` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.7.1` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -84,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.7.0)
+  VERSION                      # semver (1.7.1)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -192,7 +192,7 @@ def ensure_schema() -> None:
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
     # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
     # 4) ветка обновлений beta, если ещё не выбирали (data_fix.update_branch_beta_v167)
-    # 5) скрипт TightVNC в библиотеке, если имени нет / стоковое тело (data_fix.seed_tightvnc_script_v175)
+    # 5) скрипт TightVNC (удаление) в библиотеке (data_fix.seed_tightvnc_script_v176)
     # 6) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
@@ -216,13 +216,10 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 Повторный WMI-опрос для этого не нужен.
 
 **Сид TightVNC:** при старте в библиотеку кладётся неопубликованное тело
-«TightVNC (тихая установка)» из `app/services/tightvnc_install_script.py`.
-MSI админ кладёт в `vnc-agents/` (на сервере `/opt/bawh/vnc-agents/`);
-скрипт копирует его на ПК через ADMIN$ и может скачать `/vnc-agents/64bit.msi`.
-Маркер `data_fix.seed_tightvnc_script_v175`: стоковое тело (пустой пароль)
-обновляется целиком; в теле с уже подставленным паролем чинится
-`Convert-VncPasswordBytes` (если ещё старый RFB-challenge DES) и
-синхронизируется `Remove-TightVncStartMenu` (ярлыки в общем меню Пуск).
+«TightVNC (тихое удаление)» из `app/services/tightvnc_install_script.py`.
+Старое «TightVNC (тихая установка)» заменяется. MSI админ кладёт в `vnc-agents/`;
+при «Подключить» на карточке агент ставится или обновляется (пароль/порт/файрвол).
+Маркер `data_fix.seed_tightvnc_script_v176`.
 
 ---
 
@@ -677,7 +674,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/js/run_log.js` | поллинг лога запуска |
 | `static/js/login_status.js` | статус сервисов на `/login` |
 | `static/js/pc_reports.js` | диаграммы отчётов о ПК (Chart.js) |
-| `static/js/vnc_session.js` | noVNC RFB на `/devices/<id>/vnc` |
+| `static/js/vnc_session.js` | подготовка агента + noVNC RFB на `/devices/<id>/vnc` |
 | `static/vendor/bootstrap/` | Bootstrap 5 offline (air-gap) |
 | `static/vendor/chart.js/` | Chart.js 4 UMD offline (air-gap) |
 | `static/vendor/novnc/` | noVNC 1.5.0 core (air-gap) |
@@ -759,7 +756,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
-| Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session`, сид агента `tightvnc_install_script`, раздача MSI `routes/vnc_agents.py` + `vnc-agents/`, [`VNC.md`](VNC.md) |
+| Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session` / `vnc_prepare`, сид удаления `tightvnc_install_script`, раздача MSI `routes/vnc_agents.py` + `vnc-agents/`, [`VNC.md`](VNC.md) |
 | HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Параметры `#tls` |
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
@@ -783,7 +780,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
 | [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
 | [SCRIPTS.md](SCRIPTS.md) | Требования к телу скрипта из формы «Скрипты» (для агентов и авторов) |
-| [VNC.md](VNC.md) | Экспериментальный стол в браузере, тихая установка TightVNC, HTTPS из Параметров |
+| [VNC.md](VNC.md) | Стол в браузере, агент TightVNC при подключении, тихое удаление, HTTPS из Параметров |
 
 ---
 
