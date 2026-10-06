@@ -78,11 +78,16 @@ journalctl -u bawh-web -u bawh-scheduler -u bawh-password-reports -u bawh-pc-rep
 
 Или повторный запуск установщика из каталога с кодом / через one-liner — обновит `/opt/bawh`, зависимости и юниты; существующий `.env` не перезаписывает.
 
-Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.6.6`).
+Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.6.7`).
+
+На странице **Обновления** можно выбрать ветку git (список с сервера).
+Выбор хранится в базе и важнее `GIT_BRANCH` в `.env`. С хотфикса 1.6.7,
+если ветку ещё не выбирали, при старте ставится `beta`.
 
 ## Тесты
 
-Канонические регрессии — stdlib `unittest` в `tests/` (pytest в requirements нет):
+Каталог `tests/` в git не входит (см. [`.gitignore`](.gitignore)).
+Локальные регрессии — stdlib `unittest` (pytest в requirements нет):
 
 ```bash
 python -m unittest discover -s tests -v
