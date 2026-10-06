@@ -22,7 +22,7 @@ from app.models import AppSetting, RunAs, Script
 logger = logging.getLogger(__name__)
 
 TIGHTVNC_INSTALL_SCRIPT_NAME = "TightVNC (тихая установка)"
-TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v172"
+TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v173"
 TIGHTVNC_PAYLOAD_SENTINEL = "# bAWH-payload: tightvnc-msi"
 VNC_AGENTS_DIRNAME = "vnc-agents"
 _SAFE_AGENT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -53,25 +53,19 @@ $Port = 5900
 $ForceReinstall = $false
 
 function Convert-VncPasswordBytes([string]$Plain) {
-    $key = New-Object byte[] 8
+    # TightVNC хранит пароль как vncpasswd: DES-ECB, ключ E8 4A D6 60 C4 72 1A E0
+    # (бит-реверс {23,82,107,6,35,78,88,7} для обычного DES/.NET).
+    # Не путать с RFB challenge, где пароль сам становится ключом DES.
+    $plainBytes = New-Object byte[] 8
     $raw = [System.Text.Encoding]::ASCII.GetBytes($Plain)
-    [Array]::Copy($raw, $key, [Math]::Min(8, $raw.Length))
-    for ($i = 0; $i -lt 8; $i++) {
-        $b = [int]$key[$i]
-        $rev = 0
-        for ($bit = 0; $bit -lt 8; $bit++) {
-            if ($b -band (1 -shl $bit)) { $rev = $rev -bor (1 -shl (7 - $bit)) }
-        }
-        $key[$i] = [byte]$rev
-    }
+    [Array]::Copy($raw, $plainBytes, [Math]::Min(8, $raw.Length))
     $des = New-Object System.Security.Cryptography.DESCryptoServiceProvider
     $des.Mode = [System.Security.Cryptography.CipherMode]::ECB
     $des.Padding = [System.Security.Cryptography.PaddingMode]::None
-    $des.Key = $key
+    $des.Key = [byte[]](0xE8, 0x4A, 0xD6, 0x60, 0xC4, 0x72, 0x1A, 0xE0)
     $encryptor = $des.CreateEncryptor()
-    $magic = [byte[]](0x17, 0x52, 0x6B, 0x06, 0x23, 0x4E, 0x58, 0x07)
     try {
-        return $encryptor.TransformFinalBlock($magic, 0, 8)
+        return $encryptor.TransformFinalBlock($plainBytes, 0, 8)
     } finally {
         $encryptor.Dispose()
         $des.Dispose()
@@ -468,6 +462,36 @@ def list_vnc_agent_summaries(root: str | Path | None = None) -> list[dict[str, s
     return rows
 
 
+_OLD_VNC_PASS_MAGIC = "$magic = [byte[]](0x17, 0x52, 0x6B, 0x06, 0x23, 0x4E, 0x58, 0x07)"
+# Закрывающая «}» функции в каноническом теле на колонке 0; вложенные — с отступом.
+_ENCODER_BLOCK = re.compile(
+    r"(?m)^function Convert-VncPasswordBytes\([^\n]*\) \{.*?\n\}",
+    re.DOTALL,
+)
+
+
+def _canonical_password_encoder() -> str:
+    match = _ENCODER_BLOCK.search(TIGHTVNC_INSTALL_SCRIPT_BODY)
+    if match is None:
+        raise RuntimeError("в каноническом теле нет Convert-VncPasswordBytes")
+    return match.group(0)
+
+
+def patch_vnc_password_encoder(content: str) -> str | None:
+    """Заменить старый (неверный) DES-кодировщик, сохранив $VncPassword и IP."""
+    text = content or ""
+    if _OLD_VNC_PASS_MAGIC not in text:
+        return None
+    encoder = _canonical_password_encoder()
+    patched, count = _ENCODER_BLOCK.subn(lambda _m: encoder, text, count=1)
+    if count != 1:
+        logger.warning(
+            "TightVNC script has old password encoder, but Convert-VncPasswordBytes was not replaced"
+        )
+        return None
+    return patched
+
+
 def _is_stock_body(content: str) -> bool:
     """Пустой пароль и каноническое/прошлое тело — можно обновить сидом."""
     text = content or ""
@@ -521,6 +545,11 @@ def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
         existing.content = TIGHTVNC_INSTALL_SCRIPT_BODY
         existing.is_published = False
         updated = True
+    else:
+        patched = patch_vnc_password_encoder(existing.content or "")
+        if patched is not None:
+            existing.content = patched
+            updated = True
 
     if marker is None:
         db.session.add(AppSetting(key=TIGHTVNC_SCRIPT_SEED_KEY, value="1"))
@@ -547,7 +576,7 @@ def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
         )
     elif updated:
         logger.info(
-            "ensure_schema: refreshed stock TightVNC script body (v171, MSI from bAWH)",
+            "ensure_schema: refreshed TightVNC script body (password encoder / stock)",
         )
     else:
         logger.info(

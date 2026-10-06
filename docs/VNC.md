@@ -28,8 +28,9 @@ MSI кладите в каталог [`vnc-agents/`](../vnc-agents/README.md) р
 После обновления в библиотеке появляется **TightVNC (тихая установка)**
 (PowerShell, `NT AUTHORITY\SYSTEM`, хранение в базе, **не опубликован**).
 Каноническое тело: `app/services/tightvnc_install_script.py`. Стоковое тело
-(пустой `$VncPassword`) при старте обновляется; строку с уже подставленным
-паролем сид не затирает.
+(пустой `$VncPassword`) при старте обновляется целиком. В теле с уже
+подставленным паролем сид v173 меняет только `Convert-VncPasswordBytes`
+(не затирает пароль и IP).
 
 Перед запуском:
 
@@ -77,25 +78,19 @@ $Port = 5900
 $ForceReinstall = $false
 
 function Convert-VncPasswordBytes([string]$Plain) {
-    $key = New-Object byte[] 8
+    # TightVNC хранит пароль как vncpasswd: DES-ECB, ключ E8 4A D6 60 C4 72 1A E0
+    # (бит-реверс {23,82,107,6,35,78,88,7} для обычного DES/.NET).
+    # Не путать с RFB challenge, где пароль сам становится ключом DES.
+    $plainBytes = New-Object byte[] 8
     $raw = [System.Text.Encoding]::ASCII.GetBytes($Plain)
-    [Array]::Copy($raw, $key, [Math]::Min(8, $raw.Length))
-    for ($i = 0; $i -lt 8; $i++) {
-        $b = [int]$key[$i]
-        $rev = 0
-        for ($bit = 0; $bit -lt 8; $bit++) {
-            if ($b -band (1 -shl $bit)) { $rev = $rev -bor (1 -shl (7 - $bit)) }
-        }
-        $key[$i] = [byte]$rev
-    }
+    [Array]::Copy($raw, $plainBytes, [Math]::Min(8, $raw.Length))
     $des = New-Object System.Security.Cryptography.DESCryptoServiceProvider
     $des.Mode = [System.Security.Cryptography.CipherMode]::ECB
     $des.Padding = [System.Security.Cryptography.PaddingMode]::None
-    $des.Key = $key
+    $des.Key = [byte[]](0xE8, 0x4A, 0xD6, 0x60, 0xC4, 0x72, 0x1A, 0xE0)
     $encryptor = $des.CreateEncryptor()
-    $magic = [byte[]](0x17, 0x52, 0x6B, 0x06, 0x23, 0x4E, 0x58, 0x07)
     try {
-        return $encryptor.TransformFinalBlock($magic, 0, 8)
+        return $encryptor.TransformFinalBlock($plainBytes, 0, 8)
     } finally {
         $encryptor.Dispose()
         $des.Dispose()
@@ -391,8 +386,14 @@ try {
 Лог шлюза: `journalctl -u bawh-vnc -n 80 --no-pager`.
 `vnc session … ip:port` значит TCP открылся; дальше должна быть строка `vnc greeting … RFB 003.008`.
 Если `not RFB` — на порту не TightVNC (часто порт в Параметрах не 5900).
-Если после `RFB` сразу `tcp closed` — пароль или старый ACL TightVNC (`IpAccessControl`).
-На уже поставленном агенте ACL можно снять и перезапустить службу:
+Если после `RFB` сразу `tcp closed` — пароль в реестре или старый ACL TightVNC (`IpAccessControl`).
+`nc` до `RFB 003.008`, пустой `IpAccessControl` и перезапуск службы **не** лечат неверный
+`HKLM:\SOFTWARE\TightVNC\Server\Password`: первый скрипт писал RFB-challenge DES
+(пароль как ключ), TightVNC ждёт vncpasswd (ключ `E8 4A D6 60 C4 72 1A E0`).
+После обновления bAWH ещё раз запустите «TightVNC (тихая установка)» на этот ПК
+(MSI не ставится повторно — перепишется реестр и перезапустится `tvnserver`).
+
+На уже поставленном агенте ACL можно снять вручную:
 
 ```powershell
 Remove-ItemProperty HKLM:\SOFTWARE\TightVNC\Server -Name IpAccessControl -ErrorAction SilentlyContinue
