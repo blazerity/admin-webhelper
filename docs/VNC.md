@@ -29,8 +29,9 @@ MSI кладите в каталог [`vnc-agents/`](../vnc-agents/README.md) р
 (PowerShell, `NT AUTHORITY\SYSTEM`, хранение в базе, **не опубликован**).
 Каноническое тело: `app/services/tightvnc_install_script.py`. Стоковое тело
 (пустой `$VncPassword`) при старте обновляется целиком. В теле с уже
-подставленным паролем сид v173 меняет только `Convert-VncPasswordBytes`
-(не затирает пароль и IP).
+подставленным паролем сид v174 не затирает пароль и IP: чинит
+`Convert-VncPasswordBytes` при необходимости и добавляет удаление ярлыков
+TightVNC из меню Пуск.
 
 Перед запуском:
 
@@ -49,7 +50,8 @@ MSI кладите в каталог [`vnc-agents/`](../vnc-agents/README.md) р
 | Опубликован | нет, пока в теле нет пароля |
 
 Если служба `tvnserver` уже есть, MSI не ставится повторно: обновляются пароль,
-порт, ACL TightVNC и правило файрвола `bAWH VNC`. Принудительно: `$ForceReinstall = $true`.
+порт, файрвол `bAWH VNC` и удаляются ярлыки TightVNC из меню Пуск.
+Принудительно: `$ForceReinstall = $true`.
 
 Коды выхода: `0` ок; `2` нет/плохой пароль; `3` нет IP/порта; `4` нет MSI;
 `5` msiexec; `6` служба или файрвол; `1` исключение.
@@ -58,7 +60,8 @@ MSI-свойства — по [официальной инструкции Tight
 пары `SET_*` + `VALUE_OF_*` (не `VALUE=SET_PASSWORD`), `ADDLOCAL=Server`,
 `SERVER_REGISTER_AS_SERVICE=1`, `SERVER_ALLOW_SAS=1`,
 `SERVER_ADD_FIREWALL_EXCEPTION=0` (дырку в 5900 на весь мир не открываем).
-После MSI пароль ещё пишется в реестр (VNC DES).
+После MSI пароль ещё пишется в реестр (VNC DES). Ярлыки TightVNC из меню Пуск
+(общая папка и профили пользователей) удаляются.
 
 Текст для ручной вставки в форму (тот же, что сидируется):
 
@@ -190,7 +193,7 @@ function Save-MsiFromBawh([string]$Ip, [string]$Dest) {
     return $null
 }
 
-function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort, [string]$Access) {
+function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort) {
     if (-not (Test-Path -LiteralPath $RegPath)) {
         New-Item -Path $RegPath -Force | Out-Null
     }
@@ -201,7 +204,59 @@ function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort
     New-ItemProperty -LiteralPath $RegPath -Name AcceptRfbConnections -PropertyType DWord -Value 1 -Force | Out-Null
     New-ItemProperty -LiteralPath $RegPath -Name AcceptHttpConnections -PropertyType DWord -Value 0 -Force | Out-Null
     New-ItemProperty -LiteralPath $RegPath -Name RfbPort -PropertyType DWord -Value $RfbPort -Force | Out-Null
-    New-ItemProperty -LiteralPath $RegPath -Name IpAccessControl -PropertyType String -Value $Access -Force | Out-Null
+    # Не режем IP внутри TightVNC: deny-all ломает вход, если $BawhServerIp не тот
+    # интерфейс, с которого Debian ходит на ПК. Ограничение — правило файрвола bAWH VNC.
+    Remove-ItemProperty -LiteralPath $RegPath -Name IpAccessControl -ErrorAction SilentlyContinue
+}
+
+function Remove-TightVncStartMenu {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $dirs = @(
+            (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs')
+        )
+        if ($env:ALLUSERSPROFILE) {
+            $dirs += (Join-Path $env:ALLUSERSPROFILE 'Microsoft\Windows\Start Menu\Programs')
+        }
+        $usersRoot = Join-Path $env:SystemDrive 'Users'
+        if (Test-Path -LiteralPath $usersRoot) {
+            foreach ($userDir in @(Get-ChildItem -LiteralPath $usersRoot -Directory -Force -ErrorAction SilentlyContinue)) {
+                $dirs += (Join-Path $userDir.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs')
+            }
+        }
+        $seen = @{}
+        $n = 0
+        foreach ($programs in $dirs) {
+            if (-not $programs) { continue }
+            $key = $programs.ToLowerInvariant()
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+            if (-not (Test-Path -LiteralPath $programs)) { continue }
+            $folder = Join-Path $programs 'TightVNC'
+            if (Test-Path -LiteralPath $folder) {
+                Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
+                if (-not (Test-Path -LiteralPath $folder)) {
+                    $n++
+                    L ("Удалил папку меню Пуск: {0}" -f $folder)
+                } else {
+                    L ("Не удалось удалить папку меню Пуск: {0}" -f $folder)
+                }
+            }
+            foreach ($lnk in @(Get-ChildItem -LiteralPath $programs -Filter '*TightVNC*.lnk' -Force -ErrorAction SilentlyContinue)) {
+                Remove-Item -LiteralPath $lnk.FullName -Force -ErrorAction SilentlyContinue
+                if (-not (Test-Path -LiteralPath $lnk.FullName)) {
+                    $n++
+                    L ("Удалил ярлык: {0}" -f $lnk.FullName)
+                }
+            }
+        }
+        if ($n -eq 0) {
+            L 'Ярлыков TightVNC в меню Пуск не нашёл.'
+        }
+    } finally {
+        $ErrorActionPreference = $prev
+    }
 }
 
 try {
@@ -264,7 +319,6 @@ try {
             L 'Файл установщика повреждён или это не MSI.'
             exit 4
         }
-        $ipAcl = '{0}-{0}:0,0.0.0.0-255.255.255.255:1' -f $BawhServerIp
         $msiArgs = @(
             '/i', ('"{0}"' -f $localMsi),
             '/qn',
@@ -287,8 +341,7 @@ try {
             'VALUE_OF_ACCEPTRFBCONNECTIONS=1',
             'SET_RFBPORT=1',
             ('VALUE_OF_RFBPORT={0}' -f $Port),
-            'SET_IPACCESSCONTROL=1',
-            ('VALUE_OF_IPACCESSCONTROL="{0}"' -f $ipAcl)
+            'SET_IPACCESSCONTROL=-1'
         ) -join ' '
         $msiexec = Get-MsiexecPath
         L ("msiexec: {0} (пароль в журнал не пишу)" -f $msiexec)
@@ -304,11 +357,10 @@ try {
         }
         $exe = Get-TvnServerExe
     } else {
-        L 'MSI не трогаю — служба уже есть. Обновляю пароль, порт и файрвол.'
+        L 'MSI не трогаю — служба уже есть. Обновляю пароль, порт, файрвол и меню Пуск.'
     }
 
     $pwBytes = Convert-VncPasswordBytes $VncPassword
-    $ipAcl = '{0}-{0}:0,0.0.0.0-255.255.255.255:1' -f $BawhServerIp
     $native = 'HKLM:\SOFTWARE\TightVNC\Server'
     $wow = 'HKLM:\SOFTWARE\Wow6432Node\TightVNC\Server'
     $regPaths = @()
@@ -323,7 +375,7 @@ try {
     }
     foreach ($regPath in $regPaths) {
         L ("Пишу HKLM ({0})" -f $regPath)
-        Set-TvnRegistry -RegPath $regPath -PasswordBytes $pwBytes -RfbPort $Port -Access $ipAcl
+        Set-TvnRegistry -RegPath $regPath -PasswordBytes $pwBytes -RfbPort $Port
     }
 
     L ("Файрвол {0}/tcp только с {1}" -f $Port, $BawhServerIp)
@@ -339,6 +391,8 @@ try {
         L ("netsh add rule код {0}" -f $fwCode)
         exit 6
     }
+
+    Remove-TightVncStartMenu
 
     $svc = Get-Service -Name 'tvnserver' -ErrorAction SilentlyContinue
     if (-not $svc) {
