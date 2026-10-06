@@ -19,9 +19,8 @@
 Gunicorn + Nginx · Bootstrap 5 (vendorized) · noVNC + `websockets` (процесс `bawh-vnc`).
 
 **Нет в репозитории:** Alembic / Flask-Migrate, Redis, Celery, WebSocket *в Flask*,
-Telegram, S3, SPA-фреймворка, Pydantic. Идентичность устройств — unittest
-в `tests/test_device_identity.py`; опрос железа — `tests/test_hardware_poll.py`
-(без pytest в requirements). Веб-VNC — отдельный процесс, не Gunicorn.
+Telegram, S3, SPA-фреймворка, Pydantic. Каталог `tests/` тоже не в git
+(локальный `unittest`, без pytest в requirements). Веб-VNC — отдельный процесс, не Gunicorn.
 
 ---
 
@@ -109,7 +108,7 @@ bAWH/                          # на сервере = /opt/bawh
     templates/
     static/                    # css/, js/, vendor/bootstrap/
   deploy/                      # Debian 12: systemd, nginx, install
-  tests/                       # unittest (канонические регрессии)
+  tests/                       # локально, в gitignore
   logs/                        # runtime (в gitignore содержимое)
 ```
 
@@ -269,11 +268,11 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
 | `device_kind.py` | тип карты: имена AD, WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
-| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
+| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра **и** serial/hostname, кто ответил). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
-| `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices`, история при изменении. Mutex + `hardware_poll_runs` |
+| `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices` только если SN зонда совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs` |
 | `hardware_poll_settings.py` | cron / schedule_enabled в `app_settings` (default `0 12 * * *`, включено) |
-| `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки. CLI `refresh-hostnames`, кнопка в Параметрах |
+| `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки; чужой SN на том же IP — не пишет имя. CLI `refresh-hostnames`, кнопка в Параметрах |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
 
@@ -335,7 +334,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `login_service_status.py` | CRUD сервисов экрана входа + ICMP status |
 | `notification_service.py` | in-app уведомления |
 | `log_archive_service.py` | месячный tar.gz ротированных логов |
-| `update_service.py` | git pull → backup → pip → `flask init-db` → systemd restart (фон + `app.app_context()`) |
+| `update_service.py` | выбранная ветка git → backup → pip → `flask init-db` → systemd restart (фон + `app.app_context()`) |
 
 ---
 
@@ -572,6 +571,7 @@ sequenceDiagram
       Ping->>Ping: TCP 445/135, 8728/8291, 9100/515, 554 + SNMP sysDescr
     end
     Ping->>DB: devices + device_history (+ fingerprint_kind)
+    Note over Ping,DB: SN занял IP — другие карточки с этим адресом → offline
     opt logged_on_user is not None
       Ping->>Acc: apply_logged_on_user (savepoint)
       Acc->>DB: endpoint_accounts + history
@@ -604,13 +604,18 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`n
 
 Scheduler cron (полдень) / CLI `hardware-poll` / UI Параметры или карточка →
 `run_hardware_poll` → ping известных Windows-целей (серийник WMI, имена n/w/v/сервер,
-fingerprint windows) → `lookup_wmi_hardware` → снимок на `devices` + строка
-`device_hardware_history` только если CPU/ОЗУ/диски/ОС изменились.
-Итог прогона — `hardware_poll_runs`. ICMP-опрос сети **не** трогает эти поля.
+fingerprint windows) → `lookup_wmi_hardware` (железо **и** serial/hostname) →
+снимок на карточку с тем же SN; если на IP отвечает другой известный SN —
+полный прогон пишет ему, разовый с карточки — skip. История — только если
+CPU/ОЗУ/диски/ОС изменились. Итог прогона — `hardware_poll_runs`.
+ICMP-опрос сети **не** трогает эти поля.
 
 ### E. Self-update
 
-Admin UI → `update_service` (фоновый поток + `app.app_context()`):
+Admin UI → `update_service` (фоновый поток + `app.app_context()`).
+Ветка: `app_settings.update_git_branch` (список через `git ls-remote --heads`),
+иначе `GIT_BRANCH`. Хотфикс 1.6.7 при первом старте ставит `beta`, если
+ключ ещё пустой. Дальше:
 backup → git → pip → `flask init-db` → опциональный restart
 `bawh-web` + `bawh-scheduler` + при включённых тумблерах
 `bawh-password-reports` / `bawh-pc-reports` (sudo-учётка из Параметров / sudoers).
@@ -622,12 +627,12 @@ backup → git → pip → `flask init-db` → опциональный restart
 ## 12. Соглашения по домену и коду
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
-- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP-адреса обновляет IP/сектор/MAC у неё. Hostname и PTR **не** ключи слияния: одинаковое имя при разных SN — две карточки. Без SN можно переиспользовать только запись с тем же IP и пустым SN; зонд без SN не забирает строку, у которой SN уже есть. Призрак без SN на старом IP после появления SN на новом — известная дыра (не сливать автоматически).
-- **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames`.
+- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё. Другие карточки, у которых ещё записан этот IP, становятся offline (короткая аренда VPN). Hostname и PTR **не** ключи слияния: одинаковое имя при разных SN — две карточки. Без SN можно переиспользовать только запись с тем же IP и пустым SN; зонд без SN не забирает строку, у которой SN уже есть. Призрак без SN на старом IP после появления SN на новом — известная дыра (не сливать автоматически).
+- **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames` (чужой SN на том же IP имя не пишет).
 - **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI.
 - **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
 - **WMI UserName:** `None` в probe — WMI не вызывали/упал (текущую УЗ **не** трогаем); `""` — никто не залогинен.
-- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN с WMI, имена n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. CPU = `Win32_Processor.Name`, ОЗУ = сумма `Win32_PhysicalMemory.Capacity` (запасной — `TotalPhysicalMemory`) в ГиБ с привязкой к номиналу планок, диски = сумма `Win32_DiskDrive.Size` без USB в десятичных ГБ (этикетка 1000³, номинал 256/512/…) (запасной — локальные тома), ОС = Caption + DisplayVersion (реестр StdRegProv) / сборка.
+- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN с WMI, имена n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. CPU = `Win32_Processor.Name`, ОЗУ = сумма `Win32_PhysicalMemory.Capacity` (запасной — `TotalPhysicalMemory`) в ГиБ с привязкой к номиналу планок, диски = сумма `Win32_DiskDrive.Size` без USB в десятичных ГБ (этикетка 1000³, номинал 256/512/…) (запасной — локальные тома), ОС = Caption + DisplayVersion (реестр StdRegProv) / сборка. Снимок пишется только если WMI-серийник (запасной — короткое имя ОС) совпадает с карточкой: иначе это чужой ПК на переиспользованном VPN/DHCP-адресе.
 - **ILIKE:** только через `utils.ilike_pattern` (экранирование `%`/`_`).
 - **Время:** всегда timezone-aware UTC (`utils.utcnow` / `as_utc`); в шаблонах фильтр `dt`.
 - **Пустые адреса** в `devices` опрос не создаёт.
@@ -680,7 +685,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Poll | `POLL_INTERVAL_SECONDS`, `MIN_CIDR_PREFIX`, `MAX_HOSTS_PER_POLL`, `DISCOVERY_USERNAME/PASSWORD/DOMAIN` |
 | Crypto | `FERNET_KEY` |
 | Scripts | `SCRIPT_LIBRARY_DIR`, `SCRIPT_TIMEOUT_SECONDS` |
-| Updates | `GIT_REMOTE_URL`, `GIT_BRANCH`, `UPDATE_BACKUP_KEEP`, `UPDATE_RESTART`, `UPDATE_SUDO_USER` |
+| Updates | `GIT_REMOTE_URL`, `GIT_BRANCH` (запас, если в UI ветка не выбрана), `UPDATE_BACKUP_KEEP`, `UPDATE_RESTART`, `UPDATE_SUDO_USER` |
 | Cookies | `SESSION_COOKIE_SECURE` (также Параметры → HTTPS) |
 | VNC proxy | `VNC_LISTEN_HOST`, `VNC_LISTEN_PORT`, `VNC_MAX_SESSIONS` |
 
@@ -736,8 +741,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
-| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Параметры и вкладка «Оборудование»; тесты `tests/test_hardware_poll.py` |
-| Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; `tests/test_device_identity.py` |
+| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Параметры и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
+| Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
@@ -772,7 +777,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 ## 19. Что коммитить и что оставлять локально / в Cloud
 
-**В git (канон):** `app/`, `deploy/`, `docs/`, `tests/` (только `unittest` регрессии продукта),
+**В git (канон):** `app/`, `deploy/`, `docs/`,
 `VERSION`, `requirements.txt`, `wsgi.py`, `.env.example`, `Dockerfile`, `README.md`.
 
 **Не коммитить** (остаются на машине разработчика или в рабочей среде Cloud Agent;
@@ -784,14 +789,16 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `logs/*`, `backups/`, `*.log` | runtime |
 | `certs/` | PEM/ключи HTTPS из Параметров |
 | `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
+| `tests/` | локальные unittest, в поставку не входят |
 | `scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики |
 | `debug_*`, `diagnose_*`, `diag_*`, `*_manual.py`, `smoke_*.py`, `harness_*.py`, `scratch_*.py` | диагностика и ручные прогоны |
 
 Установщик (`deploy/install-debian12.sh`) и self-update (`update_service._SKIP_DIRS`)
 тоже пропускают эти каталоги — в `/opt/bawh` они не попадут.
 
-**Тесты:** канонические `tests/test_*.py` (stdlib `unittest`) — в репозитории.
-Временные/ручные/диагностические скрипты — только локально или в Cloud, без push в git.
+**Тесты:** `tests/` в gitignore. Локально можно держать `unittest`
+(`python -m unittest discover -s tests -v`). Временные/ручные/диагностические
+скрипты — только локально или в Cloud, без push в git.
 
 ---
 

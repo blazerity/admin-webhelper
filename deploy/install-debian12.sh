@@ -269,6 +269,7 @@ install_sources() {
         --exclude temp \
         --exclude logs \
         --exclude certs \
+        --exclude tests \
         --exclude backups \
         --exclude '*.db' \
         --exclude '*.pyc' \

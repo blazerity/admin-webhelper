@@ -2,7 +2,9 @@
 
 Отдельный проход, не ICMP-опрос сети: берём уже известные устройства,
 которые похожи на Windows (WMI-серийник, имена n/w/v/серверы, fingerprint),
-пингуем, читаем WMI (CPU / ОЗУ / диски / версия ОС) и пишем снимок.
+пингуем, читаем WMI (CPU / ОЗУ / диски / версия ОС **и серийник**) и пишем
+снимок только если зонд — та же машина. Короткий DHCP/VPN-lease не должен
+переносить железо чужого ПК на карточку с устаревшим IP.
 
 Планировщик: cron из app_settings, по умолчанию полдень локального TZ.
 """
@@ -62,6 +64,7 @@ class HardwarePollResult:
     collected: int = 0
     changed: int = 0
     skipped: int = 0
+    mismatched: int = 0
     no_wmi: int = 0
     errors: int = 0
     dry_run: bool = False
@@ -77,6 +80,7 @@ class HardwarePollResult:
             "collected": self.collected,
             "changed": self.changed,
             "skipped": self.skipped,
+            "mismatched": self.mismatched,
             "no_wmi": self.no_wmi,
             "errors": self.errors,
             "dry_run": self.dry_run,
@@ -91,6 +95,7 @@ class _Target:
     device_id: int
     ip: str
     hostname: str | None
+    serial_number: str | None
 
 
 @dataclass
@@ -99,6 +104,8 @@ class _Probe:
     ip: str
     online: bool
     snapshot: HardwareSnapshot | None = None
+    serial_number: str | None = None
+    hostname: str | None = None
     error: str | None = None
 
 
@@ -109,6 +116,39 @@ def is_windows_hardware_target(device: Device) -> bool:
     if device.kind in _WINDOWS_KINDS:
         return True
     return (device.fingerprint_kind or "").strip().lower() == "windows"
+
+
+def resolve_hardware_owner(
+    target: Device,
+    *,
+    live_serial: str | None,
+    live_hostname: str | None,
+    by_serial: dict[str, Device] | None = None,
+    allow_remap: bool = True,
+) -> Device | None:
+    """На какую карточку писать снимок. None — IP занял чужой ПК, не пишем.
+
+    VPN/DHCP отдаёт тот же адрес другой машине. Ключ — serial_number.
+    Hostname — запасной, только если зонд серийник не отдал.
+    Если SN зонда принадлежит другой известной карточке и allow_remap,
+    снимок уходит ей, а не карточке с устаревшим IP.
+    """
+    live_serial = discovery_service.normalize_serial(live_serial)
+    stored = discovery_service.normalize_serial(target.serial_number)
+    if live_serial:
+        if stored == live_serial:
+            return target
+        other = (by_serial or {}).get(live_serial)
+        if other is not None and other.id != target.id:
+            return other if allow_remap else None
+        if stored is None:
+            return target
+        return None
+    if stored:
+        if discovery_service.hostnames_match(target.hostname, live_hostname):
+            return target
+        return None
+    return target
 
 
 def apply_hardware_snapshot(
@@ -241,13 +281,14 @@ def run_hardware_poll(
 
         logger.info(
             "Опрос железа: проверено %s, онлайн %s, собрано %s, изменено %s, "
-            "офлайн %s, без WMI %s, ошибок %s",
+            "офлайн %s, без WMI %s, чужой IP %s, ошибок %s",
             result.scanned,
             result.online,
             result.collected,
             result.changed,
             result.offline,
             result.no_wmi,
+            result.mismatched,
             result.errors,
         )
         return result
@@ -291,8 +332,9 @@ def _poll_targets(
     probes = _probe_targets(targets, creds)
     by_id = {item.device_id: item for item in probes}
     now = utcnow()
+    allow_remap = not device_ids
 
-    pending: list[tuple[int, HardwareSnapshot, HardwareChange]] = []
+    pending: list[tuple[_Target, HardwareSnapshot, str | None, str | None]] = []
     for target in targets:
         result.scanned += 1
         probe = by_id.get(target.device_id)
@@ -310,51 +352,84 @@ def _poll_targets(
         if snapshot is None or snapshot.is_empty:
             result.no_wmi += 1
             continue
+        pending.append((target, snapshot, probe.serial_number, probe.hostname))
+
+    if not pending:
+        return
+
+    target_ids = [item[0].device_id for item in pending]
+    live_serials = {
+        discovery_service.normalize_serial(serial)
+        for _, _, serial, _ in pending
+        if discovery_service.normalize_serial(serial)
+    }
+    devices = {
+        device.id: device
+        for device in db.session.scalars(select(Device).where(Device.id.in_(target_ids)))
+    }
+    by_serial: dict[str, Device] = {}
+    if live_serials:
+        by_serial = {
+            device.serial_number: device
+            for device in db.session.scalars(
+                select(Device).where(Device.serial_number.in_(list(live_serials)))
+            )
+            if device.serial_number
+        }
+
+    for target, snapshot, live_serial, live_hostname in pending:
+        probed = devices.get(target.device_id)
+        if probed is None:
+            result.skipped += 1
+            continue
+        owner = resolve_hardware_owner(
+            probed,
+            live_serial=live_serial,
+            live_hostname=live_hostname,
+            by_serial=by_serial,
+            allow_remap=allow_remap,
+        )
+        if owner is None:
+            result.skipped += 1
+            result.mismatched += 1
+            logger.info(
+                "Опрос железа: %s отвечает другой машине (serial=%s hostname=%s), "
+                "снимок не пишем на id=%s serial=%s",
+                target.ip,
+                live_serial or "—",
+                live_hostname or "—",
+                probed.id,
+                probed.serial_number or "—",
+            )
+            continue
+        if owner.id != probed.id:
+            result.mismatched += 1
+            devices[owner.id] = owner
         change = HardwareChange(
-            device_id=target.device_id,
+            device_id=owner.id,
             ip=target.ip,
-            hostname=target.hostname,
+            hostname=owner.hostname or live_hostname or target.hostname,
             os_label=snapshot.os_label,
             cpu_name=snapshot.cpu_name,
             ram_gb=snapshot.ram_gb,
             disk_gb=snapshot.disk_gb,
         )
-        pending.append((target.device_id, snapshot, change))
-
-    device_ids = [item[0] for item in pending]
-    devices = {}
-    if device_ids:
-        devices = {
-            device.id: device
-            for device in db.session.scalars(
-                select(Device).where(Device.id.in_(device_ids))
-            )
-        }
-
-    if result.dry_run:
-        result.collected = len(pending)
-        for device_id, snapshot, change in pending:
-            device = devices.get(device_id)
-            if device is None:
-                continue
-            if device.hardware_identity != snapshot.identity or device.hardware_checked_at is None:
+        if result.dry_run:
+            result.collected += 1
+            if owner.hardware_identity != snapshot.identity or owner.hardware_checked_at is None:
                 result.changed += 1
                 if len(result.changes) < _MAX_STORED_CHANGES:
                     result.changes.append(change)
-        return
-
-    for device_id, snapshot, change in pending:
-        device = devices.get(device_id)
-        if device is None:
-            result.skipped += 1
             continue
-        changed = apply_hardware_snapshot(device, snapshot, collected_at=now)
+        changed = apply_hardware_snapshot(owner, snapshot, collected_at=now)
         result.collected += 1
         if changed:
             result.changed += 1
             if len(result.changes) < _MAX_STORED_CHANGES:
                 result.changes.append(change)
-    db.session.commit()
+
+    if not result.dry_run:
+        db.session.commit()
 
 
 def _load_targets(
@@ -373,7 +448,14 @@ def _load_targets(
             continue
         if not device_ids and not is_windows_hardware_target(row):
             continue
-        targets.append(_Target(device_id=row.id, ip=ip, hostname=row.hostname))
+        targets.append(
+            _Target(
+                device_id=row.id,
+                ip=ip,
+                hostname=row.hostname,
+                serial_number=row.serial_number,
+            )
+        )
         if limit is not None and len(targets) >= max(0, int(limit)):
             break
     return targets
@@ -419,6 +501,8 @@ def _probe_one(
             ip=target.ip,
             online=True,
             snapshot=snapshot,
+            serial_number=raw.serial_number,
+            hostname=raw.hostname,
         )
     except Exception as exc:
         logger.debug("hardware poll: %s — %s", target.ip, exc)

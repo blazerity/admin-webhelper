@@ -8,7 +8,9 @@
 * берёт уже известные строки devices (не сканирует CIDR заново);
 * пингует IP, у онлайн читает WMI DNSHostName/Name;
 * пишет hostname, только если короткое имя ОС не совпадает с тем, что в БД;
-* не сливает и не удаляет строки: разные serial — разные машины.
+* не сливает и не удаляет строки: разные serial — разные машины;
+* если WMI-серийник не совпадает с карточкой — hostname не пишем
+  (тот же IP мог отойти другому ПК в VPN-секторе).
 
 Следующий обычный опрос больше не затирает OS-имя PTR-ом
 (см. ping_service: hostname_from_wmi).
@@ -88,6 +90,7 @@ class _Probe:
     ip: str
     online: bool
     os_hostname: str | None = None
+    serial_number: str | None = None
     ptr: str | None = None
     error: str | None = None
 
@@ -107,6 +110,19 @@ def decide_hostname_update(
     if discovery_service.hostnames_match(current, os_hostname):
         return None
     return os_hostname
+
+
+def _hostname_probe_matches_device(
+    stored_serial: str | None, live_serial: str | None
+) -> bool:
+    """Не писать чужое OS-имя на карточку, если на IP другой SN."""
+    stored = discovery_service.normalize_serial(stored_serial)
+    live = discovery_service.normalize_serial(live_serial)
+    if stored and live:
+        return stored == live
+    if stored and not live:
+        return False
+    return True
 
 
 def run_hostname_sweep(
@@ -146,6 +162,18 @@ def run_hostname_sweep(
             continue
         if not probe.online:
             result.offline += 1
+            continue
+        if not _hostname_probe_matches_device(
+            target.serial_number, probe.serial_number
+        ):
+            result.skipped += 1
+            logger.info(
+                "Обновление имён: %s отвечает другой машине (serial=%s), "
+                "hostname id=%s не трогаем",
+                target.ip,
+                probe.serial_number or "—",
+                target.device_id,
+            )
             continue
         new_name = decide_hostname_update(target.hostname, probe.os_hostname)
         if new_name is None:
@@ -295,6 +323,7 @@ def _probe_one(
             ip=target.ip,
             online=True,
             os_hostname=inventory.hostname,
+            serial_number=inventory.serial_number,
             ptr=ptr,
         )
     except Exception as exc:

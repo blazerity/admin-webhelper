@@ -10,9 +10,13 @@
 есть ли новая сборка.
 
 Не копируются и не перезаписываются: .env, .venv, logs, script_library,
-instance, backups, базы *.db, а также локальные scratch-каталоги агентов
-(.cursor, .claude, scripts, tools, tmp). Это данные сервера / черновики,
-а не версия программы.
+instance, backups, базы *.db, tests, а также локальные scratch-каталоги
+агентов (.cursor, .claude, scripts, tools, tmp). Это данные сервера /
+черновики, а не версия программы.
+
+Ветку выбирают на странице обновлений (app_settings). Пока выбор не
+сохранён, берётся GIT_BRANCH из окружения. Хотфикс 1.6.7 при первом
+старте ставит ветку beta, если её ещё не выбирали.
 
 При откате кода схема PostgreSQL не откатывается назад.
 """
@@ -68,6 +72,7 @@ _SKIP_DIRS = {
     "tmp",
     "temp",
     "certs",
+    "tests",
 }
 _REASON_LABELS = {
     "before-update": "перед обновлением",
@@ -116,6 +121,8 @@ class UpdatePage:
     backups: list[BackupInfo]
     operation_state: str
     operation_message: str
+    branches: list[str]
+    branches_checked_at: str
 
     @property
     def update_available(self) -> bool | None:
@@ -155,8 +162,101 @@ def validate_branch(branch: str) -> str:
         or ".." in raw
         or "//" in raw
     ):
-        raise UpdateError("Некорректное имя ветки в GIT_BRANCH.")
+        raise UpdateError("Некорректное имя ветки.")
     return raw
+
+
+def resolve_update_branch() -> str:
+    """Ветка проверки и установки: выбор в UI, иначе GIT_BRANCH."""
+    from app.services.settings_service import UPDATE_GIT_BRANCH_KEY, get_app_setting
+
+    stored = (get_app_setting(UPDATE_GIT_BRANCH_KEY) or "").strip()
+    raw = stored or str(current_app.config.get("GIT_BRANCH") or "main")
+    return validate_branch(raw)
+
+
+def save_update_branch(branch: str) -> str:
+    """Запомнить ветку. Она должна уже существовать на удалённом git."""
+    from app.extensions import db
+    from app.services.settings_service import UPDATE_GIT_BRANCH_KEY, set_app_setting
+
+    chosen = validate_branch(branch)
+    root = project_root()
+    if shutil.which("git") is None:
+        raise UpdateError("На сервере не найдена команда git.")
+    url = resolve_remote_url(root, str(current_app.config.get("GIT_REMOTE_URL") or ""))
+    remote_head(url, chosen, cwd=root)
+    try:
+        previous = resolve_update_branch()
+    except UpdateError:
+        previous = ""
+    set_app_setting(UPDATE_GIT_BRANCH_KEY, chosen)
+    db.session.commit()
+    if previous != chosen:
+        (backup_dir(root) / "remote-check.json").unlink(missing_ok=True)
+    return f"Ветка обновлений: {chosen}. Она важнее GIT_BRANCH в .env."
+
+
+def refresh_remote_branches() -> list[str]:
+    """Спросить у git список веток и запомнить его для выпадающего списка."""
+    root = project_root()
+    if shutil.which("git") is None:
+        raise UpdateError("На сервере не найдена команда git.")
+    url = resolve_remote_url(root, str(current_app.config.get("GIT_REMOTE_URL") or ""))
+    names = list_remote_branches(url, cwd=root)
+    _write_json(
+        backup_dir(root) / "remote-branches.json",
+        {"branches": names, "checked_at": _now_label()},
+    )
+    return names
+
+
+def cached_remote_branches(root: Path) -> tuple[list[str], str]:
+    data = _read_json(backup_dir(root) / "remote-branches.json")
+    raw = data.get("branches") or []
+    names: list[str] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, str):
+                continue
+            try:
+                names.append(validate_branch(item))
+            except UpdateError:
+                continue
+    return names, str(data.get("checked_at") or "")
+
+
+_BRANCH_ORDER = {"main": 0, "master": 1, "beta": 2}
+
+
+def list_remote_branches(url: str, *, cwd: Path) -> list[str]:
+    """Имена refs/heads с публичного репозитория."""
+    url = validate_remote_url(url)
+    result = _run(_git("ls-remote", "--heads", url), cwd=cwd, timeout=60)
+    if result.returncode != 0:
+        raise UpdateError(f"Не удалось обратиться к репозиторию: {_tail(result.stderr)}")
+    found: list[str] = []
+    seen: set[str] = set()
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        ref = parts[1].strip()
+        prefix = "refs/heads/"
+        if not ref.startswith(prefix):
+            continue
+        try:
+            name = validate_branch(ref[len(prefix) :])
+        except UpdateError:
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        found.append(name)
+    if not found:
+        raise UpdateError("В репозитории нет веток.")
+    found.sort(key=lambda name: (_BRANCH_ORDER.get(name, 9), name.lower()))
+    return found
 
 
 def project_root() -> Path:
@@ -175,12 +275,15 @@ def build_page() -> UpdatePage:
     remote_url = ""
     remote_error = ""
     try:
-        branch = validate_branch(branch)
+        branch = resolve_update_branch()
         remote_url = resolve_remote_url(root, configured)
     except UpdateError as exc:
         remote_error = str(exc)
+    branches, branches_checked_at = cached_remote_branches(root)
     local_commit, local_subject, local_ver = local_version(root)
     remote = _read_json(backup_dir(root) / "remote-check.json")
+    if str(remote.get("branch") or "") != branch:
+        remote = {}
     operation = _current_operation(root)
     return UpdatePage(
         root=str(root),
@@ -198,6 +301,8 @@ def build_page() -> UpdatePage:
         backups=list_backups(root),
         operation_state=str(operation.get("state") or ""),
         operation_message=str(operation.get("message") or ""),
+        branches=branches,
+        branches_checked_at=branches_checked_at,
     )
 
 
@@ -207,7 +312,7 @@ def check_for_updates() -> str:
     if shutil.which("git") is None:
         raise UpdateError("На сервере не найдена команда git.")
     url = resolve_remote_url(root, str(current_app.config.get("GIT_REMOTE_URL") or ""))
-    branch = validate_branch(str(current_app.config.get("GIT_BRANCH") or "main"))
+    branch = resolve_update_branch()
     remote_commit = remote_head(url, branch, cwd=root)
     remote_ver = remote_version(url, branch, remote_commit, cwd=root)
     _write_json(
@@ -216,19 +321,24 @@ def check_for_updates() -> str:
             "commit": remote_commit,
             "version": remote_ver,
             "subject": "",
+            "branch": branch,
             "checked_at": _now_label(),
         },
     )
     local_commit, _subject, local_ver = local_version(root)
     if local_commit == remote_commit:
-        return f"Обновлений нет. Установлена версия {_display_version(local_ver, remote_commit)}."
+        return (
+            f"Обновлений нет. Ветка {branch}, "
+            f"установлена версия {_display_version(local_ver, remote_commit)}."
+        )
     if not local_commit:
         return (
-            f"В репозитории версия {_display_version(remote_ver, remote_commit)}. "
+            f"Ветка {branch}: в репозитории версия {_display_version(remote_ver, remote_commit)}. "
             "Локальная установка ещё не записывалась — можно обновить."
         )
     return (
-        f"Доступно обновление: {_display_version(local_ver, local_commit)} → "
+        f"Ветка {branch}: доступно обновление "
+        f"{_display_version(local_ver, local_commit)} → "
         f"{_display_version(remote_ver, remote_commit)}."
     )
 
@@ -237,7 +347,7 @@ def begin_update() -> None:
     """Ставит обновление в фон, чтобы запрос не упирался в таймаут Gunicorn."""
     root = project_root()
     url = resolve_remote_url(root, str(current_app.config.get("GIT_REMOTE_URL") or ""))
-    branch = validate_branch(str(current_app.config.get("GIT_BRANCH") or "main"))
+    branch = resolve_update_branch()
     keep = _keep_count()
     restart = bool(current_app.config.get("UPDATE_RESTART"))
     if shutil.which("git") is None:
@@ -245,7 +355,11 @@ def begin_update() -> None:
     lock = _Lock(backup_dir(root) / ".lock")
     if not lock.acquire():
         raise UpdateError("Обновление или откат уже выполняются.")
-    _write_operation(root, "running", "Начинаю обновление. Сначала будет создана резервная копия.")
+    _write_operation(
+        root,
+        "running",
+        f"Начинаю обновление из ветки {branch}. Сначала будет создана резервная копия.",
+    )
 
     def job() -> None:
         try:
@@ -276,7 +390,7 @@ def begin_rollback(backup_id: str) -> None:
     backup_path(root, backup_id)
     keep = _keep_count()
     restart = bool(current_app.config.get("UPDATE_RESTART"))
-    branch = validate_branch(str(current_app.config.get("GIT_BRANCH") or "main"))
+    branch = resolve_update_branch()
     lock = _Lock(backup_dir(root) / ".lock")
     if not lock.acquire():
         raise UpdateError("Обновление или откат уже выполняются.")

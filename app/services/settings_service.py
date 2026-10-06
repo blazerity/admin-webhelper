@@ -34,6 +34,8 @@ DISCOVERY_DOMAIN_KEY = "discovery_domain"
 DISCOVERY_PASSWORD_KEY = "discovery_password_encrypted"
 UPDATE_SUDO_USER_KEY = "update_sudo_user"
 UPDATE_SUDO_PASSWORD_KEY = "update_sudo_password_encrypted"
+# Ветка self-update. Если задана, важнее GIT_BRANCH из .env.
+UPDATE_GIT_BRANCH_KEY = "update_git_branch"
 
 # Как useradd: начинается с буквы/_, дальше буквы, цифры, _, -.
 _LINUX_USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")

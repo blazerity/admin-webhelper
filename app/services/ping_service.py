@@ -18,7 +18,8 @@
      на карте, не для слияния. Без SN можно переиспользовать строку
      с тем же IP и пустым серийником (камеры, Linux, WMI не ответил).
      Смена DHCP-адреса при том же SN обновляет IP/сектор у той же
-     строки. MAC сначала из ARP, иначе из WMI. Имя: Win32_ComputerSystem,
+     строки. Другие карточки с этим IP (короткая аренда VPN) → offline.
+     MAC сначала из ARP, иначе из WMI. Имя: Win32_ComputerSystem,
      PTR только если WMI молчит и у строки ещё нет имени.
      Текущая УЗ пишется в endpoint_accounts / device_account_history.
 
@@ -583,6 +584,10 @@ def _save_online_probe(probe: _Probe, sector_id: int) -> bool:
     try:
         # Сначала id новой строки, потом история с внешним ключом.
         db.session.flush()
+        # VPN/DHCP: этот SN сейчас на адресе — остальные карточки с тем же IP
+        # больше здесь не живут (иначе опрос железа снимет чужой ПК).
+        if probe.serial_number:
+            _displace_other_ip_holders(device, probe.ip)
         db.session.add(
             DeviceHistory(
                 device_id=device.id,
@@ -678,6 +683,35 @@ def _resolve_device(
     )
     db.session.add(device)
     return device
+
+
+def _displace_other_ip_holders(owner: Device, ip: str) -> None:
+    """Пометить offline другие карточки, у которых ещё записан этот IP.
+
+    Сам адрес не чистим: это последний известный. Но статус ONLINE у
+    предыдущего владельца (короткая аренда VPN) оставлять нельзя.
+    """
+    others = list(
+        db.session.scalars(
+            select(Device).where(Device.ip == ip, Device.id != owner.id)
+        )
+    )
+    if not others:
+        return
+    now = utcnow()
+    for other in others:
+        if other.last_status == DeviceStatus.OFFLINE:
+            continue
+        other.last_status = DeviceStatus.OFFLINE
+        other.last_response_time_ms = None
+        db.session.add(
+            DeviceHistory(
+                device_id=other.id,
+                timestamp=now,
+                status=DeviceStatus.OFFLINE,
+                response_time_ms=None,
+            )
+        )
 
 
 def check_device(device: Device, *, timeout_s: int = 1) -> dict:

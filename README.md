@@ -81,9 +81,16 @@ journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -u
 
 Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.7.0`).
 
+На странице **Обновления** можно выбрать ветку git (список с сервера).
+Выбор хранится в базе и важнее `GIT_BRANCH` в `.env`. С хотфикса 1.6.7,
+если ветку ещё не выбирали, при старте ставится `beta`.
+Эта экспериментальная ветка — `cursor/vnc-web-gateway-b542`; откат — снова
+выбрать `main` / `beta` на той же странице.
+
 ## Тесты
 
-Канонические регрессии — stdlib `unittest` в `tests/` (pytest в requirements нет):
+Каталог `tests/` в git не входит (см. [`.gitignore`](.gitignore)).
+Локальные регрессии — stdlib `unittest` (pytest в requirements нет):
 
 ```bash
 python -m unittest discover -s tests -v
@@ -123,7 +130,9 @@ flask --app wsgi refresh-hostnames
 Слияние карточек — только по серийнику: смена IP при том же SN обновляет ту же запись.
 
 Конфигурация железа Windows (процессор, ОЗУ, диски, версия 10/11/Server и 25H2/26H2) —
-отдельный опрос по WMI, по умолчанию каждый день в полдень:
+отдельный опрос по WMI, по умолчанию каждый день в полдень. Снимок пишется
+на карточку с тем же серийником: если VPN/DHCP отдал адрес другому ПК,
+история конфигурации не смешивается.
 
 ```bash
 flask --app wsgi hardware-poll --dry-run

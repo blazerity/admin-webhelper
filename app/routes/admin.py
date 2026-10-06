@@ -26,6 +26,8 @@ Discovery: глобальная учётка WMI для опроса (серий
 
 Обновление — отдельные кнопки на /admin/updates. Замена кода
 начинается только после резервной копии, см. update_service.
+Ветку выбирают там же: список приходит из git ls-remote, значение
+хранится в app_settings и важнее GIT_BRANCH.
 """
 
 import logging
@@ -81,7 +83,15 @@ from app.services.systemd_service import (
 from app.services.tls_pem import TlsPemError
 from app.services.tls_service import TlsApplyError, apply_nginx_tls, save_certificate_files
 from app.services.tls_settings import get_tls_settings
-from app.services.update_service import UpdateError, begin_rollback, begin_update, build_page, check_for_updates
+from app.services.update_service import (
+    UpdateError,
+    begin_rollback,
+    begin_update,
+    build_page,
+    check_for_updates,
+    refresh_remote_branches,
+    save_update_branch,
+)
 from app.services.vnc_settings import clear_vnc_password, get_vnc_settings, set_vnc_settings
 
 logger = logging.getLogger(__name__)
@@ -408,7 +418,9 @@ def hardware_poll_run():
     flash(
         "Опрос железа: проверено {scanned}, онлайн {online}, "
         "собрано {collected}, изменено {changed}, офлайн {offline}, "
-        "без WMI {no_wmi}, ошибок {errors}.".format(**result.as_dict()),
+        "без WMI {no_wmi}, чужой IP {mismatched}, ошибок {errors}.".format(
+            **result.as_dict()
+        ),
         "success",
     )
     return redirect(url_for("admin.settings") + "#hardware-poll")
@@ -478,6 +490,19 @@ def updates():
         try:
             if kind == "check":
                 flash(check_for_updates(), "info")
+            elif kind == "branches":
+                names = refresh_remote_branches()
+                flash(f"Список веток обновлён: {len(names)}.", "info")
+            elif kind == "branch":
+                chosen = (request.form.get("branch") or "").strip()
+                flash(save_update_branch(chosen), "success")
+                audit_service.log(
+                    current_user,
+                    "update",
+                    "app",
+                    "git-branch",
+                    detail=chosen,
+                )
             elif kind == "update":
                 begin_update()
                 audit_service.log(current_user, "update", "app", "git", detail="begin_update")
