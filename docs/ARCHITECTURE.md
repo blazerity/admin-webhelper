@@ -192,7 +192,7 @@ def ensure_schema() -> None:
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
     # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
     # 4) ветка обновлений beta, если ещё не выбирали (data_fix.update_branch_beta_v167)
-    # 5) скрипт TightVNC в библиотеке, если имени нет / стоковое тело (data_fix.seed_tightvnc_script_v173)
+    # 5) скрипт TightVNC в библиотеке, если имени нет / стоковое тело (data_fix.seed_tightvnc_script_v174)
     # 6) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
@@ -219,10 +219,10 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 «TightVNC (тихая установка)» из `app/services/tightvnc_install_script.py`.
 MSI админ кладёт в `vnc-agents/` (на сервере `/opt/bawh/vnc-agents/`);
 скрипт копирует его на ПК через ADMIN$ и может скачать `/vnc-agents/64bit.msi`.
-Маркер `data_fix.seed_tightvnc_script_v173`: стоковое тело (пустой пароль)
-обновляется целиком; в теле с уже подставленным паролем меняется только
-`Convert-VncPasswordBytes` (старый DES писал RFB-challenge, TightVNC его
-не принимает как Password в реестре).
+Маркер `data_fix.seed_tightvnc_script_v174`: стоковое тело (пустой пароль)
+обновляется целиком; в теле с уже подставленным паролем меняются только
+`Convert-VncPasswordBytes` (если ещё старый RFB-challenge DES) и вставляется
+`Remove-TightVncStartMenu` (ярлыки TightVNC в меню Пуск).
 
 ---
 

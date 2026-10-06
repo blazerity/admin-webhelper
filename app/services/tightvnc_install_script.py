@@ -22,7 +22,7 @@ from app.models import AppSetting, RunAs, Script
 logger = logging.getLogger(__name__)
 
 TIGHTVNC_INSTALL_SCRIPT_NAME = "TightVNC (тихая установка)"
-TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v173"
+TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v174"
 TIGHTVNC_PAYLOAD_SENTINEL = "# bAWH-payload: tightvnc-msi"
 VNC_AGENTS_DIRNAME = "vnc-agents"
 _SAFE_AGENT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -33,6 +33,7 @@ TIGHTVNC_INSTALL_SCRIPT_DESCRIPTION = (
     "MSI берётся с сервера bAWH (каталог vnc-agents/). "
     "Перед запуском заполните $VncPassword (до 8 символов, тот же что в "
     "Параметрах → VNC) и $BawhServerIp. Файрвол только с IP bAWH. "
+    "После установки убирает ярлыки TightVNC из меню Пуск. "
     "После подстановки пароля можно опубликовать для операторов."
 )
 
@@ -181,6 +182,56 @@ function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort
     Remove-ItemProperty -LiteralPath $RegPath -Name IpAccessControl -ErrorAction SilentlyContinue
 }
 
+function Remove-TightVncStartMenu {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $dirs = @(
+            (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs')
+        )
+        if ($env:ALLUSERSPROFILE) {
+            $dirs += (Join-Path $env:ALLUSERSPROFILE 'Microsoft\Windows\Start Menu\Programs')
+        }
+        $usersRoot = Join-Path $env:SystemDrive 'Users'
+        if (Test-Path -LiteralPath $usersRoot) {
+            foreach ($userDir in @(Get-ChildItem -LiteralPath $usersRoot -Directory -Force -ErrorAction SilentlyContinue)) {
+                $dirs += (Join-Path $userDir.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs')
+            }
+        }
+        $seen = @{}
+        $n = 0
+        foreach ($programs in $dirs) {
+            if (-not $programs) { continue }
+            $key = $programs.ToLowerInvariant()
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+            if (-not (Test-Path -LiteralPath $programs)) { continue }
+            $folder = Join-Path $programs 'TightVNC'
+            if (Test-Path -LiteralPath $folder) {
+                Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
+                if (-not (Test-Path -LiteralPath $folder)) {
+                    $n++
+                    L ("Удалил папку меню Пуск: {0}" -f $folder)
+                } else {
+                    L ("Не удалось удалить папку меню Пуск: {0}" -f $folder)
+                }
+            }
+            foreach ($lnk in @(Get-ChildItem -LiteralPath $programs -Filter '*TightVNC*.lnk' -Force -ErrorAction SilentlyContinue)) {
+                Remove-Item -LiteralPath $lnk.FullName -Force -ErrorAction SilentlyContinue
+                if (-not (Test-Path -LiteralPath $lnk.FullName)) {
+                    $n++
+                    L ("Удалил ярлык: {0}" -f $lnk.FullName)
+                }
+            }
+        }
+        if ($n -eq 0) {
+            L 'Ярлыков TightVNC в меню Пуск не нашёл.'
+        }
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
 try {
     L ("Компьютер: {0}" -f $env:COMPUTERNAME)
     L 'Тихая установка TightVNC Server. MSI — с сервера bAWH.'
@@ -279,7 +330,7 @@ try {
         }
         $exe = Get-TvnServerExe
     } else {
-        L 'MSI не трогаю — служба уже есть. Обновляю пароль, порт и файрвол.'
+        L 'MSI не трогаю — служба уже есть. Обновляю пароль, порт, файрвол и меню Пуск.'
     }
 
     $pwBytes = Convert-VncPasswordBytes $VncPassword
@@ -313,6 +364,8 @@ try {
         L ("netsh add rule код {0}" -f $fwCode)
         exit 6
     }
+
+    Remove-TightVncStartMenu
 
     $svc = Get-Service -Name 'tvnserver' -ErrorAction SilentlyContinue
     if (-not $svc) {
@@ -492,6 +545,51 @@ def patch_vnc_password_encoder(content: str) -> str | None:
     return patched
 
 
+_START_MENU_BLOCK = re.compile(
+    r"(?m)^function Remove-TightVncStartMenu \{.*?\n\}",
+    re.DOTALL,
+)
+_START_MENU_CALL = re.compile(r"(?m)^[ \t]*Remove-TightVncStartMenu[ \t]*$")
+_MAIN_TRY = re.compile(r"(?m)^try \{")
+_GOTOVO_LINE = re.compile(r'(?m)^(?P<ind>[ \t]*)L \("Готово\. Агент слушает')
+
+
+def _canonical_start_menu_remover() -> str:
+    match = _START_MENU_BLOCK.search(TIGHTVNC_INSTALL_SCRIPT_BODY)
+    if match is None:
+        raise RuntimeError("в каноническом теле нет Remove-TightVncStartMenu")
+    return match.group(0)
+
+
+def patch_tightvnc_start_menu(content: str) -> str | None:
+    """Вставить удаление ярлыков меню Пуск, сохранив $VncPassword и IP."""
+    text = content or ""
+    has_fn = "function Remove-TightVncStartMenu" in text
+    has_call = _START_MENU_CALL.search(text) is not None
+    if has_fn and has_call:
+        return None
+    if not has_fn:
+        func = _canonical_start_menu_remover()
+        text, count = _MAIN_TRY.subn(lambda m: func + "\n\n" + m.group(0), text, count=1)
+        if count != 1:
+            logger.warning(
+                "TightVNC script: cannot insert Remove-TightVncStartMenu function"
+            )
+            return None
+    if not has_call:
+        text, count = _GOTOVO_LINE.subn(
+            lambda m: m.group("ind") + "Remove-TightVncStartMenu\n" + m.group(0),
+            text,
+            count=1,
+        )
+        if count != 1:
+            logger.warning(
+                "TightVNC script: cannot insert Remove-TightVncStartMenu call"
+            )
+            return None
+    return text
+
+
 def _is_stock_body(content: str) -> bool:
     """Пустой пароль и каноническое/прошлое тело — можно обновить сидом."""
     text = content or ""
@@ -546,8 +644,17 @@ def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
         existing.is_published = False
         updated = True
     else:
-        patched = patch_vnc_password_encoder(existing.content or "")
-        if patched is not None:
+        patched = existing.content or ""
+        changed = False
+        encoded = patch_vnc_password_encoder(patched)
+        if encoded is not None:
+            patched = encoded
+            changed = True
+        with_menu = patch_tightvnc_start_menu(patched)
+        if with_menu is not None:
+            patched = with_menu
+            changed = True
+        if changed:
             existing.content = patched
             updated = True
 
@@ -576,7 +683,7 @@ def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
         )
     elif updated:
         logger.info(
-            "ensure_schema: refreshed TightVNC script body (password encoder / stock)",
+            "ensure_schema: refreshed TightVNC script body (start menu / encoder / stock)",
         )
     else:
         logger.info(
