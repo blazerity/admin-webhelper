@@ -15,7 +15,7 @@ from app.authz import (
     user_can_run_scripts,
 )
 from app.extensions import db
-from app.models import DeviceHistory, RunType, Script, ScriptRun, Sector
+from app.models import Device, DeviceHistory, RunType, Script, ScriptRun, Sector
 from app.run_display import run_launch_label, run_status_label, run_when_label
 from app.services.account_service import device_account_sightings
 from app.services.hardware_poll_service import (
@@ -148,6 +148,22 @@ def _bulk_response(batch_id: str, runs: list[ScriptRun], skipped: int):
     )
 
 
+def _device_account_fields(device) -> dict:
+    """Поля текущей УЗ для карты (только kinds с shows_accounts)."""
+    account = device.current_account if device.shows_accounts else None
+    if not account:
+        return {
+            "account_key": None,
+            "account_name": None,
+            "account_label": None,
+        }
+    return {
+        "account_key": account.account_key,
+        "account_name": account.display_name or None,
+        "account_label": account.label,
+    }
+
+
 def map_status_payload() -> dict:
     """JSON-контракт /map/status."""
     sectors_payload = []
@@ -162,6 +178,7 @@ def map_status_payload() -> dict:
                 "status": device.last_status,
                 "kind": device.kind,
                 "url": url_for("devices.detail", device_id=device.id),
+                **_device_account_fields(device),
             }
             for device in sector.visible_devices
         ]
@@ -204,7 +221,7 @@ def _load_visible_sectors():
 
     loaded = (
         Sector.query.options(
-            selectinload(Sector.devices),
+            selectinload(Sector.devices).selectinload(Device.current_account),
             selectinload(Sector.ranges),
         )
         .filter(Sector.id.in_([sector.id for sector in allowed]))

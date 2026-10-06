@@ -341,6 +341,11 @@
         {{ device.hostname or 'без имени' }}
       </div>
       <div class="device-card-ip font-monospace">{{ device.ip }}</div>
+      {% if device.shows_accounts and device.current_account %}
+      <div class="device-card-account" title="{{ device.current_account.label }}">
+        {{ device.current_account.display_name or device.current_account.account_key }}
+      </div>
+      {% endif %}
       {% set show_serial = device.shows_serial and device.serial_number %}
       {% set show_mac = device.shows_mac and device.mac %}
       {% if show_serial or show_mac %}

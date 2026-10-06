@@ -1,11 +1,12 @@
 """Тип устройства и сортировка имён.
 
 Имена рабочих станций — буква + 3 или 5 цифр (n179, w11471, v100).
+Ноутбуки BN*** — префикс bn + 3 или 5 цифр (BN123, bn179, BN11471).
 Остальное не считаем ноутбуком/СБ: ngfw-gk3 не должен стать N-ноутбуком.
 
 Windows vs периферия (камера / MikroTik / МФУ):
 
-1. Свои префиксы AD (n/w/v, ktn/spb/kgl, ngfw) важнее всего.
+1. Свои префиксы AD (ngfw, bn, n/w/v, ktn/spb/kgl) важнее всего.
 2. Серийник с WMI значит «это Windows»: камерой/принтером не метим.
 3. Иначе TCP/SNMP-отпечаток опроса (fingerprint_kind).
 4. Иначе имя (PTR) и OUI MAC.
@@ -63,6 +64,7 @@ KIND_SHORT_LABELS = {
 }
 
 _WORKSTATION_RE = re.compile(r"^([nwv])(?:\d{3}|\d{5})$")
+_BN_NOTEBOOK_RE = re.compile(r"^bn(?:\d{3}|\d{5})$")
 _SERVER_PREFIXES = ("ktn", "spb", "kgl")
 _FIREWALL_PREFIXES = ("ngfw", "ngwf")
 _NUM_SPLIT_RE = re.compile(r"(\d+)")
@@ -232,6 +234,8 @@ def _kind_from_naming(short: str) -> str | None:
         return None
     if short.startswith(_FIREWALL_PREFIXES):
         return KIND_FIREWALL
+    if _BN_NOTEBOOK_RE.fullmatch(short):
+        return KIND_NOTEBOOK
     match = _WORKSTATION_RE.fullmatch(short)
     if match:
         letter = match.group(1)

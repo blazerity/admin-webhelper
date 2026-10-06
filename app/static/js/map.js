@@ -486,6 +486,10 @@
       card.dataset.ip,
       card.dataset.mac,
       card.dataset.serial,
+      card.dataset.account,
+      card.dataset.accountName,
+      card.dataset.accountLabel,
+      card.dataset.user,
       card.textContent,
     ]
       .join(" ")
@@ -1019,6 +1023,10 @@
     const ip = device.ip || "";
     const mac = device.mac || "";
     const serial = device.serial || "";
+    const accountKey = device.account_key || "";
+    const accountName = device.account_name || "";
+    const accountLabel = device.account_label || "";
+    const accountDisplay = accountName || accountKey;
     const statusShort = STATUS_SHORT[status] || STATUS_SHORT.unknown;
     const col = document.createElement("div");
     col.dataset.deviceCard = "";
@@ -1029,6 +1037,10 @@
     col.dataset.ip = ip;
     col.dataset.mac = mac;
     col.dataset.serial = serial;
+    col.dataset.account = accountKey;
+    col.dataset.accountName = accountName;
+    col.dataset.accountLabel = accountLabel;
+    col.dataset.user = accountDisplay;
     col.innerHTML = `
       <div class="device-card-shell">
         <article class="device-card ${escapeHtml(status)}">
@@ -1055,6 +1067,11 @@
           <a class="device-card-body text-decoration-none" href="${escapeHtml(href)}" data-device-link>
             <div class="device-card-name${hasName ? "" : " is-empty"}" title="${escapeHtml(hostname)}">${escapeHtml(hostname)}</div>
             <div class="device-card-ip font-monospace">${escapeHtml(ip)}</div>
+            ${
+              accountDisplay
+                ? `<div class="device-card-account" title="${escapeHtml(accountLabel || accountDisplay)}">${escapeHtml(accountDisplay)}</div>`
+                : ""
+            }
             ${
               serial || mac
                 ? `<div class="device-card-meta font-monospace">${
@@ -1129,6 +1146,38 @@
         }
         if (device.serial != null) {
           card.dataset.serial = device.serial || "";
+        }
+        if ("account_key" in device || "account_name" in device || "account_label" in device) {
+          const accountKey = device.account_key || "";
+          const accountName = device.account_name || "";
+          const accountLabel = device.account_label || "";
+          const accountDisplay = accountName || accountKey;
+          card.dataset.account = accountKey;
+          card.dataset.accountName = accountName;
+          card.dataset.accountLabel = accountLabel;
+          card.dataset.user = accountDisplay;
+          const linkBody = card.querySelector("[data-device-link]");
+          if (linkBody) {
+            let accountEl = linkBody.querySelector(".device-card-account");
+            if (accountDisplay) {
+              if (!accountEl) {
+                accountEl = document.createElement("div");
+                accountEl.className = "device-card-account";
+                const ipEl = linkBody.querySelector(".device-card-ip");
+                if (ipEl && ipEl.nextSibling) {
+                  linkBody.insertBefore(accountEl, ipEl.nextSibling);
+                } else if (ipEl) {
+                  ipEl.insertAdjacentElement("afterend", accountEl);
+                } else {
+                  linkBody.appendChild(accountEl);
+                }
+              }
+              accountEl.textContent = accountDisplay;
+              accountEl.title = accountLabel || accountDisplay;
+            } else if (accountEl) {
+              accountEl.remove();
+            }
+          }
         }
         updateStatusChip(card, device.status);
         if (kindChanged) {
