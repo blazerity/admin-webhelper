@@ -486,10 +486,19 @@ def detail(device_id: int):
         if device.shows_commands and user_can_run_scripts(current_user)
         else []
     )
+    device_addresses = sorted(
+        list(device.addresses or []),
+        key=lambda row: (
+            0 if row.ip == device.ip else 1,
+            -(row.last_seen.timestamp() if row.last_seen else 0),
+            row.id or 0,
+        ),
+    )
 
     return render_template(
         "devices/detail.html",
         device=device,
+        device_addresses=device_addresses,
         tab=tab,
         show_all=show_all,
         has_more=has_more,

@@ -1,20 +1,18 @@
 """Поиск и удаление дублей устройств в ``devices``.
 
-Опрос не сливает автоматически «призраков» без серийника на старом IP
-и не считает одинаковый hostname ключом идентичности. Здесь — ручная
-утилита: находит группы, предлагает кого оставить, удаляет выбранные.
+Идентичность машины — только serial_number. IP и MAC — сетевые атрибуты
+(DHCP и несколько интерфейсов), сами по себе не делают карточки «одной
+машиной».
 
-Уверенные (confirmed):
-* один и тот же IP у двух и более карточек;
-* один и тот же нормализованный MAC у двух и более карточек;
-* один и тот же serial_number (на случай, если unique ещё не в БД).
+Секции:
+* confirmed — две+ карточки с одинаковым SN (настоящий дубль БД);
+* ghosts — один IP: есть карточка с SN и карточка без SN (призрак);
+* ip_history — один IP, у всех разные непустые SN (переиспользование адреса,
+  не дубли; галочки по умолчанию сняты);
+* suspected — одинаковый MAC при пустых SN или одинаковый hostname
+  (слабый сигнал, без авто-галочек).
 
-Предположительные (suspected):
-* одинаковое hostname (без учёта регистра), если группа ещё не
-  попала в confirmed по IP/MAC/SN.
-
-В каждой группе рекомендуем оставить карточку с лучшим «весом»:
-серийник, онлайн, свежий last_seen, железо, hostname/MAC.
+В confirmed/ghosts рекомендуем кого оставить; лишние отмечены на удаление.
 """
 
 from __future__ import annotations
@@ -28,6 +26,7 @@ from sqlalchemy.orm import selectinload
 from app.extensions import db
 from app.models import Device
 from app.models.device import DeviceStatus
+from app.services import discovery_service
 from app.services.net_utils import normalize_mac
 from app.utils import as_utc
 
@@ -51,12 +50,13 @@ class DeviceDupRow:
     has_hardware: bool
     score: int
     keep_recommended: bool
+    delete_prechecked: bool
 
 
 @dataclass(frozen=True)
 class DuplicateGroup:
     key: str
-    confidence: str  # confirmed | suspected
+    confidence: str  # confirmed | ghosts | ip_history | suspected
     reason: str
     reason_label: str
     match_value: str
@@ -67,17 +67,34 @@ class DuplicateGroup:
 @dataclass(frozen=True)
 class DedupScanResult:
     confirmed: tuple[DuplicateGroup, ...] = ()
+    ghosts: tuple[DuplicateGroup, ...] = ()
+    ip_history: tuple[DuplicateGroup, ...] = ()
     suspected: tuple[DuplicateGroup, ...] = ()
     scanned: int = 0
 
     @property
     def group_count(self) -> int:
-        return len(self.confirmed) + len(self.suspected)
+        return (
+            len(self.confirmed)
+            + len(self.ghosts)
+            + len(self.ip_history)
+            + len(self.suspected)
+        )
+
+    @property
+    def actionable_count(self) -> int:
+        """Группы, где имеет смысл авто-отмечать удаление."""
+        return len(self.confirmed) + len(self.ghosts)
 
     @property
     def device_count(self) -> int:
         seen: set[int] = set()
-        for group in (*self.confirmed, *self.suspected):
+        for group in (
+            *self.confirmed,
+            *self.ghosts,
+            *self.ip_history,
+            *self.suspected,
+        ):
             for row in group.devices:
                 seen.add(row.id)
         return len(seen)
@@ -90,7 +107,7 @@ class DedupDeleteResult:
 
 
 def find_duplicate_groups() -> DedupScanResult:
-    """Просканировать все устройства и вернуть группы дублей."""
+    """Просканировать все устройства и вернуть группы по правилам выше."""
     devices = list(
         db.session.scalars(
             select(Device)
@@ -102,58 +119,21 @@ def find_duplicate_groups() -> DedupScanResult:
         return DedupScanResult(scanned=0)
 
     by_id = {device.id: device for device in devices}
-    confirmed_sets: list[tuple[str, str, str, set[int]]] = []
-    # reason_code, reason_label, match_value, ids
 
-    _collect_key_groups(
-        devices,
-        key_fn=_serial_key,
-        reason="serial",
-        reason_label="одинаковый серийный номер",
-        into=confirmed_sets,
-    )
-    _collect_key_groups(
-        devices,
-        key_fn=_ip_key,
-        reason="ip",
-        reason_label="один и тот же IP",
-        into=confirmed_sets,
-    )
-    _collect_key_groups(
-        devices,
-        key_fn=_mac_key,
-        reason="mac",
-        reason_label="одинаковый MAC",
-        into=confirmed_sets,
-    )
+    confirmed = _groups_same_serial(by_id, devices)
+    confirmed_ids = {row.id for group in confirmed for row in group.devices}
 
-    confirmed_ids: set[int] = set()
-    for _, _, _, ids in confirmed_sets:
-        confirmed_ids.update(ids)
+    ghosts, ip_history = _groups_by_ip(by_id, devices, skip_ids=confirmed_ids)
+    occupied = confirmed_ids | {
+        row.id for group in (*ghosts, *ip_history) for row in group.devices
+    }
 
-    suspected_sets: list[tuple[str, str, str, set[int]]] = []
-    _collect_key_groups(
-        devices,
-        key_fn=_hostname_key,
-        reason="hostname",
-        reason_label="одинаковое имя хоста",
-        into=suspected_sets,
-        skip_ids=confirmed_ids,
-        min_size=2,
-    )
-
-    confirmed = tuple(
-        _build_group(by_id, reason, reason_label, match_value, ids, "confirmed")
-        for reason, reason_label, match_value, ids in _merge_overlapping(confirmed_sets)
-    )
-    suspected = tuple(
-        _build_group(by_id, reason, reason_label, match_value, ids, "suspected")
-        for reason, reason_label, match_value, ids in suspected_sets
-        if len(ids) >= 2
-    )
+    suspected = _groups_suspected(by_id, devices, skip_ids=occupied)
 
     return DedupScanResult(
         confirmed=confirmed,
+        ghosts=ghosts,
+        ip_history=ip_history,
         suspected=suspected,
         scanned=len(devices),
     )
@@ -187,110 +167,227 @@ def delete_devices(device_ids: list[int] | tuple[int, ...]) -> DedupDeleteResult
     return result
 
 
-def _serial_key(device: Device) -> str | None:
-    value = (device.serial_number or "").strip().upper()
-    return value or None
-
-
-def _ip_key(device: Device) -> str | None:
-    value = (device.ip or "").strip()
-    return value or None
-
-
-def _mac_key(device: Device) -> str | None:
-    return normalize_mac(device.mac)
-
-
-def _hostname_key(device: Device) -> str | None:
-    value = (device.hostname or "").strip().lower().rstrip(".")
-    return value or None
-
-
-def _collect_key_groups(
+def _groups_same_serial(
+    by_id: dict[int, Device],
     devices: list[Device],
-    *,
-    key_fn,
-    reason: str,
-    reason_label: str,
-    into: list[tuple[str, str, str, set[int]]],
-    skip_ids: set[int] | None = None,
-    min_size: int = 2,
-) -> None:
+) -> tuple[DuplicateGroup, ...]:
     buckets: dict[str, set[int]] = {}
     for device in devices:
-        if skip_ids and device.id in skip_ids:
-            continue
-        key = key_fn(device)
+        key = discovery_service.normalize_serial(device.serial_number)
         if not key:
             continue
         buckets.setdefault(key, set()).add(device.id)
-    for match_value, ids in sorted(buckets.items(), key=lambda item: item[0]):
-        if len(ids) < min_size:
+    groups = []
+    for match_value, ids in sorted(buckets.items()):
+        if len(ids) < 2:
             continue
-        # Для hostname: если все id уже в skip — не попадём сюда;
-        # если часть в skip, всё равно не собираем (передаём skip раньше).
-        into.append((reason, reason_label, match_value, ids))
-
-
-def _merge_overlapping(
-    groups: list[tuple[str, str, str, set[int]]],
-) -> list[tuple[str, str, str, set[int]]]:
-    """Склеить пересекающиеся confirmed-группы в одну с объединённым описанием."""
-    if not groups:
-        return []
-
-    merged: list[tuple[str, str, str, set[int]]] = []
-    for reason, reason_label, match_value, ids in groups:
-        hit_indexes = [
-            index
-            for index, (_, _, _, existing) in enumerate(merged)
-            if existing & ids
-        ]
-        if not hit_indexes:
-            merged.append((reason, reason_label, match_value, set(ids)))
-            continue
-        anchor = hit_indexes[0]
-        a_reason, a_label, a_match, a_ids = merged[anchor]
-        a_ids |= ids
-        labels = [a_label]
-        matches = [a_match]
-        reasons = [a_reason]
-        if reason_label not in labels:
-            labels.append(reason_label)
-            matches.append(match_value)
-            reasons.append(reason)
-        for index in reversed(hit_indexes[1:]):
-            o_reason, o_label, o_match, o_ids = merged.pop(index)
-            a_ids |= o_ids
-            if o_label not in labels:
-                labels.append(o_label)
-                matches.append(o_match)
-                reasons.append(o_reason)
-        merged[anchor] = (
-            "+".join(reasons),
-            "; ".join(labels),
-            " / ".join(matches),
-            a_ids,
+        groups.append(
+            _build_group(
+                by_id,
+                reason="serial",
+                reason_label="одинаковый серийный номер",
+                match_value=match_value,
+                ids=ids,
+                confidence="confirmed",
+                precheck="not_keep",
+            )
         )
-    return merged
+    return tuple(groups)
+
+
+def _groups_by_ip(
+    by_id: dict[int, Device],
+    devices: list[Device],
+    *,
+    skip_ids: set[int],
+) -> tuple[tuple[DuplicateGroup, ...], tuple[DuplicateGroup, ...]]:
+    buckets: dict[str, list[Device]] = {}
+    for device in devices:
+        if device.id in skip_ids:
+            continue
+        ip = (device.ip or "").strip()
+        if not ip:
+            continue
+        buckets.setdefault(ip, []).append(device)
+
+    ghosts: list[DuplicateGroup] = []
+    history: list[DuplicateGroup] = []
+    for ip, rows in sorted(buckets.items()):
+        if len(rows) < 2:
+            continue
+        with_sn = [d for d in rows if discovery_service.normalize_serial(d.serial_number)]
+        without_sn = [d for d in rows if not discovery_service.normalize_serial(d.serial_number)]
+        ids = {d.id for d in rows}
+        serials = {
+            discovery_service.normalize_serial(d.serial_number)
+            for d in with_sn
+        }
+        serials.discard(None)
+
+        if with_sn and without_sn:
+            ghosts.append(
+                _build_group(
+                    by_id,
+                    reason="ghost",
+                    reason_label="призрак без SN на том же IP",
+                    match_value=ip,
+                    ids=ids,
+                    confidence="ghosts",
+                    precheck="no_serial",
+                )
+            )
+        elif len(serials) >= 2 and not without_sn:
+            # Разные service tag на одном IP — история DHCP, не дубль.
+            history.append(
+                _build_group(
+                    by_id,
+                    reason="ip_history",
+                    reason_label="переиспользование IP (разные машины)",
+                    match_value=ip,
+                    ids=ids,
+                    confidence="ip_history",
+                    precheck="none",
+                )
+            )
+        elif without_sn and not with_sn and len(without_sn) >= 2:
+            # Несколько заглушек на одном IP без SN.
+            ghosts.append(
+                _build_group(
+                    by_id,
+                    reason="ghost_stubs",
+                    reason_label="несколько записей без SN на одном IP",
+                    match_value=ip,
+                    ids=ids,
+                    confidence="ghosts",
+                    precheck="not_keep",
+                )
+            )
+    return tuple(ghosts), tuple(history)
+
+
+def _groups_suspected(
+    by_id: dict[int, Device],
+    devices: list[Device],
+    *,
+    skip_ids: set[int],
+) -> tuple[DuplicateGroup, ...]:
+    groups: list[DuplicateGroup] = []
+
+    mac_buckets: dict[str, set[int]] = {}
+    for device in devices:
+        if device.id in skip_ids:
+            continue
+        mac = normalize_mac(device.mac)
+        if not mac:
+            continue
+        mac_buckets.setdefault(mac, set()).add(device.id)
+    for match_value, ids in sorted(mac_buckets.items()):
+        if len(ids) < 2:
+            continue
+        rows = [by_id[i] for i in ids if i in by_id]
+        serials = {
+            discovery_service.normalize_serial(d.serial_number)
+            for d in rows
+        }
+        serials.discard(None)
+        # Разные SN + один MAC — не предлагаем как дубль (ошибка данных / редко).
+        if len(serials) >= 2:
+            continue
+        # Один SN уже в confirmed. Здесь — только пустые SN.
+        if serials:
+            continue
+        groups.append(
+            _build_group(
+                by_id,
+                reason="mac",
+                reason_label="одинаковый MAC без серийников",
+                match_value=match_value,
+                ids=ids,
+                confidence="suspected",
+                precheck="none",
+            )
+        )
+
+    host_buckets: dict[str, set[int]] = {}
+    for device in devices:
+        if device.id in skip_ids:
+            continue
+        key = discovery_service.hostname_key(device.hostname)
+        if not key:
+            continue
+        host_buckets.setdefault(key, set()).add(device.id)
+    for match_value, ids in sorted(host_buckets.items()):
+        if len(ids) < 2:
+            continue
+        # Уже учтены выше — не дублируем.
+        if ids & skip_ids:
+            continue
+        rows = [by_id[i] for i in ids if i in by_id]
+        serials = {
+            discovery_service.normalize_serial(d.serial_number)
+            for d in rows
+        }
+        serials.discard(None)
+        if len(serials) >= 2:
+            # Разные машины с одним именем — только подсказка, без галочек.
+            groups.append(
+                _build_group(
+                    by_id,
+                    reason="hostname",
+                    reason_label="одинаковое имя хоста (разные SN)",
+                    match_value=match_value,
+                    ids=ids,
+                    confidence="suspected",
+                    precheck="none",
+                )
+            )
+        elif not serials:
+            groups.append(
+                _build_group(
+                    by_id,
+                    reason="hostname",
+                    reason_label="одинаковое имя хоста без серийников",
+                    match_value=match_value,
+                    ids=ids,
+                    confidence="suspected",
+                    precheck="none",
+                )
+            )
+    return tuple(groups)
 
 
 def _build_group(
     by_id: dict[int, Device],
+    *,
     reason: str,
     reason_label: str,
     match_value: str,
     ids: set[int],
     confidence: str,
+    precheck: str,
 ) -> DuplicateGroup:
     devices = [by_id[device_id] for device_id in sorted(ids) if device_id in by_id]
     scored = [(device, _keep_score(device)) for device in devices]
     scored.sort(key=lambda item: _keep_sort_key(item[0], item[1]))
     keep_id = scored[0][0].id if scored else 0
-    rows = tuple(
-        _to_row(device, score, keep_recommended=(device.id == keep_id))
-        for device, score in scored
-    )
+    rows = []
+    for device, score in scored:
+        keep = device.id == keep_id
+        delete_prechecked = False
+        if precheck == "not_keep":
+            delete_prechecked = not keep
+        elif precheck == "no_serial":
+            delete_prechecked = not discovery_service.normalize_serial(device.serial_number)
+        elif precheck == "none":
+            delete_prechecked = False
+        rows.append(
+            _to_row(
+                device,
+                score,
+                keep_recommended=keep,
+                delete_prechecked=delete_prechecked,
+            )
+        )
     key = f"{confidence}:{reason}:{match_value}"
     return DuplicateGroup(
         key=key,
@@ -298,14 +395,14 @@ def _build_group(
         reason=reason,
         reason_label=reason_label,
         match_value=match_value,
-        devices=rows,
+        devices=tuple(rows),
         keep_id=keep_id,
     )
 
 
 def _keep_score(device: Device) -> int:
     score = 0
-    if (device.serial_number or "").strip():
+    if discovery_service.normalize_serial(device.serial_number):
         score += 1000
     if device.last_status == DeviceStatus.ONLINE:
         score += 200
@@ -324,12 +421,17 @@ def _keep_score(device: Device) -> int:
 
 def _keep_sort_key(device: Device, score: int) -> tuple:
     last_seen = as_utc(device.last_seen) if device.last_seen else None
-    # Выше score → оставить; при равенстве — более свежий last_seen, затем больший id.
     ts = last_seen.timestamp() if last_seen is not None else 0.0
     return (-score, -ts, -int(device.id or 0))
 
 
-def _to_row(device: Device, score: int, *, keep_recommended: bool) -> DeviceDupRow:
+def _to_row(
+    device: Device,
+    score: int,
+    *,
+    keep_recommended: bool,
+    delete_prechecked: bool,
+) -> DeviceDupRow:
     sector = device.sector
     return DeviceDupRow(
         id=device.id,
@@ -350,4 +452,5 @@ def _to_row(device: Device, score: int, *, keep_recommended: bool) -> DeviceDupR
         ),
         score=score,
         keep_recommended=keep_recommended,
+        delete_prechecked=delete_prechecked,
     )

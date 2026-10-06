@@ -6,8 +6,8 @@
   <div>
     <h1 class="page-title">Удаление дублей из базы</h1>
     <p class="page-subtitle">
-      Поиск карточек-дублей и выборочное удаление. Автоматический опрос без серийника
-      такие записи не объединяет — очистка выполняется вручную.
+      Паспорт машины — серийный номер. Один IP у разных SN — не дубль
+      (аренда DHCP). Призраки без SN и повторные строки с одним SN — да.
     </p>
   </div>
 </div>
@@ -15,11 +15,13 @@
 <div class="panel content-card mb-3">
   <h2 class="h5 mb-2">Поиск</h2>
   <p class="text-muted mb-3">
-    <strong>Уверенные</strong> — один IP у нескольких карточек, одинаковый MAC
-    или одинаковый серийник.
-    <strong>Предположительные</strong> — одинаковое имя хоста (может быть
-    совпадением у разных машин). В каждой группе отмечены кандидаты на удаление;
-    рекомендованную к сохранению карточку можно тоже удалить, сняв/поставив галочки.
+    <strong>Дубли по SN</strong> — две карточки с одним серийником.
+    <strong>Призраки</strong> — на одном IP есть запись с SN и без SN
+    (галочки только на пустом SN).
+    <strong>История IP</strong> — разные машины на одном адресе; ничего
+    не отмечено.
+    <strong>Предположительно</strong> — MAC без SN или одинаковое имя;
+    без авто-галочек.
   </p>
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -41,22 +43,27 @@
     <input type="hidden" name="form" value="delete">
 
     {% for section in [
-      (scan.confirmed, 'Уверенные дубли', 'text-bg-danger'),
-      (scan.suspected, 'Предположительные дубли', 'text-bg-warning')
+      (scan.confirmed, 'Дубли по серийному номеру', 'text-bg-danger', 'Настоящий дубль записи в базе.'),
+      (scan.ghosts, 'Призраки без серийника', 'text-bg-warning', 'Заглушка без SN рядом с карточкой, у которой SN уже есть (или несколько заглушек на одном IP).'),
+      (scan.ip_history, 'Переиспользование IP', 'text-bg-secondary', 'Разные service tag на одном адресе — это разные машины. Удалять только вручную, если карточка точно не нужна.'),
+      (scan.suspected, 'Предположительно', 'text-bg-light text-dark', 'Слабый сигнал. Проверьте перед удалением.')
     ] %}
       {% set groups = section[0] %}
       {% set title = section[1] %}
       {% set badge_class = section[2] %}
+      {% set hint = section[3] %}
       {% if groups %}
       <div class="panel content-card mb-3">
         <h2 class="h5 mb-1">{{ title }}</h2>
-        <p class="text-muted mb-3">Групп: {{ groups|length }}</p>
+        <p class="text-muted mb-3">{{ hint }} Групп: {{ groups|length }}</p>
         {% for group in groups %}
         <div class="dedup-group mb-4">
           <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
             <span class="badge {{ badge_class }}">{{ group.reason_label }}</span>
             <span class="font-monospace small">{{ group.match_value }}</span>
+            {% if group.keep_id %}
             <span class="text-muted small">оставить #{{ group.keep_id }}</span>
+            {% endif %}
           </div>
           <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
@@ -83,8 +90,8 @@
                       type="checkbox"
                       name="delete_ids"
                       value="{{ device.id }}"
-                      id="del-{{ device.id }}"
-                      {% if not device.keep_recommended %}checked{% endif %}
+                      id="del-{{ group.confidence }}-{{ device.id }}"
+                      {% if device.delete_prechecked %}checked{% endif %}
                       aria-label="Удалить устройство {{ device.id }}"
                     >
                   </td>
