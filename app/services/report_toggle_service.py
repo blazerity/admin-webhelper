@@ -48,11 +48,6 @@ def pc_reports_status() -> UnitStatus:
     return get_unit_status(PC_REPORTS_UNIT)
 
 
-# Совместимость со старыми импортами в routes.
-def scheduler_status() -> UnitStatus:
-    return password_reports_status()
-
-
 def apply_report_toggle(
     *,
     enabled: bool,
