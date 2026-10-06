@@ -4,6 +4,7 @@
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
 > модели, сервисы, маршруты, authz, фоновые задачи и соглашения.
 > Установка и ops — в [README.md](../README.md).
+> Текст скриптов для формы «Скрипты» — в [SCRIPTS.md](SCRIPTS.md).
 
 **Продукт:** внутренний веб-помощник администратора сети (карта устройств,
 секторы/CIDR, ICMP+WMI+TCP/SNMP опрос, диагностика, скрипты на Windows через PsExec,
@@ -726,7 +727,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; `tests/test_device_identity.py` |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
-| Скрипты / PsExec | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
+| Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
+| Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
@@ -748,6 +750,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | [README.md](../README.md) | Установка на Debian, минимальный `.env`, службы, обновление |
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
 | [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
+| [SCRIPTS.md](SCRIPTS.md) | Требования к телу скрипта из формы «Скрипты» (для агентов и авторов) |
 
 ---
 
