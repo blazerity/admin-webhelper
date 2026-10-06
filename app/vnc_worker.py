@@ -71,7 +71,11 @@ def _token_from_path(path: str) -> str:
     return (values[0] if values else "").strip()
 
 
-async def _pipe_tcp_to_ws(reader: asyncio.StreamReader, websocket) -> None:
+async def _pipe_tcp_to_ws(
+    reader: asyncio.StreamReader, websocket, prefix: bytes = b""
+) -> None:
+    if prefix:
+        await websocket.send(prefix)
     while True:
         data = await reader.read(PIPE_CHUNK)
         if not data:
@@ -136,7 +140,38 @@ async def handle_client(websocket, path: str | None = None, *, gate: _SessionGat
             ticket.ip,
             ticket.port,
         )
-        tcp_task = asyncio.create_task(_pipe_tcp_to_ws(reader, websocket))
+        greeting = b""
+        try:
+            greeting = await asyncio.wait_for(reader.readexactly(12), timeout=3.0)
+        except asyncio.IncompleteReadError as exc:
+            greeting = exc.partial or b""
+        except (OSError, asyncio.TimeoutError) as exc:
+            logger.info("vnc greeting %s:%s failed: %s", ticket.ip, ticket.port, exc)
+            await _reject(
+                websocket,
+                1011,
+                f"VNC на {ticket.ip}:{ticket.port} сразу закрыл соединение.",
+            )
+            return
+        banner = greeting.decode("ascii", "replace").strip()
+        if greeting.startswith(b"RFB "):
+            logger.info("vnc greeting %s:%s %s", ticket.ip, ticket.port, banner)
+        else:
+            preview = greeting[:16].hex() or "empty"
+            logger.info(
+                "vnc greeting %s:%s not RFB (%s)",
+                ticket.ip,
+                ticket.port,
+                preview,
+            )
+            await _reject(
+                websocket,
+                1011,
+                f"На {ticket.ip}:{ticket.port} нет RFB — другой порт или не TightVNC.",
+            )
+            return
+
+        tcp_task = asyncio.create_task(_pipe_tcp_to_ws(reader, websocket, greeting))
         ws_task = asyncio.create_task(_pipe_ws_to_tcp(websocket, writer))
         done, pending = await asyncio.wait(
             {tcp_task, ws_task},
@@ -149,10 +184,19 @@ async def handle_client(websocket, path: str | None = None, *, gate: _SessionGat
                 await task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
-        for task in done:
-            exc = task.exception() if not task.cancelled() else None
-            if exc is not None:
-                logger.debug("vnc pipe stopped: %s", exc)
+        ended = next(iter(done))
+        which = "tcp" if ended is tcp_task else "browser"
+        exc = ended.exception() if not ended.cancelled() else None
+        if exc is not None:
+            logger.info(
+                "vnc %s closed %s:%s error=%s",
+                which,
+                ticket.ip,
+                ticket.port,
+                exc,
+            )
+        else:
+            logger.info("vnc %s closed %s:%s", which, ticket.ip, ticket.port)
     finally:
         if writer is not None:
             try:

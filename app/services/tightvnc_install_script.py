@@ -22,7 +22,7 @@ from app.models import AppSetting, RunAs, Script
 logger = logging.getLogger(__name__)
 
 TIGHTVNC_INSTALL_SCRIPT_NAME = "TightVNC (тихая установка)"
-TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v171"
+TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v172"
 TIGHTVNC_PAYLOAD_SENTINEL = "# bAWH-payload: tightvnc-msi"
 VNC_AGENTS_DIRNAME = "vnc-agents"
 _SAFE_AGENT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -171,7 +171,7 @@ function Save-MsiFromBawh([string]$Ip, [string]$Dest) {
     return $null
 }
 
-function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort, [string]$Access) {
+function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort) {
     if (-not (Test-Path -LiteralPath $RegPath)) {
         New-Item -Path $RegPath -Force | Out-Null
     }
@@ -182,7 +182,9 @@ function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort
     New-ItemProperty -LiteralPath $RegPath -Name AcceptRfbConnections -PropertyType DWord -Value 1 -Force | Out-Null
     New-ItemProperty -LiteralPath $RegPath -Name AcceptHttpConnections -PropertyType DWord -Value 0 -Force | Out-Null
     New-ItemProperty -LiteralPath $RegPath -Name RfbPort -PropertyType DWord -Value $RfbPort -Force | Out-Null
-    New-ItemProperty -LiteralPath $RegPath -Name IpAccessControl -PropertyType String -Value $Access -Force | Out-Null
+    # Не режем IP внутри TightVNC: deny-all ломает вход, если $BawhServerIp не тот
+    # интерфейс, с которого Debian ходит на ПК. Ограничение — правило файрвола bAWH VNC.
+    Remove-ItemProperty -LiteralPath $RegPath -Name IpAccessControl -ErrorAction SilentlyContinue
 }
 
 try {
@@ -245,7 +247,6 @@ try {
             L 'Файл установщика повреждён или это не MSI.'
             exit 4
         }
-        $ipAcl = '{0}-{0}:0,0.0.0.0-255.255.255.255:1' -f $BawhServerIp
         $msiArgs = @(
             '/i', ('"{0}"' -f $localMsi),
             '/qn',
@@ -268,8 +269,7 @@ try {
             'VALUE_OF_ACCEPTRFBCONNECTIONS=1',
             'SET_RFBPORT=1',
             ('VALUE_OF_RFBPORT={0}' -f $Port),
-            'SET_IPACCESSCONTROL=1',
-            ('VALUE_OF_IPACCESSCONTROL="{0}"' -f $ipAcl)
+            'SET_IPACCESSCONTROL=-1'
         ) -join ' '
         $msiexec = Get-MsiexecPath
         L ("msiexec: {0} (пароль в журнал не пишу)" -f $msiexec)
@@ -289,7 +289,6 @@ try {
     }
 
     $pwBytes = Convert-VncPasswordBytes $VncPassword
-    $ipAcl = '{0}-{0}:0,0.0.0.0-255.255.255.255:1' -f $BawhServerIp
     $native = 'HKLM:\SOFTWARE\TightVNC\Server'
     $wow = 'HKLM:\SOFTWARE\Wow6432Node\TightVNC\Server'
     $regPaths = @()
@@ -304,7 +303,7 @@ try {
     }
     foreach ($regPath in $regPaths) {
         L ("Пишу HKLM ({0})" -f $regPath)
-        Set-TvnRegistry -RegPath $regPath -PasswordBytes $pwBytes -RfbPort $Port -Access $ipAcl
+        Set-TvnRegistry -RegPath $regPath -PasswordBytes $pwBytes -RfbPort $Port
     }
 
     L ("Файрвол {0}/tcp только с {1}" -f $Port, $BawhServerIp)
@@ -478,9 +477,9 @@ def _is_stock_body(content: str) -> bool:
         return False
     if "SET_PASSWORD=1" not in text:
         return False
-    if TIGHTVNC_PAYLOAD_SENTINEL in text:
-        return text.strip() == TIGHTVNC_INSTALL_SCRIPT_BODY.strip()
-    return "$MsiPath = ''" in text and "Ищу MSI TightVNC (интернет не трогаю)." in text
+    return TIGHTVNC_PAYLOAD_SENTINEL in text or (
+        "$MsiPath = ''" in text and "Ищу MSI TightVNC" in text
+    )
 
 
 def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
