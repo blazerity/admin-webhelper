@@ -4,7 +4,7 @@
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
 > модели, сервисы, маршруты, authz, фоновые задачи и соглашения.
 > Установка и ops — в [README.md](../README.md).
-> Текст скриптов для формы «Скрипты» — в [SCRIPTS.md](SCRIPTS.md).
+> Текст скриптов для формы Настройки → Скрипты — в [SCRIPTS.md](SCRIPTS.md).
 
 **Продукт:** внутренний веб-помощник администратора сети (карта устройств,
 секторы/CIDR, ICMP+WMI+TCP/SNMP опрос, диагностика, скрипты на Windows через PsExec,
@@ -407,15 +407,15 @@ List, `export.csv`, detail (только видимые по ACL).
 
 ### Admin — prefix `/admin` (всё `admin_required`)
 
-| Method | Path |
-| --- | --- |
+| Method | Path | Примечание |
+| --- | --- | --- |
 | GET/POST | `/admin/settings` | UI-разделы: `?section=general\|polls\|vnc\|tls` (бывш. монолит «Параметры») |
-| GET | `/admin/poll-runs/export.csv` |
-| POST | `/admin/poll-run` |
-| GET | `/admin/hardware-poll-runs/export.csv` |
-| POST | `/admin/hardware-poll-run` |
-| POST | `/admin/refresh-hostnames` |
-| GET/POST | `/admin/updates` |
+| GET | `/admin/poll-runs/export.csv` | |
+| POST | `/admin/poll-run` | |
+| GET | `/admin/hardware-poll-runs/export.csv` | |
+| POST | `/admin/hardware-poll-run` | |
+| POST | `/admin/refresh-hostnames` | |
+| GET/POST | `/admin/updates` | |
 | GET | `/admin/audit` | редирект на Настройки → Действия и аудит |
 
 ### Password expiry — prefix `/password-expiry`
@@ -426,7 +426,7 @@ List, `export.csv`, detail (только видимые по ACL).
 | POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-password-reports` |
 | GET/POST | `/settings`, POST `/run`, `/pause`, `/notify` | admin |
 
-### Отчёты о ПК — prefix `/pc-reports` (legacy `/sector-daily-report` → 301)
+### Отчёт о ПК — prefix `/pc-reports` (legacy `/sector-daily-report` → 301)
 
 | Method | Path | Auth |
 | --- | --- | --- |
