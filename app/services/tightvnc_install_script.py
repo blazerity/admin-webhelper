@@ -1,59 +1,37 @@
-# VNC в браузере (экспериментально)
+"""Каноническое тело тихой установки TightVNC для библиотеки «Скрипты».
 
-Карточка устройства → **Рабочий стол** / **Подключиться**.
-Debian открывает TCP на IP машины (порт 5900–5999) и отдаёт картинку в noVNC.
-Gunicorn пиксели не гоняет: отдельный процесс `bawh-vnc` (~десятки МБ) + Nginx `/vnc/ws`.
+Админ заполняет ``$VncPassword`` и ``$BawhServerIp`` в UI и при необходимости
+публикует. Пароль в git не кладём. MSI с интернета не качается.
 
-Не путать с PsExec: скрипты — без GUI. VNC — консоль того, кто сидит за ПК.
+Сидируется из ``ensure_schema``, если в ``scripts`` ещё нет строки с этим именем.
+"""
 
-## Что нужно на Windows
+from __future__ import annotations
 
-Агент **TightVNC** или **UltraVNC** (сервер, не Viewer). Файрвол: порт агента
-только с IP сервера bAWH. Пароль TightVNC — не больше 8 символов (VNC DES);
-тот же строкой в Параметрах → VNC.
+import logging
 
-### Библиотека «Скрипты»
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-После обновления в библиотеке появляется **TightVNC (тихая установка)**
-(PowerShell, `NT AUTHORITY\SYSTEM`, хранение в базе, **не опубликован**).
-Каноническое тело: `app/services/tightvnc_install_script.py`. Сид не затирает
-уже существующую строку с этим именем.
+from app.extensions import db
+from app.models import AppSetting, RunAs, Script
 
-Перед запуском:
+logger = logging.getLogger(__name__)
 
-1. Положите MSI (`tightvnc-*-setup-64bit.msi` на x64) в `C:\Windows\Temp`
-   на ПК **или** на шару, которую читает `SYSTEM`, и укажите `$MsiPath`.
-   Скрипт из интернета ничего не качает. Лицензия — ваша.
-2. В теле заполните `$VncPassword` и `$BawhServerIp` (IPv4 Debian с bAWH).
-3. Сохраните тот же пароль в Параметрах → VNC.
-4. Если операторы должны ставить агент сами — опубликуйте после подстановки.
+TIGHTVNC_INSTALL_SCRIPT_NAME = "TightVNC (тихая установка)"
+TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v170"
 
-| Поле | Значение |
-| --- | --- |
-| Название | TightVNC (тихая установка) |
-| ОС | windows |
-| Интерпретатор | powershell |
-| От чьего имени | NT AUTHORITY\SYSTEM |
-| Где хранить | в базе |
-| Опубликован | нет, пока в теле нет пароля |
+TIGHTVNC_INSTALL_SCRIPT_DESCRIPTION = (
+    "Тихая установка TightVNC Server как службы (порт 5900). "
+    "Перед запуском заполните $VncPassword (до 8 символов, тот же что в "
+    "Параметрах → VNC) и $BawhServerIp. MSI — $MsiPath или tightvnc*.msi в "
+    "C:\\Windows\\Temp. Файрвол только с IP bAWH; из интернета ничего не качает. "
+    "После подстановки пароля можно опубликовать для операторов."
+)
 
-Если служба `tvnserver` уже есть, MSI не ставится повторно: обновляются пароль,
-порт, ACL TightVNC и правило файрвола `bAWH VNC`. Принудительно: `$ForceReinstall = $true`.
-
-Коды выхода: `0` ок; `2` нет/плохой пароль; `3` нет IP/порта; `4` нет MSI;
-`5` msiexec; `6` служба или файрвол; `1` исключение.
-
-MSI-свойства — по [официальной инструкции TightVNC 2.7](https://www.tightvnc.com/doc/win/TightVNC_2.7_for_Windows_Installing_from_MSI_Packages.pdf):
-пары `SET_*` + `VALUE_OF_*` (не `VALUE=SET_PASSWORD`), `ADDLOCAL=Server`,
-`SERVER_REGISTER_AS_SERVICE=1`, `SERVER_ALLOW_SAS=1`,
-`SERVER_ADD_FIREWALL_EXCEPTION=0` (дырку в 5900 на весь мир не открываем).
-После MSI пароль ещё пишется в реестр (VNC DES): свойства установщика иногда
-игнорируются. UNC-MSI копируется в `%SystemRoot%\Temp` до `msiexec`.
-
-Текст для ручной вставки в форму (тот же, что сидируется):
-
-```powershell
-$ErrorActionPreference = 'Stop'
+# PowerShell / SYSTEM / Windows / storage=db. Коды: 0 ок; 2 нет пароля;
+# 3 нет IP bAWH; 4 нет MSI; 5 msiexec; 6 служба не поднялась; 1 прочая ошибка.
+TIGHTVNC_INSTALL_SCRIPT_BODY = r"""$ErrorActionPreference = 'Stop'
 
 function L([string]$Message) {
     Write-Output ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $Message)
@@ -300,20 +278,67 @@ try {
     L ("Ошибка: {0}" -f $_.Exception.Message)
     exit 1
 }
-```
+"""
 
-## HTTPS
 
-Параметры → **HTTPS-сертификат**: вставить PEM или загрузить файлы →
-«Сохранить» → «Включить HTTPS». Редирект с :80 и `SESSION_COOKIE_SECURE`
-включаются галками. Ключ лежит в `/opt/bawh/certs/`, не в PostgreSQL.
+def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
+    """Один раз вставить скрипт в библиотеку, если имени ещё нет.
 
-Буфер обмена в браузере на телефоне чаще работает уже по HTTPS.
+    Не затирает уже существующую строку (админ мог править тело). Маркер в
+    ``app_settings``, чтобы не повторять INSERT после ручного удаления.
+    """
+    if "scripts" not in table_names or "app_settings" not in table_names:
+        return
 
-## Если не открывается
+    marker = db.session.get(AppSetting, TIGHTVNC_SCRIPT_SEED_KEY)
+    if marker is not None and (marker.value or "").strip() == "1":
+        return
 
-- служба `bawh-vnc` запущена (Параметры → VNC);
-- Nginx проксирует `/vnc/ws` (шаблон `deploy/nginx-bawh.conf`);
-- на ПК слушает 5900, файрвол пускает Debian;
-- пароль агента совпадает с полем на странице стола / Параметрами (до 8 символов);
-- билет живёт 90 секунд — обновите страницу стола, если долго ждали.
+    existing = db.session.scalar(
+        select(Script.id).where(Script.name == TIGHTVNC_INSTALL_SCRIPT_NAME)
+    )
+    inserted = False
+    if existing is None:
+        db.session.add(
+            Script(
+                name=TIGHTVNC_INSTALL_SCRIPT_NAME,
+                description=TIGHTVNC_INSTALL_SCRIPT_DESCRIPTION,
+                target_os="windows",
+                interpreter="powershell",
+                run_as=RunAs.SYSTEM,
+                storage="db",
+                file_path=None,
+                content=TIGHTVNC_INSTALL_SCRIPT_BODY,
+                is_published=False,
+                created_by_id=None,
+            )
+        )
+        inserted = True
+
+    if marker is None:
+        db.session.add(AppSetting(key=TIGHTVNC_SCRIPT_SEED_KEY, value="1"))
+    else:
+        marker.value = "1"
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        logger.info(
+            "ensure_schema: TightVNC script seed skipped (name already taken)",
+        )
+        marker = db.session.get(AppSetting, TIGHTVNC_SCRIPT_SEED_KEY)
+        if marker is None:
+            db.session.add(AppSetting(key=TIGHTVNC_SCRIPT_SEED_KEY, value="1"))
+            db.session.commit()
+        return
+
+    if inserted:
+        logger.info(
+            "ensure_schema: seeded unpublished script %r",
+            TIGHTVNC_INSTALL_SCRIPT_NAME,
+        )
+    else:
+        logger.info(
+            "ensure_schema: TightVNC script already present, seed marker set",
+        )

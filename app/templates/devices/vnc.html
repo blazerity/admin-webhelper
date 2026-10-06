@@ -29,7 +29,8 @@
           name="vnc_password"
           type="password"
           value="{{ vnc_password or '' }}"
-          placeholder="{{ 'сохранён в Параметрах' if has_vnc_password else 'пароль агента TightVNC / UltraVNC' }}"
+          maxlength="8"
+          placeholder="{{ 'сохранён в Параметрах' if has_vnc_password else 'пароль агента TightVNC / UltraVNC, до 8 символов' }}"
           autocomplete="off"
         >
       </div>

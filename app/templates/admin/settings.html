@@ -329,8 +329,11 @@
   <h2 class="h5 mb-1">VNC в браузере</h2>
   <p class="text-muted mb-3">
     Лёгкий шлюз <code>bawh-vnc</code> (WebSocket на 127.0.0.1:6080) и noVNC на карточке устройства.
-    На Windows заранее поставьте TightVNC/UltraVNC, порт обычно 5900, файрвол — только с IP этого сервера.
-    Пароль агента шифруется Fernet; его можно не хранить и вводить при подключении.
+    На Windows — TightVNC или UltraVNC, порт обычно 5900, файрвол только с IP этого сервера.
+    Тихая установка: библиотека
+    <a href="{{ url_for('scripts.list_scripts') }}">Скрипты</a> → «TightVNC (тихая установка)»
+    (заполните пароль и IP bAWH). Пароль TightVNC — не больше 8 символов; шифруется Fernet,
+    его можно не хранить и вводить при подключении.
   </p>
   {% set vnc_cfg = vnc if vnc is defined else none %}
   {% set vnc_st = vnc_unit if vnc_unit is defined else none %}
@@ -359,7 +362,7 @@
     </div>
     <div class="col-md-5">
       <label class="form-label" for="vnc_password">Общий пароль VNC</label>
-      <input class="form-control" id="vnc_password" name="vnc_password" type="password" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if vnc_cfg and vnc_cfg.password_set else 'необязательно' }}">
+      <input class="form-control" id="vnc_password" name="vnc_password" type="password" maxlength="8" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if vnc_cfg and vnc_cfg.password_set else 'необязательно, до 8 символов' }}">
     </div>
     <div class="col-md-4 d-flex align-items-end">
       <div class="form-check mb-2">

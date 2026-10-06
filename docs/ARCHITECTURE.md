@@ -190,7 +190,9 @@ def ensure_schema() -> None:
     # 1) если в metadata есть таблицы, которых нет в БД → db.create_all()
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
     # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
-    # 4) если action_kinds пуст → seed_action_kinds() + commit
+    # 4) ветка обновлений beta, если ещё не выбирали (data_fix.update_branch_beta_v167)
+    # 5) скрипт TightVNC в библиотеке, если имени нет (data_fix.seed_tightvnc_script_v170)
+    # 6) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
 Вызывается при каждом старте `create_app` (web и scheduler).  
@@ -211,6 +213,11 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 лежат «рваные» ГБ (15 ОЗУ, 238/244 диск). При старте 1.5.1 `normalize_stored_capacity_gb`
 один раз приводит их к номиналу; маркер `data_fix.hw_gb_nominal_v151` в `app_settings`.
 Повторный WMI-опрос для этого не нужен.
+
+**Сид TightVNC:** при старте, если в `scripts` нет строки
+«TightVNC (тихая установка)», вставляется неопубликованное тело из
+`app/services/tightvnc_install_script.py`. Маркер `data_fix.seed_tightvnc_script_v170`
+не даёт вставить повторно после ручного удаления; уже существующую строку не затирает.
 
 ---
 
@@ -747,7 +754,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
-| Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session`, [`VNC.md`](VNC.md) |
+| Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session`, сид агента `tightvnc_install_script`, [`VNC.md`](VNC.md) |
 | HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Параметры `#tls` |
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
@@ -771,7 +778,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
 | [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
 | [SCRIPTS.md](SCRIPTS.md) | Требования к телу скрипта из формы «Скрипты» (для агентов и авторов) |
-| [VNC.md](VNC.md) | Экспериментальный стол в браузере, агент на Windows, HTTPS из Параметров |
+| [VNC.md](VNC.md) | Экспериментальный стол в браузере, тихая установка TightVNC, HTTPS из Параметров |
 
 ---
 

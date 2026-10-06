@@ -113,7 +113,7 @@
           <h2 class="panel-title mb-1">Рабочий стол в браузере</h2>
           <p class="panel-hint mb-0">
             Экспериментально: Debian открывает VNC на этом IP (порт из Параметров, обычно 5900)
-            и показывает картинку здесь. На ПК должен быть TightVNC/UltraVNC, файрвол — только с сервера bAWH.
+            и показывает картинку здесь. На ПК — TightVNC/UltraVNC (скрипт «TightVNC (тихая установка)» в библиотеке), файрвол только с сервера bAWH.
           </p>
         </div>
         <a class="btn btn-primary" href="{{ url_for('devices.vnc_session', device_id=device.id) }}">Подключиться</a>
