@@ -240,4 +240,7 @@ echo Старт & gpupdate.exe /force & echo Код %ERRORLEVEL%
 | Пресеты карточки (не библиотека) | `app/services/command_presets.py` |
 | Слои и authz | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 
+Готовый пример для библиотеки: тихая установка TightVNC — [`VNC.md`](VNC.md)
+(`app/services/tightvnc_install_script.py`, сид при старте).
+
 Меняете запуск (интерпретатор, pipe, SYSTEM) — обновите этот файл в том же PR.

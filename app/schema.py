@@ -37,6 +37,7 @@ def ensure_schema() -> None:
     _ensure_columns(inspector)
     _migrate_hardware_gb_nominals(inspector)
     _pin_update_branch_beta(inspector)
+    _seed_tightvnc_install_script(inspector)
 
     count = db.session.scalar(select(func.count()).select_from(ActionKind)) or 0
     if count == 0:
@@ -126,6 +127,13 @@ def _pin_update_branch_beta(inspector) -> None:
         marker.value = "1"
     db.session.commit()
     logger.info("ensure_schema: update branch default beta (v1.6.7) if unset")
+
+
+def _seed_tightvnc_install_script(inspector) -> None:
+    """Неопубликованный скрипт тихой установки TightVNC, если имени ещё нет."""
+    from app.services.tightvnc_install_script import seed_tightvnc_install_script
+
+    seed_tightvnc_install_script(table_names=set(inspector.get_table_names()))
 
 
 def _ensure_columns(inspector) -> None:
