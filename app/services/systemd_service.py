@@ -129,7 +129,11 @@ def get_unit_status(unit: str = SCHEDULER_UNIT) -> UnitStatus:
 
 
 def ensure_unit_running(unit: str) -> EnsureResult:
-    """Включить и запустить unit, если ещё не active."""
+    """Включить и запустить unit, если ещё не active.
+
+    Если unit-файла ещё нет в systemd (типично сразу после обновления
+    из git), сначала вызывает sync_unit_files() и повторяет попытку.
+    """
     status = get_unit_status(unit)
     if not status.available:
         return EnsureResult(
@@ -147,15 +151,32 @@ def ensure_unit_running(unit: str) -> EnsureResult:
             message=f"Служба {unit} уже запущена ({status.active_state}).",
         )
 
+    synced = False
+    if _unit_file_missing(status, unit):
+        sync_unit_files()
+        synced = True
+        status = get_unit_status(unit)
+
     systemctl = systemctl_path()
     assert systemctl is not None
 
     enabled_now = False
-    if not status.enabled:
-        _run_systemctl(systemctl, "enable", unit)
-        enabled_now = True
+    try:
+        if not status.enabled:
+            _run_systemctl(systemctl, "enable", unit)
+            enabled_now = True
+        _run_systemctl(systemctl, "start", unit)
+    except SystemdError as exc:
+        if not synced and _looks_like_missing_unit(str(exc)):
+            sync_unit_files()
+            synced = True
+            if not get_unit_status(unit).enabled:
+                _run_systemctl(systemctl, "enable", unit)
+                enabled_now = True
+            _run_systemctl(systemctl, "start", unit)
+        else:
+            raise
 
-    _run_systemctl(systemctl, "start", unit)
     refreshed = get_unit_status(unit)
     if not refreshed.active:
         raise SystemdError(
@@ -164,6 +185,8 @@ def ensure_unit_running(unit: str) -> EnsureResult:
             "Проверьте sudo-учётку в Параметры → Управление службами."
         )
     parts = [f"Служба {unit} запущена."]
+    if synced:
+        parts.insert(0, "Unit-файлы установлены из deploy/.")
     if enabled_now:
         parts.append("Unit включён в автозагрузку.")
     return EnsureResult(
@@ -305,6 +328,39 @@ def _looks_like_systemd_missing(state: str) -> bool:
         or "failed to connect" in text
         or "system has not been booted" in text
         or "cannot talk to" in text
+    )
+
+
+def _unit_file_missing(status: UnitStatus, unit: str) -> bool:
+    """Unit ещё не установлен в systemd (not-found / нет .service файла)."""
+    if (status.enabled_state or "").lower() in {"not-found", "not found"}:
+        return True
+    if (status.active_state or "").lower() in {"not-found", "not found"}:
+        return True
+    service_name = f"{unit}.service"
+    for directory in (
+        Path("/etc/systemd/system"),
+        Path("/lib/systemd/system"),
+        Path("/usr/lib/systemd/system"),
+    ):
+        if (directory / service_name).is_file():
+            return False
+    # Нет файла и systemctl не сказал not-found (редко) — всё равно пробуем sync.
+    # Не трогаем уже известные unit'ы вроде bawh-web / bawh-scheduler без нужды:
+    # если enabled_state нормальный (disabled/enabled), файл должен быть.
+    state = (status.enabled_state or "").lower()
+    if state in {"disabled", "enabled", "enabled-runtime", "static", "masked", "indirect"}:
+        return False
+    return True
+
+
+def _looks_like_missing_unit(detail: str) -> bool:
+    text = (detail or "").lower()
+    return (
+        "does not exist" in text
+        or "not found" in text
+        or "не найден" in text
+        or "unit file" in text and "exist" in text
     )
 
 
