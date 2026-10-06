@@ -12,18 +12,28 @@ Gunicorn пиксели не гоняет: отдельный процесс `ba
 только с IP сервера bAWH. Пароль TightVNC — не больше 8 символов (VNC DES);
 тот же строкой в Параметрах → VNC.
 
+### Установщик с сервера bAWH
+
+MSI кладите в каталог [`vnc-agents/`](../vnc-agents/README.md) репозитория
+(на Debian это `/opt/bawh/vnc-agents/`). Имя файла с `64bit` или `32bit`,
+например `tightvnc-2.8.81-gpl-setup-64bit.msi`. В git MSI не коммитится
+и при обновлении не стирается. Лицензия — ваша.
+
+При запуске скрипта bAWH копирует MSI на ПК через уже открытый `ADMIN$`
+в `C:\Windows\Temp`. Если копии нет — скрипт качает
+`http://<IP-bAWH>/vnc-agents/64bit.msi` (псевдоним файла в каталоге).
+
 ### Библиотека «Скрипты»
 
 После обновления в библиотеке появляется **TightVNC (тихая установка)**
 (PowerShell, `NT AUTHORITY\SYSTEM`, хранение в базе, **не опубликован**).
-Каноническое тело: `app/services/tightvnc_install_script.py`. Сид не затирает
-уже существующую строку с этим именем.
+Каноническое тело: `app/services/tightvnc_install_script.py`. Стоковое тело
+(пустой `$VncPassword`) при старте обновляется; строку с уже подставленным
+паролем сид не затирает.
 
 Перед запуском:
 
-1. Положите MSI (`tightvnc-*-setup-64bit.msi` на x64) в `C:\Windows\Temp`
-   на ПК **или** на шару, которую читает `SYSTEM`, и укажите `$MsiPath`.
-   Скрипт из интернета ничего не качает. Лицензия — ваша.
+1. Положите MSI в `/opt/bawh/vnc-agents/` на Debian (Параметры → VNC показывает, нашёлся ли файл).
 2. В теле заполните `$VncPassword` и `$BawhServerIp` (IPv4 Debian с bAWH).
 3. Сохраните тот же пароль в Параметрах → VNC.
 4. Если операторы должны ставить агент сами — опубликуйте после подстановки.
@@ -47,8 +57,7 @@ MSI-свойства — по [официальной инструкции Tight
 пары `SET_*` + `VALUE_OF_*` (не `VALUE=SET_PASSWORD`), `ADDLOCAL=Server`,
 `SERVER_REGISTER_AS_SERVICE=1`, `SERVER_ALLOW_SAS=1`,
 `SERVER_ADD_FIREWALL_EXCEPTION=0` (дырку в 5900 на весь мир не открываем).
-После MSI пароль ещё пишется в реестр (VNC DES): свойства установщика иногда
-игнорируются. UNC-MSI копируется в `%SystemRoot%\Temp` до `msiexec`.
+После MSI пароль ещё пишется в реестр (VNC DES).
 
 Текст для ручной вставки в форму (тот же, что сидируется):
 
@@ -60,6 +69,7 @@ function L([string]$Message) {
 }
 
 # «Параметры» только здесь. Пароль не длиннее 8 символов (VNC DES).
+# bAWH-payload: tightvnc-msi
 $VncPassword = ''
 $BawhServerIp = ''
 $MsiPath = ''
@@ -107,7 +117,20 @@ function Get-MsiexecPath {
     return (Join-Path $env:SystemRoot 'System32\msiexec.exe')
 }
 
-function Resolve-TightVncMsi([string]$Explicit, [string]$TempDir) {
+function Test-MsiFile([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    if ((Get-Item -LiteralPath $Path).Length -lt 100000) { return $false }
+    $fs = [System.IO.File]::OpenRead($Path)
+    try {
+        $buf = New-Object byte[] 8
+        if ($fs.Read($buf, 0, 8) -lt 4) { return $false }
+        return ($buf[0] -eq 0xD0 -and $buf[1] -eq 0xCF -and $buf[2] -eq 0x11 -and $buf[3] -eq 0xE0)
+    } finally {
+        $fs.Close()
+    }
+}
+
+function Find-LocalTightVncMsi([string]$Explicit, [string]$TempDir) {
     $prefer = if ([Environment]::Is64BitOperatingSystem) { '64bit' } else { '32bit' }
     if ($Explicit) {
         if (Test-Path -LiteralPath $Explicit -PathType Container) {
@@ -133,6 +156,45 @@ function Resolve-TightVncMsi([string]$Explicit, [string]$TempDir) {
     return $null
 }
 
+function Disable-BawhSslCheck {
+    $code = @"
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+public static class BawhTlsTrust {
+  public static void Allow() {
+    ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
+    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+  }
+}
+"@
+    try { Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue } catch {}
+    try { [BawhTlsTrust]::Allow() } catch {}
+}
+
+function Save-MsiFromBawh([string]$Ip, [string]$Dest) {
+    Disable-BawhSslCheck
+    $arch = if ([Environment]::Is64BitOperatingSystem) { '64bit' } else { '32bit' }
+    $names = @(($arch + '.msi'), $arch)
+    foreach ($scheme in @('http', 'https')) {
+        foreach ($name in $names) {
+            $url = '{0}://{1}/vnc-agents/{2}' -f $scheme, $Ip, $name
+            L ("Качаю MSI с bAWH: {0}" -f $url)
+            try {
+                if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force }
+                $wc = New-Object System.Net.WebClient
+                $wc.Headers.Add('User-Agent', 'bawh-tightvnc')
+                $wc.DownloadFile($url, $Dest)
+                if (Test-MsiFile $Dest) { return $Dest }
+                L 'Ответ не похож на MSI — на сервере должен лежать файл в vnc-agents/.'
+            } catch {
+                L ("не скачалось: {0}" -f $_.Exception.Message)
+            }
+        }
+    }
+    return $null
+}
+
 function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort, [string]$Access) {
     if (-not (Test-Path -LiteralPath $RegPath)) {
         New-Item -Path $RegPath -Force | Out-Null
@@ -149,7 +211,7 @@ function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort
 
 try {
     L ("Компьютер: {0}" -f $env:COMPUTERNAME)
-    L 'Тихая установка TightVNC Server.'
+    L 'Тихая установка TightVNC Server. MSI — с сервера bAWH.'
 
     $VncPassword = [string]$VncPassword
     $BawhServerIp = ([string]$BawhServerIp).Trim()
@@ -188,17 +250,24 @@ try {
 
     if ((-not $installed) -or $ForceReinstall) {
         $tempDir = Join-Path $env:SystemRoot 'Temp'
-        L 'Ищу MSI TightVNC (интернет не трогаю).'
-        $msiSrc = Resolve-TightVncMsi -Explicit $MsiPath -TempDir $tempDir
+        L 'Ищу MSI TightVNC (сначала то, что bAWH положил в Temp).'
+        $msiSrc = Find-LocalTightVncMsi -Explicit $MsiPath -TempDir $tempDir
         if (-not $msiSrc) {
-            L 'Положите tightvnc-*-setup-64bit.msi в C:\Windows\Temp или укажите $MsiPath (UNC, который читает SYSTEM).'
+            $downloaded = Join-Path $tempDir 'bawh-tightvnc-download.msi'
+            $msiSrc = Save-MsiFromBawh -Ip $BawhServerIp -Dest $downloaded
+        }
+        if (-not $msiSrc) {
+            L 'На этом ПК нет MSI, и скачать с bAWH не вышло. Положите tightvnc-*-setup-64bit.msi в /opt/bawh/vnc-agents/ на Debian.'
             exit 4
         }
         L ("Установщик: {0}" -f $msiSrc)
         $localMsi = Join-Path $tempDir 'bawh-tightvnc.msi'
         if ([string]::Compare($msiSrc, $localMsi, $true) -ne 0) {
-            L 'Копирую MSI в %SystemRoot%\Temp (msiexec с UNC часто падает).'
             Copy-Item -LiteralPath $msiSrc -Destination $localMsi -Force
+        }
+        if (-not (Test-MsiFile $localMsi)) {
+            L 'Файл установщика повреждён или это не MSI.'
+            exit 4
         }
         $ipAcl = '{0}-{0}:0,0.0.0.0-255.255.255.255:1' -f $BawhServerIp
         $msiArgs = @(

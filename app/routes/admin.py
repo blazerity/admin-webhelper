@@ -93,6 +93,7 @@ from app.services.update_service import (
     save_update_branch,
 )
 from app.services.vnc_settings import clear_vnc_password, get_vnc_settings, set_vnc_settings
+from app.services.tightvnc_install_script import list_vnc_agent_summaries
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +379,7 @@ def settings():
         update_sudo_password_set=update_sudo.password_set,
         vnc=get_vnc_settings(),
         vnc_unit=get_unit_status(VNC_UNIT),
+        vnc_agents=list_vnc_agent_summaries(),
         tls=get_tls_settings(),
     )
 

@@ -1,14 +1,17 @@
-"""Каноническое тело тихой установки TightVNC для библиотеки «Скрипты».
+"""Каноническое тело тихой установки TightVNC и раздача MSI с сервера bAWH.
 
-Админ заполняет ``$VncPassword`` и ``$BawhServerIp`` в UI и при необходимости
-публикует. Пароль в git не кладём. MSI с интернета не качается.
+Админ кладёт ``tightvnc-*-setup-64bit.msi`` в каталог ``vnc-agents/``
+(на сервере ``/opt/bawh/vnc-agents/``). При запуске скрипта файл копируется
+на ПК через уже открытый ADMIN$; запасной путь — HTTP ``/vnc-agents/64bit.msi``.
 
-Сидируется из ``ensure_schema``, если в ``scripts`` ещё нет строки с этим именем.
+Пароль в git не кладём. Сид не затирает строку, в которой уже подставлен пароль.
 """
 
 from __future__ import annotations
 
 import logging
+import re
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -19,13 +22,17 @@ from app.models import AppSetting, RunAs, Script
 logger = logging.getLogger(__name__)
 
 TIGHTVNC_INSTALL_SCRIPT_NAME = "TightVNC (тихая установка)"
-TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v170"
+TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v171"
+TIGHTVNC_PAYLOAD_SENTINEL = "# bAWH-payload: tightvnc-msi"
+VNC_AGENTS_DIRNAME = "vnc-agents"
+_SAFE_AGENT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+_MAX_MSI_BYTES = 40 * 1024 * 1024
 
 TIGHTVNC_INSTALL_SCRIPT_DESCRIPTION = (
     "Тихая установка TightVNC Server как службы (порт 5900). "
+    "MSI берётся с сервера bAWH (каталог vnc-agents/). "
     "Перед запуском заполните $VncPassword (до 8 символов, тот же что в "
-    "Параметрах → VNC) и $BawhServerIp. MSI — $MsiPath или tightvnc*.msi в "
-    "C:\\Windows\\Temp. Файрвол только с IP bAWH; из интернета ничего не качает. "
+    "Параметрах → VNC) и $BawhServerIp. Файрвол только с IP bAWH. "
     "После подстановки пароля можно опубликовать для операторов."
 )
 
@@ -38,6 +45,7 @@ function L([string]$Message) {
 }
 
 # «Параметры» только здесь. Пароль не длиннее 8 символов (VNC DES).
+# bAWH-payload: tightvnc-msi
 $VncPassword = ''
 $BawhServerIp = ''
 $MsiPath = ''
@@ -85,7 +93,20 @@ function Get-MsiexecPath {
     return (Join-Path $env:SystemRoot 'System32\msiexec.exe')
 }
 
-function Resolve-TightVncMsi([string]$Explicit, [string]$TempDir) {
+function Test-MsiFile([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    if ((Get-Item -LiteralPath $Path).Length -lt 100000) { return $false }
+    $fs = [System.IO.File]::OpenRead($Path)
+    try {
+        $buf = New-Object byte[] 8
+        if ($fs.Read($buf, 0, 8) -lt 4) { return $false }
+        return ($buf[0] -eq 0xD0 -and $buf[1] -eq 0xCF -and $buf[2] -eq 0x11 -and $buf[3] -eq 0xE0)
+    } finally {
+        $fs.Close()
+    }
+}
+
+function Find-LocalTightVncMsi([string]$Explicit, [string]$TempDir) {
     $prefer = if ([Environment]::Is64BitOperatingSystem) { '64bit' } else { '32bit' }
     if ($Explicit) {
         if (Test-Path -LiteralPath $Explicit -PathType Container) {
@@ -111,6 +132,45 @@ function Resolve-TightVncMsi([string]$Explicit, [string]$TempDir) {
     return $null
 }
 
+function Disable-BawhSslCheck {
+    $code = @"
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+public static class BawhTlsTrust {
+  public static void Allow() {
+    ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
+    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+  }
+}
+"@
+    try { Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue } catch {}
+    try { [BawhTlsTrust]::Allow() } catch {}
+}
+
+function Save-MsiFromBawh([string]$Ip, [string]$Dest) {
+    Disable-BawhSslCheck
+    $arch = if ([Environment]::Is64BitOperatingSystem) { '64bit' } else { '32bit' }
+    $names = @(($arch + '.msi'), $arch)
+    foreach ($scheme in @('http', 'https')) {
+        foreach ($name in $names) {
+            $url = '{0}://{1}/vnc-agents/{2}' -f $scheme, $Ip, $name
+            L ("Качаю MSI с bAWH: {0}" -f $url)
+            try {
+                if (Test-Path -LiteralPath $Dest) { Remove-Item -LiteralPath $Dest -Force }
+                $wc = New-Object System.Net.WebClient
+                $wc.Headers.Add('User-Agent', 'bawh-tightvnc')
+                $wc.DownloadFile($url, $Dest)
+                if (Test-MsiFile $Dest) { return $Dest }
+                L 'Ответ не похож на MSI — на сервере должен лежать файл в vnc-agents/.'
+            } catch {
+                L ("не скачалось: {0}" -f $_.Exception.Message)
+            }
+        }
+    }
+    return $null
+}
+
 function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort, [string]$Access) {
     if (-not (Test-Path -LiteralPath $RegPath)) {
         New-Item -Path $RegPath -Force | Out-Null
@@ -127,7 +187,7 @@ function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort
 
 try {
     L ("Компьютер: {0}" -f $env:COMPUTERNAME)
-    L 'Тихая установка TightVNC Server.'
+    L 'Тихая установка TightVNC Server. MSI — с сервера bAWH.'
 
     $VncPassword = [string]$VncPassword
     $BawhServerIp = ([string]$BawhServerIp).Trim()
@@ -166,17 +226,24 @@ try {
 
     if ((-not $installed) -or $ForceReinstall) {
         $tempDir = Join-Path $env:SystemRoot 'Temp'
-        L 'Ищу MSI TightVNC (интернет не трогаю).'
-        $msiSrc = Resolve-TightVncMsi -Explicit $MsiPath -TempDir $tempDir
+        L 'Ищу MSI TightVNC (сначала то, что bAWH положил в Temp).'
+        $msiSrc = Find-LocalTightVncMsi -Explicit $MsiPath -TempDir $tempDir
         if (-not $msiSrc) {
-            L 'Положите tightvnc-*-setup-64bit.msi в C:\Windows\Temp или укажите $MsiPath (UNC, который читает SYSTEM).'
+            $downloaded = Join-Path $tempDir 'bawh-tightvnc-download.msi'
+            $msiSrc = Save-MsiFromBawh -Ip $BawhServerIp -Dest $downloaded
+        }
+        if (-not $msiSrc) {
+            L 'На этом ПК нет MSI, и скачать с bAWH не вышло. Положите tightvnc-*-setup-64bit.msi в /opt/bawh/vnc-agents/ на Debian.'
             exit 4
         }
         L ("Установщик: {0}" -f $msiSrc)
         $localMsi = Join-Path $tempDir 'bawh-tightvnc.msi'
         if ([string]::Compare($msiSrc, $localMsi, $true) -ne 0) {
-            L 'Копирую MSI в %SystemRoot%\Temp (msiexec с UNC часто падает).'
             Copy-Item -LiteralPath $msiSrc -Destination $localMsi -Force
+        }
+        if (-not (Test-MsiFile $localMsi)) {
+            L 'Файл установщика повреждён или это не MSI.'
+            exit 4
         }
         $ipAcl = '{0}-{0}:0,0.0.0.0-255.255.255.255:1' -f $BawhServerIp
         $msiArgs = @(
@@ -281,12 +348,143 @@ try {
 """
 
 
-def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
-    """Один раз вставить скрипт в библиотеку, если имени ещё нет.
+def vnc_agents_dir(root: str | Path | None = None) -> Path:
+    """Каталог, куда админ кладёт MSI. По умолчанию PROJECT_ROOT/vnc-agents."""
+    if root is None:
+        try:
+            from flask import current_app, has_app_context
 
-    Не затирает уже существующую строку (админ мог править тело). Маркер в
-    ``app_settings``, чтобы не повторять INSERT после ручного удаления.
-    """
+            if has_app_context():
+                root = current_app.config.get("PROJECT_ROOT")
+        except Exception:
+            root = None
+    if not root:
+        root = Path(__file__).resolve().parents[2]
+    return Path(root) / VNC_AGENTS_DIRNAME
+
+
+def list_tightvnc_msis(root: str | Path | None = None) -> list[Path]:
+    """MSI TightVNC в vnc-agents/, без обхода каталога."""
+    folder = vnc_agents_dir(root)
+    if not folder.is_dir():
+        return []
+    found: list[Path] = []
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return []
+    for path in entries:
+        if not path.is_file():
+            continue
+        if path.suffix.lower() != ".msi":
+            continue
+        if "tightvnc" not in path.name.lower() and path.name.lower() not in {
+            "64bit.msi",
+            "32bit.msi",
+        }:
+            continue
+        if not _SAFE_AGENT_NAME.match(path.name):
+            continue
+        found.append(path)
+    found.sort(key=lambda item: item.name.lower())
+    return found
+
+
+def pick_tightvnc_msi(prefer: str, root: str | Path | None = None) -> Path | None:
+    """Выбрать MSI под 64bit/32bit. Имя файла должно содержать метку архитектуры."""
+    want = "64bit" if str(prefer).lower() in {"64", "64bit", "x64"} else "32bit"
+    other = "32bit" if want == "64bit" else "64bit"
+    files = list_tightvnc_msis(root)
+    tagged = [path for path in files if want in path.name.lower()]
+    if tagged:
+        return tagged[0]
+    generic = [path for path in files if other not in path.name.lower()]
+    if generic:
+        return generic[0]
+    return None
+
+
+def resolve_vnc_agent_file(name: str, root: str | Path | None = None) -> Path | None:
+    """Безопасный путь к MSI: точное имя или псевдоним 64bit.msi / 32bit.msi."""
+    raw = (name or "").strip()
+    if not raw or not _SAFE_AGENT_NAME.match(raw):
+        return None
+    lowered = raw.lower()
+    if lowered in {"64bit", "64bit.msi", "x64", "x64.msi"}:
+        return pick_tightvnc_msi("64bit", root)
+    if lowered in {"32bit", "32bit.msi", "x86", "x86.msi"}:
+        return pick_tightvnc_msi("32bit", root)
+    folder = vnc_agents_dir(root)
+    try:
+        folder_real = folder.resolve()
+        path = (folder / raw).resolve()
+    except OSError:
+        return None
+    if path.parent != folder_real or not path.is_file():
+        return None
+    if path.suffix.lower() != ".msi":
+        return None
+    return path
+
+
+def extra_admin_files_for_script(script: Script | None) -> dict[str, bytes]:
+    """Файлы для ADMIN$\\Temp, если это скрипт установки TightVNC."""
+    if script is None:
+        return {}
+    body = script.content or ""
+    if script.name != TIGHTVNC_INSTALL_SCRIPT_NAME and TIGHTVNC_PAYLOAD_SENTINEL not in body:
+        return {}
+    return extra_admin_files()
+
+
+def extra_admin_files(root: str | Path | None = None) -> dict[str, bytes]:
+    """Имя в ADMIN$ (Temp\\file.msi) → содержимое."""
+    payload: dict[str, bytes] = {}
+    for path in list_tightvnc_msis(root):
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size <= 0 or size > _MAX_MSI_BYTES:
+            logger.warning("skip VNC MSI %s (size %s)", path.name, size)
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            logger.warning("cannot read VNC MSI %s", path)
+            continue
+        payload[rf"Temp\{path.name}"] = data
+    return payload
+
+
+def list_vnc_agent_summaries(root: str | Path | None = None) -> list[dict[str, str | int]]:
+    """Для Параметров: какие MSI лежат в vnc-agents/."""
+    rows: list[dict[str, str | int]] = []
+    for path in list_tightvnc_msis(root):
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        rows.append({"name": path.name, "size": size})
+    return rows
+
+
+def _is_stock_body(content: str) -> bool:
+    """Пустой пароль и каноническое/прошлое тело — можно обновить сидом."""
+    text = content or ""
+    if not text.strip():
+        return True
+    if "$VncPassword = ''" not in text and '$VncPassword = ""' not in text:
+        return False
+    if "SET_PASSWORD=1" not in text:
+        return False
+    if TIGHTVNC_PAYLOAD_SENTINEL in text:
+        return text.strip() == TIGHTVNC_INSTALL_SCRIPT_BODY.strip()
+    return "$MsiPath = ''" in text and "Ищу MSI TightVNC (интернет не трогаю)." in text
+
+
+def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
+    """Вставить или обновить стоковое тело, если админ ещё не подставлял пароль."""
     if "scripts" not in table_names or "app_settings" not in table_names:
         return
 
@@ -295,9 +493,10 @@ def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
         return
 
     existing = db.session.scalar(
-        select(Script.id).where(Script.name == TIGHTVNC_INSTALL_SCRIPT_NAME)
+        select(Script).where(Script.name == TIGHTVNC_INSTALL_SCRIPT_NAME)
     )
     inserted = False
+    updated = False
     if existing is None:
         db.session.add(
             Script(
@@ -314,6 +513,15 @@ def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
             )
         )
         inserted = True
+    elif _is_stock_body(existing.content or ""):
+        existing.description = TIGHTVNC_INSTALL_SCRIPT_DESCRIPTION
+        existing.target_os = "windows"
+        existing.interpreter = "powershell"
+        existing.run_as = RunAs.SYSTEM
+        existing.storage = "db"
+        existing.content = TIGHTVNC_INSTALL_SCRIPT_BODY
+        existing.is_published = False
+        updated = True
 
     if marker is None:
         db.session.add(AppSetting(key=TIGHTVNC_SCRIPT_SEED_KEY, value="1"))
@@ -338,7 +546,11 @@ def seed_tightvnc_install_script(*, table_names: set[str]) -> None:
             "ensure_schema: seeded unpublished script %r",
             TIGHTVNC_INSTALL_SCRIPT_NAME,
         )
+    elif updated:
+        logger.info(
+            "ensure_schema: refreshed stock TightVNC script body (v171, MSI from bAWH)",
+        )
     else:
         logger.info(
-            "ensure_schema: TightVNC script already present, seed marker set",
+            "ensure_schema: TightVNC script customized, seed marker set",
         )

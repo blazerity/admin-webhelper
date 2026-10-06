@@ -1018,6 +1018,8 @@ def iter_managed(root: Path):
         for name in filenames:
             if name == ".env" or name.endswith(".db"):
                 continue
+            if current.name == "vnc-agents" and name.lower().endswith((".msi", ".exe")):
+                continue
             path = current / name
             if path.is_symlink() or not path.is_file():
                 continue
