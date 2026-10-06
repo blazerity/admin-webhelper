@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.extensions import db
 from app.models import Device, DeviceHardwareHistory, DeviceStatus, HardwarePollRun
@@ -192,26 +192,56 @@ def apply_hardware_snapshot(
     return changed or first
 
 
-def load_recent_hardware_poll_runs(limit: int = _RECENT_RUNS_LIMIT) -> list[HardwarePollRun]:
-    limit = max(1, min(100, int(limit)))
+def count_hardware_poll_runs() -> int:
+    """Число записей в hardware_poll_runs."""
+    return int(db.session.scalar(select(func.count()).select_from(HardwarePollRun)) or 0)
+
+
+def load_recent_hardware_poll_runs(
+    limit: int = _RECENT_RUNS_LIMIT,
+    *,
+    offset: int = 0,
+) -> list[HardwarePollRun]:
+    """Последние прогоны опроса железа, новые сверху.
+
+    offset — для пагинации на странице настроек (CSV по-прежнему берёт limit).
+    """
+    limit = max(1, min(200, int(limit)))
+    offset = max(0, int(offset or 0))
     return list(
         db.session.scalars(
-            select(HardwarePollRun).order_by(HardwarePollRun.id.desc()).limit(limit)
+            select(HardwarePollRun)
+            .order_by(HardwarePollRun.id.desc())
+            .offset(offset)
+            .limit(limit)
         )
     )
 
 
 def load_device_hardware_history(
-    device_id: int, *, limit: int = 20
+    device_id: int, *, limit: int = 20, offset: int = 0
 ) -> list[DeviceHardwareHistory]:
     limit = max(1, min(200, int(limit)))
+    offset = max(0, int(offset or 0))
     return list(
         db.session.scalars(
             select(DeviceHardwareHistory)
             .where(DeviceHardwareHistory.device_id == device_id)
             .order_by(DeviceHardwareHistory.collected_at.desc(), DeviceHardwareHistory.id.desc())
+            .offset(offset)
             .limit(limit)
         )
+    )
+
+
+def count_device_hardware_history(device_id: int) -> int:
+    return int(
+        db.session.scalar(
+            select(func.count())
+            .select_from(DeviceHardwareHistory)
+            .where(DeviceHardwareHistory.device_id == device_id)
+        )
+        or 0
     )
 
 
@@ -236,7 +266,7 @@ def run_hardware_poll(
         if creds is None:
             raise HardwarePollError(
                 "Учётка WMI не задана: железо не прочитать "
-                "(Параметры → Учётка WMI или DISCOVERY_* в .env)."
+                "(Настройки → Опросы ПК или DISCOVERY_* в .env)."
             )
 
         if not dry_run:

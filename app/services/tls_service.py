@@ -157,7 +157,7 @@ def apply_nginx_tls(*, enable: bool, redirect: bool, server_name: str,
         logger.warning("apply-nginx-tls failed: %s", detail)
         raise TlsApplyError(
             f"Nginx не применил TLS (код {result.returncode}). {detail}".strip()
-            + " Проверьте sudo-учётку в Параметры → Управление службами "
+            + " Проверьте sudo-учётку в Настройки → Общие "
             "и deploy/bawh-update.sudoers."
         )
     if enable:

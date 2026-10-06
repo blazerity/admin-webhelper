@@ -7,14 +7,25 @@
     <p class="settings-sidebar-title">Настройки</p>
     <nav class="settings-nav">
       {% set ep = request.endpoint or '' %}
+      {% set settings_section = settings_section|default('') %}
       <a class="settings-nav-link{% if ep.startswith('sectors.') %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Сектора</a>
       {% if current_user.is_admin %}
+      <a class="settings-nav-link{% if ep == 'admin.settings' and settings_section == 'general' %} active{% endif %}" href="{{ url_for('admin.settings', section='general') }}">Общие</a>
+      <a class="settings-nav-link{% if ep == 'admin.settings' and settings_section == 'polls' %} active{% endif %}" href="{{ url_for('admin.settings', section='polls') }}">Опросы ПК</a>
+      <a class="settings-nav-link{% if ep == 'admin.settings' and settings_section == 'vnc' %} active{% endif %}" href="{{ url_for('admin.settings', section='vnc') }}">VNC</a>
+      <a class="settings-nav-link{% if ep == 'admin.settings' and settings_section == 'tls' %} active{% endif %}" href="{{ url_for('admin.settings', section='tls') }}">HTTPS</a>
       <a class="settings-nav-link{% if ep == 'password_expiry.settings_page' %} active{% endif %}" href="{{ url_for('password_expiry.settings_page') }}">Пароли AD</a>
-      <a class="settings-nav-link{% if ep == 'sector_daily_report.settings_page' %} active{% endif %}" href="{{ url_for('sector_daily_report.settings_page') }}">Отчёты о ПК</a>
+      <a class="settings-nav-link{% if ep == 'sector_daily_report.settings_page' %} active{% endif %}" href="{{ url_for('sector_daily_report.settings_page') }}">Отчёт о ПК</a>
       <a class="settings-nav-link{% if ep.startswith('login_services.') %} active{% endif %}" href="{{ url_for('login_services.list_services') }}">Экран входа</a>
-      <a class="settings-nav-link{% if ep == 'admin.settings' %} active{% endif %}" href="{{ url_for('admin.settings') }}">Параметры</a>
+      {% endif %}
+      {% if current_user.is_admin or current_user.is_operator %}
+      <a class="settings-nav-link{% if ep.startswith('scripts.') %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
+      {% endif %}
+      <a class="settings-nav-link{% if ep.startswith('accounts.') %} active{% endif %}" href="{{ url_for('accounts.list_accounts') }}">Обнаруженные УЗ</a>
+      <a class="settings-nav-link{% if ep.startswith('actions.') or ep == 'admin.audit_log' %} active{% endif %}" href="{{ url_for('actions.list_actions') }}">Действия и аудит</a>
+      {% if current_user.is_admin %}
+      <a class="settings-nav-link{% if ep == 'admin.duplicates' %} active{% endif %}" href="{{ url_for('admin.duplicates') }}">Удаление дублей</a>
       <a class="settings-nav-link{% if ep == 'admin.updates' %} active{% endif %}" href="{{ url_for('admin.updates') }}">Обновления</a>
-      <a class="settings-nav-link{% if ep == 'admin.audit_log' %} active{% endif %}" href="{{ url_for('admin.audit_log') }}">Аудит</a>
       {% endif %}
     </nav>
   </aside>

@@ -862,7 +862,7 @@ def schedule_restart(root: Path, previous: str) -> str:
                 previous
                 + " Службы сами не перезапустились. "
                 + f"Выполните: {hint}. "
-                + "Проверьте sudo-учётку в Параметры → Управление службами "
+                + "Проверьте sudo-учётку в Настройки → Общие "
                 + "(логин/пароль Linux или правило deploy/bawh-update.sudoers).",
             )
 
@@ -926,7 +926,7 @@ def _run_post_update_restart(
                 previous
                 + " Службы сами не перезапустились. "
                 + f"Выполните: {hint}. "
-                + "Проверьте sudo-учётку в Параметры → Управление службами "
+                + "Проверьте sudo-учётку в Настройки → Общие "
                 + "(логин/пароль Linux или правило deploy/bawh-update.sudoers). "
                 + detail
                 + extra,

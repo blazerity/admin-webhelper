@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/status.html" import status_badge, device_portrait, account_entity_link %}
+{% from "macros/pagination.html" import page_nav %}
 {% block title %}{% if device %}{{ device.hostname or device.ip }}{% else %}Устройство{% endif %}{% endblock %}
 {% block main_class %}app-main-wide{% endblock %}
 {% block content %}
@@ -14,6 +15,27 @@
 {% set show_serial = device.shows_serial %}
 {% set show_hardware = device.shows_hardware %}
 {% set show_commands = device.shows_commands %}
+{% set list_page = list_page|default(1) %}
+{% set list_per_page = list_per_page|default(20) %}
+{% set list_total = list_total|default(0) %}
+{% macro history_pager(tab_name) -%}
+  {% if show_all %}
+  {{ page_nav(
+       'devices.detail',
+       list_page,
+       list_per_page,
+       list_total,
+       {'device_id': device.id, 'tab': tab_name, 'all': '1'}
+     ) }}
+  <p class="px-3 pb-2 mb-0">
+    <a class="btn btn-sm btn-link" href="{{ url_for('devices.detail', device_id=device.id, tab=tab_name) }}">Только последние 5</a>
+  </p>
+  {% elif has_more %}
+  <p class="px-3 pb-2 mb-0">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('devices.detail', device_id=device.id, tab=tab_name, all=1) }}">Показать все</a>
+  </p>
+  {% endif %}
+{%- endmacro %}
 <div class="device-settings-layout">
   <div class="device-settings-content">
     <div class="page-header">
@@ -21,11 +43,11 @@
         <p class="mb-1"><a href="{{ url_for('devices.map') }}" id="device-back-to-map">← К карте</a></p>
         <h1 class="page-title">{{ device.hostname or device.ip }}</h1>
         <p class="page-subtitle">
-          {% if tab == 'overview' %}Обзор объекта в инвентаре сети
-          {% elif tab == 'accounts' %}Учётные записи на этом устройстве
-          {% elif tab == 'commands' %}Команды и скрипты
-          {% elif tab == 'hardware' %}Процессор, память, диски и версия Windows
-          {% else %}Опросы доступности
+          {% if tab == 'overview' %}Сводка по устройству
+          {% elif tab == 'accounts' %}Текущая и ранее замеченные учётные записи
+          {% elif tab == 'commands' %}Удалённые команды и скрипты
+          {% elif tab == 'hardware' %}Конфигурация оборудования
+          {% else %}Проверка доступности
           {% endif %}
         </p>
       </div>
@@ -127,7 +149,7 @@
       <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
         <div>
           <h2 class="panel-title mb-1">Оборудование</h2>
-          <p class="panel-hint mb-0">Краткий WMI-снимок. Полная история и опрос — на вкладке «Оборудование».</p>
+          <p class="panel-hint mb-0">Краткие сведения об оборудовании. Полная история — на вкладке «Оборудование».</p>
         </div>
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">К оборудованию</a>
       </div>
@@ -173,7 +195,7 @@
     {% elif tab == 'accounts' and show_accounts %}
     <div class="panel content-card mb-3">
       <h2 class="panel-title mb-1">Сейчас авторизован</h2>
-      <p class="panel-hint mb-3">УЗ по последнему успешному WMI-опросу</p>
+      <p class="panel-hint mb-3">Учётная запись по последнему успешному опросу</p>
       {% if device.current_account %}
       <p class="mb-1">
         {{ account_entity_link(device.current_account.id, device.current_account.account_key, 'fs-5') }}
@@ -188,14 +210,9 @@
     </div>
 
     <div class="panel content-card p-0 overflow-hidden">
-      <div class="px-3 pt-3 pb-2 d-flex flex-wrap align-items-start justify-content-between gap-2">
-        <div>
-          <h2 class="panel-title">История УЗ</h2>
-          <p class="panel-hint mb-0">Кого замечали на этом ПК{% if not show_all %} — последние {{ list_limit }}{% endif %}</p>
-        </div>
-        {% if has_more %}
-        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('devices.detail', device_id=device.id, tab='accounts', all=1) }}">Показать все</a>
-        {% endif %}
+      <div class="px-3 pt-3 pb-2">
+        <h2 class="panel-title">История УЗ</h2>
+        <p class="panel-hint mb-0">{% if not show_all %}Последние {{ list_limit }}{% else %}Все появления{% endif %}</p>
       </div>
       <div class="table-responsive">
         <table class="table table-sm mb-0">
@@ -217,24 +234,19 @@
           </tbody>
         </table>
       </div>
+      {{ history_pager('accounts') }}
     </div>
 
     {% elif tab == 'commands' and show_commands %}
     <div class="panel content-card device-actions-panel mb-3">
-      <h2 class="panel-title mb-1">Командная строка</h2>
-      <p class="panel-hint mb-3">Удалённая команда на устройстве</p>
+      <h2 class="panel-title mb-3">Командная строка</h2>
       {% include "devices/_command_actions.html" %}
     </div>
 
     <div class="panel content-card p-0 overflow-hidden">
-      <div class="px-3 pt-3 pb-2 d-flex flex-wrap align-items-start justify-content-between gap-2">
-        <div>
-          <h2 class="panel-title">Недавние запуски</h2>
-          <p class="panel-hint mb-0">Команды и скрипты на этом ПК{% if not show_all %} — последние {{ list_limit }}{% endif %}</p>
-        </div>
-        {% if has_more %}
-        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('devices.detail', device_id=device.id, tab='commands', all=1) }}">Показать все</a>
-        {% endif %}
+      <div class="px-3 pt-3 pb-2">
+        <h2 class="panel-title">Недавние запуски</h2>
+        <p class="panel-hint mb-0">{% if not show_all %}Последние {{ list_limit }}{% else %}Все запуски{% endif %}</p>
       </div>
       <div class="table-responsive">
         <table class="table table-sm mb-0">
@@ -254,24 +266,19 @@
           </tbody>
         </table>
       </div>
+      {{ history_pager('commands') }}
     </div>
 
     {% elif tab == 'polls' %}
     <div class="panel content-card device-actions-panel mb-3">
-      <h2 class="panel-title mb-1">Проверки с сервера</h2>
-      <p class="panel-hint mb-3">Ping и трассировка до устройства</p>
+      <h2 class="panel-title mb-3">Проверки с сервера</h2>
       {% include "devices/_poll_actions.html" %}
     </div>
 
     <div class="panel content-card p-0 overflow-hidden">
-      <div class="px-3 pt-3 pb-2 d-flex flex-wrap align-items-start justify-content-between gap-2">
-        <div>
-          <h2 class="panel-title">Результаты опросов</h2>
-          <p class="panel-hint mb-0">История ping с сервера приложения{% if not show_all %} — последние {{ list_limit }}{% endif %}</p>
-        </div>
-        {% if has_more %}
-        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('devices.detail', device_id=device.id, tab='polls', all=1) }}">Показать все</a>
-        {% endif %}
+      <div class="px-3 pt-3 pb-2">
+        <h2 class="panel-title">Результаты опросов</h2>
+        <p class="panel-hint mb-0">{% if not show_all %}Последние {{ list_limit }}{% else %}Вся история{% endif %}</p>
       </div>
       <div class="table-responsive">
         <table class="table table-sm mb-0">
@@ -289,6 +296,7 @@
           </tbody>
         </table>
       </div>
+      {{ history_pager('polls') }}
     </div>
 
     {% elif tab == 'hardware' and show_hardware %}
@@ -296,7 +304,7 @@
       <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
         <div>
           <h2 class="panel-title mb-1">Текущая конфигурация</h2>
-          <p class="panel-hint mb-0">Последний успешный WMI-опрос железа</p>
+          <p class="panel-hint mb-0">Последний успешный опрос оборудования</p>
         </div>
         {% if current_user.is_admin %}
         <form method="post" action="{{ url_for('devices.poll_device_hardware', device_id=device.id) }}">
@@ -356,14 +364,9 @@
     </div>
 
     <div class="panel content-card p-0 overflow-hidden">
-      <div class="px-3 pt-3 pb-2 d-flex flex-wrap align-items-start justify-content-between gap-2">
-        <div>
-          <h2 class="panel-title">История конфигурации</h2>
-          <p class="panel-hint mb-0">Новая строка, только если CPU / ОЗУ / диски / ОС изменились{% if not show_all %} — последние {{ list_limit }}{% endif %}</p>
-        </div>
-        {% if has_more %}
-        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('devices.detail', device_id=device.id, tab='hardware', all=1) }}">Показать все</a>
-        {% endif %}
+      <div class="px-3 pt-3 pb-2">
+        <h2 class="panel-title">История конфигурации</h2>
+        <p class="panel-hint mb-0">{% if not show_all %}Последние {{ list_limit }} изменений{% else %}Все изменения конфигурации{% endif %}</p>
       </div>
       <div class="table-responsive">
         <table class="table table-sm mb-0">
@@ -383,6 +386,7 @@
           </tbody>
         </table>
       </div>
+      {{ history_pager('hardware') }}
     </div>
     {% endif %}
   </div>

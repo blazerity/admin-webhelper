@@ -1,11 +1,10 @@
-{% extends "base.html" %}
+{% extends "layouts/settings.html" %}
 {% block title %}Скрипты{% endblock %}
-{% block main_class %}app-main-wide{% endblock %}
-{% block content %}
+{% block settings_content %}
 <div class="page-header">
   <div>
     <h1 class="page-title">Скрипты</h1>
-    <p class="page-subtitle">Библиотека команд для удалённого запуска</p>
+    <p class="page-subtitle">Удалённый запуск команд</p>
   </div>
   {% if can_manage_scripts|default(false) %}
   <a class="btn btn-primary" href="{{ url_for('scripts.new_script') }}">Новый скрипт</a>

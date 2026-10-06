@@ -1,20 +1,18 @@
-{% extends "base.html" %}
+{% extends "layouts/settings.html" %}
 {% from "macros/pagination.html" import page_nav %}
 {% from "macros/status.html" import device_entity_link %}
-{% block title %}Действия{% endblock %}
-{% block main_class %}app-main-wide{% endblock %}
-{% block content %}
+{% block title %}Действия и аудит{% endblock %}
+{% block settings_content %}
 <div class="page-header">
   <div>
-    <h1 class="page-title">Действия в системе</h1>
-    <p class="page-subtitle">Справочник типов и недавние события на доступных устройствах</p>
+    <h1 class="page-title">Действия и аудит</h1>
+    <p class="page-subtitle">Типы событий и недавние действия на устройствах</p>
   </div>
   <a class="btn btn-sm btn-outline-primary" data-live-csv href="{{ url_for('actions.export_csv', kind=kind_filter|default('')) }}">CSV</a>
 </div>
 
 <div class="panel content-card mb-3">
-  <h2 class="panel-title mb-1">Типы действий</h2>
-  <p class="panel-hint mb-3">Справочник кодов, которыми помечены события</p>
+  <h2 class="panel-title mb-3">Типы действий</h2>
   <div class="action-kind-grid">
     {% for kind in action_kinds %}
     <div class="action-kind-item">
@@ -56,10 +54,9 @@
       <button class="btn btn-sm btn-link" type="button" data-live-reset>Сбросить</button>
     </div>
   </div>
-  <p class="text-muted small mb-0 mt-2" data-live-hint>Начните вводить запрос — список обновится сразу.</p>
 </form>
 
-<div class="panel content-card p-0 overflow-hidden" data-live-panel>
+<div class="panel content-card p-0 overflow-hidden mb-3" data-live-panel>
   <div class="px-3 pt-3 pb-2">
     <h2 class="panel-title">Недавние события</h2>
     <p class="panel-hint mb-0" data-live-meta>Всего: {{ total|default(actions|length) }} · страница {{ page|default(1) }}</p>
@@ -114,6 +111,41 @@
      ) }}
   </div>
 </div>
+
+{% if current_user.is_admin %}
+<div class="panel content-card p-0 overflow-hidden" id="audit">
+  <div class="px-3 pt-3 pb-2">
+    <h2 class="panel-title">Журнал аудита</h2>
+    <p class="panel-hint mb-0">Критичные изменения: сектора, настройки, скрипты, обновления</p>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>Время</th>
+          <th>Кто</th>
+          <th>Действие</th>
+          <th>Сущность</th>
+          <th>Детали</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for entry in audit_entries|default([]) %}
+        <tr>
+          <td class="text-nowrap">{{ entry.created_at|dt }}</td>
+          <td>{{ entry.actor_username or '—' }}</td>
+          <td class="font-monospace">{{ entry.action }}</td>
+          <td class="font-monospace">{{ entry.entity_type }}:{{ entry.entity_id }}</td>
+          <td>{{ entry.detail or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-muted">Записей пока нет.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/live_search.js') }}"></script>

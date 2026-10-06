@@ -59,6 +59,7 @@ def list_accounts():
     )
     if _wants_json():
         return jsonify(_accounts_payload(result))
+    show_display_name = any((a.display_name or "").strip() for a in result["items"])
     return render_template(
         "accounts/list.html",
         accounts=result["items"],
@@ -66,6 +67,7 @@ def list_accounts():
         page=result["page"],
         per_page=result["per_page"],
         search_query=query,
+        show_display_name=show_display_name,
     )
 
 
@@ -82,9 +84,12 @@ def export_csv():
 def detail(account_id: int):
     """Карточка УЗ: где сейчас и где видели раньше."""
     account = get_visible_account_or_404(current_user, account_id)
+    sightings = account_device_sightings(account, current_user, limit=50)
+    show_raw_value = any((row.raw_value or "").strip() for row in sightings)
     return render_template(
         "accounts/detail.html",
         account=account,
         current_devices=account_current_devices(account, current_user),
-        sightings=account_device_sightings(account, current_user, limit=50),
+        sightings=sightings,
+        show_raw_value=show_raw_value,
     )

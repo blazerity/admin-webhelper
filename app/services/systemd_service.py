@@ -185,7 +185,7 @@ def ensure_unit_running(unit: str) -> EnsureResult:
         raise SystemdError(
             f"Не удалось запустить {unit}: "
             f"состояние {refreshed.active_state}. "
-            "Проверьте sudo-учётку в Параметры → Управление службами."
+            "Проверьте sudo-учётку в Настройки → Общие."
         )
     parts = [f"Служба {unit} запущена."]
     if synced:
@@ -400,7 +400,7 @@ def _run_systemctl(systemctl: str, action: str, *units: str) -> None:
         raise SystemdError(
             f"systemctl {action} {' '.join(units)} завершился с кодом "
             f"{result.returncode}. {detail}".strip()
-            + " Проверьте sudo-учётку в Параметры → Управление службами "
+            + " Проверьте sudo-учётку в Настройки → Общие "
             "(или deploy/bawh-update.sudoers)."
         )
 

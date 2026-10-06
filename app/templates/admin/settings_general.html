@@ -1,0 +1,172 @@
+{% extends "layouts/settings.html" %}
+{% block title %}Общие{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Общие</h1>
+    <p class="page-subtitle">Планировщик, почта, PsExec и управление службами</p>
+  </div>
+</div>
+
+{% set health = scheduler_health if scheduler_health is defined else none %}
+<div class="panel content-card mb-3 scheduler-health{% if health and health.stale %} is-stale{% endif %}" id="scheduler-health">
+  <h2 class="h5 mb-1">Состояние планировщика</h2>
+  <p class="panel-hint mb-3">Последний успешный опрос сети и признак устаревания</p>
+  {% if health %}
+  <dl class="scheduler-health-grid">
+    <div>
+      <dt>Последний успех</dt>
+      <dd>
+        {% if health.last_success_at %}
+          {% if health.last_success_at is string %}
+            <span class="font-monospace">{{ health.last_success_at }}</span>
+          {% else %}
+            {{ health.last_success_at|dt }}
+          {% endif %}
+        {% else %}
+          <span class="text-muted">ещё не было</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Статус</dt>
+      <dd>
+        {% if health.stale %}
+        <span class="badge text-bg-warning">устарел</span>
+        {% else %}
+        <span class="badge text-bg-success">актуален</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Порог устаревания</dt>
+      <dd>{{ health.stale_after_seconds|default(600) }} с</dd>
+    </div>
+    {% set last_run = health.last_run if health.last_run is defined else none %}
+    <div>
+      <dt>Последний прогон</dt>
+      <dd>
+        {% if last_run %}
+          {{ last_run.mode|default('—') }}
+          · проверено {{ last_run.scanned|default(0) }}
+          · онлайн {{ last_run.online|default(0) }}
+          · офлайн {{ last_run.offline|default(0) }}
+          · ошибки {{ last_run.errors|default(0) }}
+          {% if last_run.error %}
+          <div class="text-danger small mt-1">{{ last_run.error }}</div>
+          {% endif %}
+        {% else %}
+          <span class="text-muted">нет данных</span>
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+  {% else %}
+  <p class="text-muted mb-0">Данные health пока недоступны.</p>
+  {% endif %}
+</div>
+
+<div class="panel content-card mb-3" id="smtp">
+  <h2 class="h5 mb-2">Почта (SMTP)</h2>
+  <p class="text-muted mb-3">
+    Общий SMTP для модулей «Пароли AD» и «Отчёт о ПК». Пустые поля — значения SMTP_* из .env.
+  </p>
+  {% set smtp_cfg = smtp if smtp is defined else none %}
+  <form method="post" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="smtp">
+    <div class="col-md-6">
+      <label class="form-label" for="smtp_host">SMTP host</label>
+      <input class="form-control" id="smtp_host" name="smtp_host" value="{{ smtp_cfg.host_override if smtp_cfg else '' }}" placeholder="{{ (smtp_cfg.host if smtp_cfg else '') or 'mail.example.com' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label" for="smtp_port">Порт</label>
+      <input class="form-control" id="smtp_port" name="smtp_port" value="{{ (smtp_cfg.port_override if smtp_cfg else none) or (smtp_cfg.port if smtp_cfg else 25) }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="smtp_from">From</label>
+      <input class="form-control" id="smtp_from" name="smtp_from" value="{{ smtp_cfg.from_override if smtp_cfg else '' }}" placeholder="{{ (smtp_cfg.from_address if smtp_cfg else '') or 'noreply@example.com' }}">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="smtp_user">Логин SMTP</label>
+      <input class="form-control" id="smtp_user" name="smtp_user" value="{{ smtp_cfg.username_override if smtp_cfg else '' }}" placeholder="{{ (smtp_cfg.username if smtp_cfg else '') or 'пусто = From' }}">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="smtp_password">Пароль SMTP</label>
+      <input class="form-control" type="password" id="smtp_password" name="smtp_password" value="" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if smtp_cfg and smtp_cfg.has_password else 'не задан' }}">
+    </div>
+    <div class="col-md-12">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="1" id="smtp_use_starttls" name="smtp_use_starttls" {% if smtp_cfg and smtp_cfg.use_starttls %}checked{% endif %}>
+        <label class="form-check-label" for="smtp_use_starttls">STARTTLS</label>
+      </div>
+    </div>
+    <div class="col-12 d-flex gap-2 flex-wrap">
+      <button class="btn btn-primary" type="submit">Сохранить SMTP</button>
+    </div>
+  </form>
+  <form method="post" class="mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="test_smtp">
+    <button class="btn btn-outline-primary" type="submit" {% if not smtp_cfg or not smtp_cfg.configured %}disabled{% endif %}>Проверить SMTP</button>
+  </form>
+</div>
+
+<div class="panel content-card mb-3">
+  <h2 class="h5 mb-2">Учётка PsExec</h2>
+  <p class="text-muted mb-3">
+    Учётная запись для удалённого запуска команд. Пароль хранится в зашифрованном виде. Пустые поля — запуск от имени входа на сайт.
+  </p>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="psexec">
+    <div class="row">
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="username">Пользователь</label>
+        <input class="form-control" id="username" name="username" value="{{ username|default('') }}">
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="domain">Домен</label>
+        <input class="form-control" id="domain" name="domain" value="{{ domain|default('') }}">
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="password">Пароль</label>
+        <input class="form-control" id="password" name="password" type="password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if password_set else 'пусто — вход на сайт' }}">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Сохранить учётку</button>
+  </form>
+</div>
+
+<div class="panel content-card mb-3 service-control-panel" id="service-control">
+  <h2 class="h5 mb-1">Управление службами</h2>
+  <p class="text-muted mb-3">
+    Учётная запись Linux для systemctl (отчёты, VNC, HTTPS, обновления).
+  </p>
+  <form method="post" class="mb-0" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="update">
+    <div class="row">
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="update_sudo_user">Sudo-пользователь</label>
+        <input class="form-control" id="update_sudo_user" name="update_sudo_user" value="{{ update_sudo_user|default('') }}" placeholder="root" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="update_sudo_password">Пароль</label>
+        <input class="form-control" id="update_sudo_password" name="update_sudo_password" type="password" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if update_sudo_password_set else 'пароль Linux-учётки' }}">
+      </div>
+      <div class="col-md-auto mb-3 d-flex align-items-end">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="panel content-card mb-0">
+  <h2 class="h5 mb-2">Обновления</h2>
+  <p class="text-muted mb-3">
+    Загрузка релиза из git, откат и перезапуск служб — на отдельной странице.
+  </p>
+  <a class="btn btn-outline-primary" href="{{ url_for('admin.updates') }}">Открыть обновления</a>
+</div>
+{% endblock %}

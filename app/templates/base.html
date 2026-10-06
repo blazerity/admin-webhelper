@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %} · {{ app_name }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="alternate icon" href="{{ url_for('static', filename='favicon.ico') }}">
   {# Self-host Bootstrap (W4); шрифты — system stack в app.css, CDN опционален. #}
   <link href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
@@ -61,18 +63,13 @@
         <div class="collapse app-nav-collapse" id="app-nav">
           <nav class="app-nav" aria-label="Основное меню">
             {% set ep = request.endpoint or '' %}
-            {% set settings_active = ep.startswith('sectors.') or ep.startswith('admin.') or ep.startswith('login_services.') or ep == 'password_expiry.settings_page' or ep == 'sector_daily_report.settings_page' %}
+            {% set settings_active = ep.startswith('sectors.') or ep.startswith('admin.') or ep.startswith('login_services.') or ep.startswith('actions.') or ep.startswith('accounts.') or ep.startswith('scripts.') or ep == 'password_expiry.settings_page' or ep == 'sector_daily_report.settings_page' %}
             <a class="app-nav-link{% if ep == 'devices.map' or ep == 'devices.detail' or ep == 'devices.vnc_session' %} active{% endif %}" href="{{ url_for('devices.map') }}">Карта сети</a>
-            <a class="app-nav-link{% if ep.startswith('actions.') %} active{% endif %}" href="{{ url_for('actions.list_actions') }}">Действия</a>
-            <a class="app-nav-link{% if ep.startswith('accounts.') %} active{% endif %}" href="{{ url_for('accounts.list_accounts') }}">Учётные записи</a>
-            {% if current_user.is_admin or current_user.is_operator %}
-            <a class="app-nav-link{% if ep.startswith('scripts.') %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
-            {% endif %}
             {% if current_user.is_admin or current_user.is_password_viewer %}
             <a class="app-nav-link{% if ep.startswith('password_expiry.') and ep != 'password_expiry.settings_page' %} active{% endif %}" href="{{ url_for('password_expiry.dashboard') }}">Пароли AD</a>
             {% endif %}
             {% if current_user.is_admin %}
-            <a class="app-nav-link{% if ep.startswith('sector_daily_report.') and ep != 'sector_daily_report.settings_page' %} active{% endif %}" href="{{ url_for('sector_daily_report.dashboard') }}">Отчёты о ПК</a>
+            <a class="app-nav-link{% if ep.startswith('sector_daily_report.') and ep != 'sector_daily_report.settings_page' %} active{% endif %}" href="{{ url_for('sector_daily_report.dashboard') }}">Отчёт о ПК</a>
             {% endif %}
             <a class="app-nav-link{% if settings_active %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Настройки</a>
           </nav>

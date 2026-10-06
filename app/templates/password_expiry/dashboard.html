@@ -131,7 +131,7 @@
   <p class="text-muted small mt-2 mb-0">
     LDAP: {{ ldap.host }} · база {{ settings.search_base or ldap.base_dn or "—" }}.
     SMTP: {% if smtp.configured %}{{ smtp.host }}:{{ smtp.port }}{% else %}не настроен{% endif %}
-    (<a href="{{ url_for('admin.settings') }}#smtp">Параметры → Почта</a>).
+    (<a href="{{ url_for('admin.settings', section='general') }}#smtp">Настройки → Общие</a>).
   </p>
 </div>
 

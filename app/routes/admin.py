@@ -1,14 +1,17 @@
 """Настройки администратора: учётка PsExec, WMI discovery, опрос, обновление.
 
 Эндпоинты:
-- settings      GET/POST /admin/settings
+- settings      GET/POST /admin/settings[/<section>]
+  section: general | polls | vnc | tls (по умолчанию general)
 - poll-run      POST /admin/poll-run — принудительный опрос сети
 - hardware-poll-run POST /admin/hardware-poll-run — опрос железа Windows
 - refresh-hostnames POST /admin/refresh-hostnames — WMI-имена на известных машинах
+- duplicates    GET/POST /admin/duplicates — поиск и удаление дублей устройств
 - updates       GET/POST /admin/updates
 
-Формы на странице настроек различаются скрытым полем form:
+Формы на страницах настроек различаются скрытым полем form:
 psexec, discovery, poll, hardware_poll, smtp, test_smtp, update, vnc, tls.
+После сохранения редирект в соответствующий раздел.
 Открытый пароль в шаблон и во flash не попадает.
 
 PsExec: учётка только текущего администратора. Пустые пользователь
@@ -21,7 +24,7 @@ Discovery: глобальная учётка WMI для опроса (серий
 Опрос: интервал в app_settings; журнал прогонов — network_poll_runs;
 кнопка «Запустить сейчас» вызывает ту же run_network_poll, что и планировщик.
 
-Опрос железа: cron и журнал hardware_poll_runs на той же странице;
+Опрос железа: cron и журнал hardware_poll_runs на разделе polls;
 кнопка вызывает run_hardware_poll.
 
 Обновление — отдельные кнопки на /admin/updates. Замена кода
@@ -32,7 +35,7 @@ Discovery: глобальная учётка WMI для опроса (серий
 
 import logging
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 
 from app.authz import admin_required
@@ -43,11 +46,17 @@ from app.services.credential_service import (
     get_stored_credential,
     save_remote_admin_credentials,
 )
+from app.services.device_dedup_service import (
+    DeviceDedupError,
+    delete_devices,
+    find_duplicate_groups,
+)
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
 from app.services.network_summary_service import get_scheduler_health
 from app.services.hardware_poll_service import (
     HardwarePollError,
     HardwarePollInProgressError,
+    count_hardware_poll_runs,
     load_recent_hardware_poll_runs,
     run_hardware_poll,
 )
@@ -58,6 +67,7 @@ from app.services.hostname_sweep_service import (
 )
 from app.services.ping_service import (
     PollInProgressError,
+    count_poll_runs,
     load_recent_poll_runs,
     run_network_poll,
 )
@@ -94,10 +104,34 @@ from app.services.update_service import (
 )
 from app.services.vnc_settings import clear_vnc_password, get_vnc_settings, set_vnc_settings
 from app.services.tightvnc_install_script import list_vnc_agent_summaries
+from app.utils import as_truthy, normalize_page, parse_optional_int
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+_SETTINGS_SECTIONS = frozenset({"general", "polls", "vnc", "tls"})
+_FORM_TO_SECTION = {
+    "smtp": "general",
+    "test_smtp": "general",
+    "psexec": "general",
+    "update": "general",
+    "discovery": "polls",
+    "poll": "polls",
+    "hardware_poll": "polls",
+    "vnc": "vnc",
+    "tls": "tls",
+}
+_POLL_HISTORY_PREVIEW = 5
+_POLL_HISTORY_PER_PAGE = 20
+
+
+def _settings_redirect(section: str = "general", *, anchor: str = "") -> str:
+    section = section if section in _SETTINGS_SECTIONS else "general"
+    target = url_for("admin.settings", section=section)
+    if anchor:
+        target = f"{target}#{anchor.lstrip('#')}"
+    return target
 
 
 def _credential_view(user_id: int) -> tuple[str, str, bool]:
@@ -113,11 +147,69 @@ def _credential_view(user_id: int) -> tuple[str, str, bool]:
     return row.username or "", row.domain or "", bool(row.password_encrypted)
 
 
+def _poll_history_context() -> dict:
+    """Журналы опросов: 5 последних или пагинация при all/poll_all/hw_all=1."""
+    all_flag = as_truthy(request.args.get("all"))
+    poll_show_all = all_flag or as_truthy(request.args.get("poll_all"))
+    hardware_show_all = all_flag or as_truthy(request.args.get("hw_all"))
+    poll_total = count_poll_runs()
+    hardware_total = count_hardware_poll_runs()
+
+    if poll_show_all:
+        poll_page, poll_per_page = normalize_page(
+            parse_optional_int(request.args.get("page")),
+            parse_optional_int(request.args.get("per_page")) or _POLL_HISTORY_PER_PAGE,
+            max_per_page=50,
+        )
+        poll_offset = (poll_page - 1) * poll_per_page
+        poll_runs = load_recent_poll_runs(limit=poll_per_page, offset=poll_offset)
+    else:
+        poll_page, poll_per_page = 1, _POLL_HISTORY_PREVIEW
+        poll_runs = load_recent_poll_runs(limit=_POLL_HISTORY_PREVIEW)
+
+    if hardware_show_all:
+        # Отдельный page для железа, если оба журнала развернуты.
+        hw_page_raw = request.args.get("hw_page") if poll_show_all else request.args.get("page")
+        hw_per_raw = request.args.get("hw_per_page") if poll_show_all else request.args.get("per_page")
+        hardware_page, hardware_per_page = normalize_page(
+            parse_optional_int(hw_page_raw),
+            parse_optional_int(hw_per_raw) or _POLL_HISTORY_PER_PAGE,
+            max_per_page=50,
+        )
+        hardware_offset = (hardware_page - 1) * hardware_per_page
+        hardware_poll_runs = load_recent_hardware_poll_runs(
+            limit=hardware_per_page, offset=hardware_offset
+        )
+    else:
+        hardware_page, hardware_per_page = 1, _POLL_HISTORY_PREVIEW
+        hardware_poll_runs = load_recent_hardware_poll_runs(limit=_POLL_HISTORY_PREVIEW)
+
+    return {
+        "poll_runs": poll_runs,
+        "poll_runs_total": poll_total,
+        "poll_page": poll_page,
+        "poll_per_page": poll_per_page,
+        "poll_show_all": poll_show_all,
+        "hardware_poll_runs": hardware_poll_runs,
+        "hardware_poll_runs_total": hardware_total,
+        "hardware_page": hardware_page,
+        "hardware_per_page": hardware_per_page,
+        "hardware_show_all": hardware_show_all,
+    }
+
+
 @bp.route("/settings", methods=["GET", "POST"])
+@bp.route("/settings/<section>", methods=["GET", "POST"])
 @admin_required
-def settings():
+def settings(section: str | None = None):
+    section = (section or "general").strip().lower() or "general"
+    if section not in _SETTINGS_SECTIONS:
+        abort(404)
+
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
+        target_section = _FORM_TO_SECTION.get(kind, section)
+
         if kind == "psexec":
             try:
                 saved = save_remote_admin_credentials(
@@ -128,7 +220,7 @@ def settings():
                 )
             except (CredentialsNotConfigured, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings"))
+                return redirect(_settings_redirect("general"))
             if saved.username:
                 flash("Учётка PsExec сохранена.", "success")
             else:
@@ -137,7 +229,7 @@ def settings():
                     "success",
                 )
             audit_service.log(current_user, "update", "admin_settings", "psexec")
-            return redirect(url_for("admin.settings"))
+            return redirect(_settings_redirect("general"))
         if kind == "discovery":
             try:
                 saved = save_discovery_credentials(
@@ -147,7 +239,7 @@ def settings():
                 )
             except (DiscoveryCredentialsError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings"))
+                return redirect(_settings_redirect("polls"))
             if saved.username:
                 flash("Учётка WMI для опроса сохранена.", "success")
             else:
@@ -157,19 +249,19 @@ def settings():
                     "success",
                 )
             audit_service.log(current_user, "update", "admin_settings", "discovery")
-            return redirect(url_for("admin.settings"))
+            return redirect(_settings_redirect("polls"))
         if kind == "poll":
             raw = (request.form.get("poll_interval") or "").strip()
             try:
                 value = int(raw)
             except ValueError:
                 flash("Интервал должен быть целым числом секунд.", "danger")
-                return redirect(url_for("admin.settings"))
+                return redirect(_settings_redirect("polls"))
             try:
                 set_poll_interval_seconds(value)
             except ValueError as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings"))
+                return redirect(_settings_redirect("polls"))
             audit_service.log(
                 current_user,
                 "update",
@@ -178,7 +270,7 @@ def settings():
                 detail=f"interval={value}",
             )
             flash("Интервал опроса сохранён.", "success")
-            return redirect(url_for("admin.settings"))
+            return redirect(_settings_redirect("polls"))
         if kind == "hardware_poll":
             want_enabled = request.form.get("hardware_poll_enabled") == "1"
             try:
@@ -188,7 +280,7 @@ def settings():
                 )
             except ValueError as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings") + "#hardware-poll")
+                return redirect(_settings_redirect("polls", anchor="hardware-poll"))
             audit_service.log(
                 current_user,
                 "update",
@@ -197,7 +289,7 @@ def settings():
                 detail=f"enabled={int(want_enabled)} cron={request.form.get('hardware_poll_cron', '')}",
             )
             flash("Расписание опроса железа сохранено.", "success")
-            return redirect(url_for("admin.settings") + "#hardware-poll")
+            return redirect(_settings_redirect("polls", anchor="hardware-poll"))
         if kind == "smtp":
             try:
                 set_smtp_settings(
@@ -210,10 +302,10 @@ def settings():
                 )
             except ValueError as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings") + "#smtp")
+                return redirect(_settings_redirect("general", anchor="smtp"))
             audit_service.log(current_user, "update", "admin_settings", "smtp")
             flash("Настройки SMTP сохранены.", "success")
-            return redirect(url_for("admin.settings") + "#smtp")
+            return redirect(_settings_redirect("general", anchor="smtp"))
         if kind == "test_smtp":
             try:
                 message = test_smtp_connection()
@@ -221,7 +313,7 @@ def settings():
                 flash(str(exc), "danger")
             else:
                 flash(message, "success")
-            return redirect(url_for("admin.settings") + "#smtp")
+            return redirect(_settings_redirect("general", anchor="smtp"))
         if kind == "update":
             try:
                 saved = save_update_sudo_credentials(
@@ -230,7 +322,7 @@ def settings():
                 )
             except (UpdateSudoUserError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings"))
+                return redirect(_settings_redirect("general", anchor="service-control"))
             if saved.username:
                 if saved.password_set:
                     flash(
@@ -247,7 +339,7 @@ def settings():
             else:
                 flash("Учётка управления службами очищена.", "success")
             audit_service.log(current_user, "update", "admin_settings", "update_sudo")
-            return redirect(url_for("admin.settings") + "#service-control")
+            return redirect(_settings_redirect("general", anchor="service-control"))
         if kind == "vnc":
             want_enabled = request.form.get("vnc_gateway_enabled") == "1"
             try:
@@ -260,7 +352,7 @@ def settings():
                     clear_vnc_password()
             except (ValueError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings") + "#vnc")
+                return redirect(_settings_redirect("vnc"))
             try:
                 if want_enabled:
                     ensure = ensure_unit_running(VNC_UNIT)
@@ -288,7 +380,7 @@ def settings():
                 "vnc",
                 detail=f"enabled={int(want_enabled)} port={request.form.get('vnc_port', '')}",
             )
-            return redirect(url_for("admin.settings") + "#vnc")
+            return redirect(_settings_redirect("vnc"))
         if kind == "tls":
             action = (request.form.get("tls_action") or "save").strip()
             server_name = request.form.get("tls_server_name", "")
@@ -325,13 +417,13 @@ def settings():
                         flash(
                             "SESSION_COOKIE_SECURE записан в .env. "
                             "Чтобы флаг применился сразу, перезапустите службы "
-                            "(Параметры → Управление службами / обновление).",
+                            "(Общие → Управление службами / Обновления).",
                             "warning",
                         )
                 else:
                     if not (cert_pem.strip() and key_pem.strip()):
                         flash("Вставьте или загрузите сертификат и ключ.", "danger")
-                        return redirect(url_for("admin.settings") + "#tls")
+                        return redirect(_settings_redirect("tls"))
                     info = save_certificate_files(cert_pem, key_pem, server_name)
                     flash(
                         f"Сертификат сохранён ({info.subject}). "
@@ -340,13 +432,13 @@ def settings():
                     )
             except (TlsPemError, ValueError) as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings") + "#tls")
+                return redirect(_settings_redirect("tls"))
             except TlsApplyError as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings") + "#tls")
+                return redirect(_settings_redirect("tls"))
             except SystemdError as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.settings") + "#tls")
+                return redirect(_settings_redirect("tls"))
             audit_service.log(
                 current_user,
                 "update",
@@ -354,34 +446,43 @@ def settings():
                 "tls",
                 detail=action,
             )
-            return redirect(url_for("admin.settings") + "#tls")
+            return redirect(_settings_redirect("tls"))
         flash("Неизвестная форма.", "warning")
-        return redirect(url_for("admin.settings"))
+        return redirect(_settings_redirect(target_section))
 
-    username, domain, password_set = _credential_view(current_user.id)
-    discovery = get_discovery_credential_view()
-    update_sudo = get_update_sudo_view()
-    return render_template(
-        "admin/settings.html",
-        username=username,
-        domain=domain,
-        password_set=password_set,
-        discovery_username=discovery.username,
-        discovery_domain=discovery.domain,
-        discovery_password_set=discovery.password_set,
-        poll_interval=get_poll_interval_seconds(),
-        poll_runs=load_recent_poll_runs(),
-        hardware_poll_settings=get_hardware_poll_settings(),
-        hardware_poll_runs=load_recent_hardware_poll_runs(),
-        scheduler_health=get_scheduler_health(),
-        smtp=get_smtp_settings(),
-        update_sudo_user=update_sudo.username,
-        update_sudo_password_set=update_sudo.password_set,
-        vnc=get_vnc_settings(),
-        vnc_unit=get_unit_status(VNC_UNIT),
-        vnc_agents=list_vnc_agent_summaries(),
-        tls=get_tls_settings(),
-    )
+    ctx: dict = {"settings_section": section}
+    if section == "general":
+        username, domain, password_set = _credential_view(current_user.id)
+        update_sudo = get_update_sudo_view()
+        ctx.update(
+            username=username,
+            domain=domain,
+            password_set=password_set,
+            scheduler_health=get_scheduler_health(),
+            smtp=get_smtp_settings(),
+            update_sudo_user=update_sudo.username,
+            update_sudo_password_set=update_sudo.password_set,
+        )
+    elif section == "polls":
+        discovery = get_discovery_credential_view()
+        ctx.update(
+            discovery_username=discovery.username,
+            discovery_domain=discovery.domain,
+            discovery_password_set=discovery.password_set,
+            poll_interval=get_poll_interval_seconds(),
+            hardware_poll_settings=get_hardware_poll_settings(),
+            **_poll_history_context(),
+        )
+    elif section == "vnc":
+        ctx.update(
+            vnc=get_vnc_settings(),
+            vnc_unit=get_unit_status(VNC_UNIT),
+            vnc_agents=list_vnc_agent_summaries(),
+        )
+    elif section == "tls":
+        ctx.update(tls=get_tls_settings())
+
+    return render_template(f"admin/settings_{section}.html", **ctx)
 
 
 @bp.get("/poll-runs/export.csv")
@@ -408,14 +509,14 @@ def hardware_poll_run():
         result = run_hardware_poll(mode="manual")
     except HardwarePollInProgressError as exc:
         flash(str(exc), "warning")
-        return redirect(url_for("admin.settings") + "#hardware-poll")
+        return redirect(_settings_redirect("polls", anchor="hardware-poll"))
     except HardwarePollError as exc:
         flash(str(exc), "warning")
-        return redirect(url_for("admin.settings") + "#hardware-poll")
+        return redirect(_settings_redirect("polls", anchor="hardware-poll"))
     except Exception as exc:  # noqa: BLE001
         logger.exception("Сбой ручного опроса железа")
         flash(f"Ошибка опроса железа: {exc}", "danger")
-        return redirect(url_for("admin.settings") + "#hardware-poll")
+        return redirect(_settings_redirect("polls", anchor="hardware-poll"))
 
     flash(
         "Опрос железа: проверено {scanned}, онлайн {online}, "
@@ -425,7 +526,7 @@ def hardware_poll_run():
         ),
         "success",
     )
-    return redirect(url_for("admin.settings") + "#hardware-poll")
+    return redirect(_settings_redirect("polls", anchor="hardware-poll"))
 
 
 @bp.route("/poll-run", methods=["POST"])
@@ -436,18 +537,18 @@ def poll_run():
         stats = run_network_poll(mode="manual")
     except PollInProgressError as exc:
         flash(str(exc), "warning")
-        return redirect(url_for("admin.settings"))
+        return redirect(_settings_redirect("polls"))
     except Exception as exc:  # noqa: BLE001
         logger.exception("Сбой ручного опроса сети")
         flash(f"Ошибка опроса: {exc}", "danger")
-        return redirect(url_for("admin.settings"))
+        return redirect(_settings_redirect("polls"))
 
     flash(
         "Опрос завершён: проверено {scanned}, онлайн {online}, "
         "офлайн {offline}, ошибок {errors}.".format(**stats),
         "success",
     )
-    return redirect(url_for("admin.settings"))
+    return redirect(_settings_redirect("polls"))
 
 
 @bp.route("/refresh-hostnames", methods=["POST"])
@@ -458,11 +559,11 @@ def refresh_hostnames():
         result = run_hostname_sweep()
     except HostnameSweepError as exc:
         flash(str(exc), "warning")
-        return redirect(url_for("admin.settings"))
+        return redirect(_settings_redirect("polls"))
     except Exception as exc:  # noqa: BLE001
         logger.exception("Сбой обновления имён устройств")
         flash(f"Ошибка обновления имён: {exc}", "danger")
-        return redirect(url_for("admin.settings"))
+        return redirect(_settings_redirect("polls"))
 
     audit_service.log(
         current_user,
@@ -481,7 +582,73 @@ def refresh_hostnames():
         "без WMI {no_wmi}, ошибок {errors}.".format(**result.as_dict()),
         "success",
     )
-    return redirect(url_for("admin.settings"))
+    return redirect(_settings_redirect("polls"))
+
+
+@bp.route("/duplicates", methods=["GET", "POST"])
+@admin_required
+def duplicates():
+    """Поиск и выборочное удаление дублей устройств."""
+    scan = None
+    if request.method == "POST":
+        kind = (request.form.get("form") or "").strip()
+        if kind == "scan":
+            scan = find_duplicate_groups()
+            if scan.group_count == 0:
+                flash(
+                    f"Дублей не найдено (просмотрено устройств: {scan.scanned}).",
+                    "success",
+                )
+            else:
+                flash(
+                    f"Найдено групп: {scan.group_count} "
+                    f"(уверенных {len(scan.confirmed)}, "
+                    f"предположительных {len(scan.suspected)}; "
+                    f"устройств в группах: {scan.device_count}).",
+                    "info",
+                )
+        elif kind == "delete":
+            raw_ids = request.form.getlist("delete_ids")
+            try:
+                device_ids = [int(item) for item in raw_ids if str(item).strip()]
+            except ValueError:
+                flash("Некорректный список устройств.", "danger")
+                return redirect(url_for("admin.duplicates"))
+            try:
+                result = delete_devices(device_ids)
+            except DeviceDedupError as exc:
+                flash(str(exc), "warning")
+                return redirect(url_for("admin.duplicates"))
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Сбой удаления дублей устройств")
+                flash(f"Ошибка удаления: {exc}", "danger")
+                return redirect(url_for("admin.duplicates"))
+
+            detail = f"deleted={','.join(str(i) for i in result.deleted)}"
+            if result.missing:
+                detail += f" missing={','.join(str(i) for i in result.missing)}"
+            audit_service.log(
+                current_user,
+                "delete",
+                "devices",
+                "dedup",
+                detail=detail,
+            )
+            msg = f"Удалено устройств: {len(result.deleted)}."
+            if result.missing:
+                msg += f" Уже отсутствовали: {len(result.missing)}."
+            flash(msg, "success")
+            scan = find_duplicate_groups()
+            if scan.group_count:
+                flash(
+                    f"Осталось групп дублей: {scan.group_count}.",
+                    "info",
+                )
+        else:
+            flash("Неизвестная форма.", "warning")
+            return redirect(url_for("admin.duplicates"))
+
+    return render_template("admin/duplicates.html", scan=scan)
 
 
 @bp.route("/updates", methods=["GET", "POST"])
@@ -532,6 +699,5 @@ def updates():
 @bp.get("/audit")
 @admin_required
 def audit_log():
-    """Простой список admin_audit_log (разметку может уточнить A2)."""
-    entries = audit_service.list_audit_entries(limit=200)
-    return render_template("admin/audit.html", entries=entries)
+    """Журнал аудита перенесён на страницу «Действия и аудит»."""
+    return redirect(url_for("actions.list_actions") + "#audit")

@@ -1,14 +1,14 @@
-{% extends "base.html" %}
+{% extends "layouts/settings.html" %}
 {% from "macros/status.html" import status_badge, device_entity_link %}
 {% block title %}{{ account.account_key }}{% endblock %}
 {% block body_class %}page-account-detail{% endblock %}
-{% block main_class %}app-main-wide{% endblock %}
-{% block content %}
+{% block settings_content %}
+{% set show_raw_value = show_raw_value|default(sightings|selectattr('raw_value')|list|length > 0) %}
 <div class="page-header">
   <div>
-    <p class="mb-1"><a href="{{ url_for('accounts.list_accounts') }}">← К справочнику УЗ</a></p>
-    <h1 class="page-title">Карточка учётной записи</h1>
-    <p class="page-subtitle">Где сейчас и на каких устройствах замечали</p>
+    <p class="mb-1"><a href="{{ url_for('accounts.list_accounts') }}">← К обнаруженным УЗ</a></p>
+    <h1 class="page-title">Обнаруженные УЗ</h1>
+    <p class="page-subtitle font-monospace">{{ account.account_key }}</p>
   </div>
 </div>
 
@@ -49,7 +49,6 @@
 <div class="panel content-card p-0 overflow-hidden mb-3">
   <div class="px-3 pt-3 pb-2">
     <h2 class="panel-title">Сейчас на устройствах</h2>
-    <p class="panel-hint mb-0">Где эта УЗ указана как текущая после опроса</p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
@@ -76,11 +75,18 @@
 <div class="panel content-card p-0 overflow-hidden">
   <div class="px-3 pt-3 pb-2">
     <h2 class="panel-title">История появлений</h2>
-    <p class="panel-hint mb-0">Устройства, где УЗ замечали при опросе</p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
-      <thead><tr><th>Время</th><th>Устройство</th><th>IP</th><th>Сектор</th><th>Сырое значение</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Время</th>
+          <th>Устройство</th>
+          <th>IP</th>
+          <th>Сектор</th>
+          {% if show_raw_value %}<th>Сырое значение</th>{% endif %}
+        </tr>
+      </thead>
       <tbody>
       {% for row in sightings %}
         <tr>
@@ -92,10 +98,10 @@
           </td>
           <td class="font-monospace">{{ row.device.ip if row.device else '—' }}</td>
           <td>{{ row.device.sector.name if row.device and row.device.sector else '—' }}</td>
-          <td class="font-monospace">{{ row.raw_value or '—' }}</td>
+          {% if show_raw_value %}<td class="font-monospace">{{ row.raw_value or '—' }}</td>{% endif %}
         </tr>
       {% else %}
-        <tr><td colspan="5" class="text-muted">Истории ещё нет.</td></tr>
+        <tr><td colspan="{{ 5 if show_raw_value else 4 }}" class="text-muted">Истории ещё нет.</td></tr>
       {% endfor %}
       </tbody>
     </table>

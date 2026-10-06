@@ -6,7 +6,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Карта сети</h1>
-    <p class="page-subtitle">Секторы и машины вашей сети</p>
+    <p class="page-subtitle">Секторы и устройства</p>
   </div>
   {% if sectors %}
   <div class="map-refresh-controls" id="map-refresh-controls">
@@ -54,45 +54,45 @@
 </div>
 
 <div class="map-layout">
-  <div class="map-search panel" aria-label="Поиск по сети">
-    <div class="map-search-inner">
-      <div class="map-search-header">
-        <h2 class="panel-title">Поиск</h2>
-        <p class="panel-hint">IP, MAC, имя или серийный номер</p>
+  <aside class="map-sidebar">
+    <div class="map-search panel" aria-label="Поиск по сети">
+      <div class="map-search-inner">
+        <div class="map-search-header">
+          <h2 class="panel-title">Поиск</h2>
+          <p class="panel-hint">IP, MAC, имя, серийный номер или пользователь (УЗ)</p>
+        </div>
+        <form
+          class="map-search-form"
+          id="map-search-form"
+          method="get"
+          action="{{ url_for('devices.map') }}"
+        >
+          <div class="map-search-field">
+            <label class="visually-hidden" for="map-search-q">Запрос</label>
+            <input
+              class="form-control form-control-lg map-search-input"
+              id="map-search-q"
+              name="q"
+              value="{{ search_query }}"
+              placeholder="Имя, IP или пользователь"
+              autocomplete="off"
+            >
+          </div>
+          <div class="map-search-sector">
+            <label class="visually-hidden" for="map-search-sector">Сектор</label>
+            <select class="form-select" id="map-search-sector" name="sector_id">
+              <option value="">Все секторы</option>
+              {% for sector in search_sectors %}
+              <option value="{{ sector.id }}" {% if search_sector_id == sector.id %}selected{% endif %}>{{ sector.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="button" class="btn btn-sm btn-link map-search-reset" id="map-search-reset">Сбросить</button>
+        </form>
+        <p class="text-muted small mb-0" id="map-search-hint">Поиск по hostname, IP, MAC, серийнику или УЗ пользователя.</p>
       </div>
-      <form
-        class="map-search-form"
-        id="map-search-form"
-        method="get"
-        action="{{ url_for('devices.map') }}"
-      >
-        <div class="map-search-field">
-          <label class="visually-hidden" for="map-search-q">Запрос</label>
-          <input
-            class="form-control form-control-lg map-search-input"
-            id="map-search-q"
-            name="q"
-            value="{{ search_query }}"
-            placeholder="Например NBOOK или 10.0.0"
-            autocomplete="off"
-          >
-        </div>
-        <div class="map-search-sector">
-          <label class="visually-hidden" for="map-search-sector">Сектор</label>
-          <select class="form-select" id="map-search-sector" name="sector_id">
-            <option value="">Все секторы</option>
-            {% for sector in search_sectors %}
-            <option value="{{ sector.id }}" {% if search_sector_id == sector.id %}selected{% endif %}>{{ sector.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <button type="button" class="btn btn-sm btn-link map-search-reset" id="map-search-reset">Сбросить</button>
-      </form>
-      <p class="text-muted small mb-0" id="map-search-hint">Начните вводить запрос — на карте останутся подходящие машины.</p>
     </div>
-  </div>
 
-  <div class="map-main">
     <div class="map-toolbar panel" id="map-filters" aria-label="Фильтры карты">
       <div class="map-filter-group">
         <span class="map-filter-label">Статус</span>
@@ -138,7 +138,9 @@
       </div>
       <button type="button" class="btn btn-sm btn-link" id="map-filters-reset">Сбросить</button>
     </div>
+  </aside>
 
+  <div class="map-main">
     <div
       class="sector-map"
       id="sector-map"
@@ -192,6 +194,7 @@
           <div class="sector-devices">
             <div class="device-card-grid" data-sector-devices data-layout="cards">
               {% for device in sector.visible_devices %}
+              {% set account = device.current_account if device.shows_accounts else none %}
               <div
                 data-device-card
                 data-device-id="{{ device.id }}"
@@ -201,6 +204,10 @@
                 data-ip="{{ device.ip }}"
                 data-mac="{{ device.mac or '' }}"
                 data-serial="{{ device.serial_number or '' }}"
+                data-account="{{ account.account_key if account else '' }}"
+                data-account-name="{{ account.display_name if account else '' }}"
+                data-account-label="{{ account.label if account else '' }}"
+                data-user="{{ (account.display_name or account.account_key) if account else '' }}"
               >{{ device_card(device) }}</div>
               {% endfor %}
             </div>
