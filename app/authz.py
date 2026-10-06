@@ -88,6 +88,11 @@ def user_can_run_diagnostics(user) -> bool:
     return True
 
 
+def user_can_connect_vnc(user) -> bool:
+    """Веб-VNC: те же роли, что диагностика (не чистый viewer)."""
+    return user_can_run_diagnostics(user)
+
+
 def filter_accessible_devices(user, device_ids) -> list[Device]:
     """Вернуть доступные устройства в порядке ``device_ids``.
 
