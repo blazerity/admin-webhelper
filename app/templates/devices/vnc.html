@@ -8,7 +8,7 @@
       <a href="{{ url_for('devices.detail', device_id=device.id) }}">← К карточке</a>
     </p>
     <h1 class="page-title">{{ device.hostname or device.ip }}</h1>
-    <p class="page-subtitle">Экспериментальный VNC в браузере. Агент на ПК, шлюз на Debian.</p>
+    <p class="page-subtitle">VNC в браузере. При подключении bAWH поставит или обновит TightVNC на ПК.</p>
   </div>
 </div>
 
@@ -30,13 +30,13 @@
           type="password"
           value="{{ vnc_password or '' }}"
           maxlength="8"
-          placeholder="{{ 'сохранён в Параметрах' if has_vnc_password else 'пароль агента TightVNC / UltraVNC, до 8 символов' }}"
+          placeholder="{{ 'сохранён в Параметрах' if has_vnc_password else 'тот же, что в Параметрах → VNC, до 8 символов' }}"
           autocomplete="off"
         >
       </div>
       <p class="vnc-toolbar-meta text-muted small mb-0">
         <span class="font-monospace">{{ device.ip }}:{{ vnc_port }}</span>
-        · билет на 90 с · после «Подключить» пароль уходит в RFB, не в журнал
+        · сначала агент на ПК, потом стол · пароль не в журнал
       </p>
     </div>
     <div class="vnc-toolbar-actions">
@@ -45,14 +45,16 @@
     </div>
   </form>
   <p class="small mb-0 mt-2" id="vnc-status" data-kind="">ожидание</p>
+  <pre class="vnc-ensure-log" id="vnc-ensure-log" hidden></pre>
 </div>
 
 <div
   class="vnc-screen-shell terminal-panel"
   id="vnc-session"
-  data-ws-url="{{ ws_url }}"
+  data-prepare-url="{{ prepare_url }}"
+  data-ticket-url="{{ ticket_url }}"
+  data-csrf-token="{{ csrf_token() }}"
   data-has-password="{{ '1' if has_vnc_password else '0' }}"
-  data-auto-connect="{{ '1' if (vnc_password or not has_vnc_password) else '0' }}"
 >
   <div class="terminal-bar">
     <span>{{ device.hostname or device.ip }}</span>

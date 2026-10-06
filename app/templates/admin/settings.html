@@ -329,11 +329,13 @@
   <h2 class="h5 mb-1">VNC в браузере</h2>
   <p class="text-muted mb-3">
     Лёгкий шлюз <code>bawh-vnc</code> (WebSocket на 127.0.0.1:6080) и noVNC на карточке устройства.
-    На Windows — TightVNC или UltraVNC, порт обычно 5900, файрвол только с IP этого сервера.
-    Тихая установка: библиотека
-    <a href="{{ url_for('scripts.list_scripts') }}">Скрипты</a> → «TightVNC (тихая установка)».
-    MSI кладите в <code>vnc-agents/</code> на этом сервере (обычно <code>/opt/bawh/vnc-agents/</code>),
-    имя с <code>64bit</code> или <code>32bit</code>. Пароль TightVNC — не больше 8 символов.
+    На Windows при «Подключить» bAWH ставит или обновляет TightVNC
+    (пароль, порт, файрвол только с IP этого сервера). MSI кладите в
+    <code>vnc-agents/</code> (обычно <code>/opt/bawh/vnc-agents/</code>),
+    имя с <code>64bit</code> или <code>32bit</code>. Снять агент:
+    <a href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
+    → «TightVNC (тихое удаление)». Пароль — не больше 8 символов, тот же
+    что на странице стола.
   </p>
   {% set vnc_agents_list = vnc_agents if vnc_agents is defined else [] %}
   <p class="small mb-3">
@@ -373,7 +375,7 @@
     </div>
     <div class="col-md-5">
       <label class="form-label" for="vnc_password">Общий пароль VNC</label>
-      <input class="form-control" id="vnc_password" name="vnc_password" type="password" maxlength="8" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if vnc_cfg and vnc_cfg.password_set else 'необязательно, до 8 символов' }}">
+      <input class="form-control" id="vnc_password" name="vnc_password" type="password" maxlength="8" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if vnc_cfg and vnc_cfg.password_set else 'нужен для установки агента, до 8 символов' }}">
     </div>
     <div class="col-md-4 d-flex align-items-end">
       <div class="form-check mb-2">

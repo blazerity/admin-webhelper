@@ -112,8 +112,9 @@
         <div>
           <h2 class="panel-title mb-1">Рабочий стол в браузере</h2>
           <p class="panel-hint mb-0">
-            Экспериментально: Debian открывает VNC на этом IP (порт из Параметров, обычно 5900)
-            и показывает картинку здесь. На ПК — TightVNC/UltraVNC (скрипт «TightVNC (тихая установка)»; MSI лежит в vnc-agents/ на bAWH), файрвол только с сервера bAWH.
+            Экспериментально: при подключении Debian ставит или обновляет TightVNC
+            на этом IP (порт и пароль из Параметров), затем показывает стол.
+            MSI — в vnc-agents/ на bAWH. Снять агент: Скрипты → «TightVNC (тихое удаление)».
           </p>
         </div>
         <a class="btn btn-primary" href="{{ url_for('devices.vnc_session', device_id=device.id) }}">Подключиться</a>
