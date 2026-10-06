@@ -152,6 +152,26 @@ def resolve_to_ipv4(host: str, timeout_s: float = 2.0) -> str:
     return assert_public_ipv4(infos[0][4][0])
 
 
+def source_ipv4_toward(dest_ip: str) -> str:
+    """IPv4 этого хоста, с которого ядро уйдёт на dest_ip (без реальной отправки)."""
+    target = assert_public_ipv4(dest_ip)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect((target, 9))
+        source = sock.getsockname()[0]
+    except OSError as exc:
+        raise NetworkInputError(
+            f"Не удалось определить исходящий IP к {target}."
+        ) from exc
+    finally:
+        sock.close()
+    if not source or source.startswith("127."):
+        raise NetworkInputError(
+            f"Исходящий адрес к {target} похож на loopback ({source})."
+        )
+    return assert_public_ipv4(source)
+
+
 def cidr_to_wildcard(cidr: str | None) -> str | None:
     """192.168.15.0/24 → 192.168.15.* ; /16 → 192.168.*.* ; /32 → сам адрес."""
     raw = (cidr or "").strip()

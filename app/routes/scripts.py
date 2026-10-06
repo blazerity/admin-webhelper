@@ -98,7 +98,7 @@ def _account_label(run: ScriptRun) -> str | None:
     """Имя учётки SMB без пароля. Пароль для подписи страницы не расшифровывается."""
     if not getattr(current_user, "is_admin", False):
         return None
-    if run.run_type not in (RunType.COMMAND, RunType.SCRIPT) or not run.user_id:
+    if run.run_type not in {RunType.SCRIPT, RunType.COMMAND, RunType.VNC_ENSURE} or not run.user_id:
         return None
     row = get_stored_credential(run.user_id)
     if row is not None and row.username and row.password_encrypted:
@@ -137,7 +137,7 @@ def _device_history(run: ScriptRun) -> list[dict]:
 
 
 def _session_hint(run: ScriptRun, state: str) -> str:
-    if state == "closed" and run.run_type not in (RunType.COMMAND, RunType.SCRIPT):
+    if state == "closed" and run.run_type not in (RunType.COMMAND, RunType.SCRIPT, RunType.VNC_ENSURE):
         return "Удалённой SMB-сессии нет: эта проверка идёт с сервера приложения."
     return _SESSION_HINTS.get(state, _SESSION_HINTS["closed"])
 

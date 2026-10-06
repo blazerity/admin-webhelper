@@ -403,7 +403,7 @@ def detail(device_id: int):
     elif tab == "commands" and device.shows_commands:
         launches, more = _launch_history(
             device.id,
-            (RunType.COMMAND, RunType.SCRIPT),
+            (RunType.COMMAND, RunType.SCRIPT, RunType.VNC_ENSURE),
             limit,
         )
         has_more = (not show_all) and more
@@ -455,9 +455,67 @@ def vnc_session(device_id: int):
         abort(404)
 
     from app.services.vnc_settings import get_vnc_settings
-    from app.services.vnc_token import VncTokenError, mint_ticket
 
     settings = get_vnc_settings(include_password=True)
+    return render_template(
+        "devices/vnc.html",
+        device=device,
+        vnc_port=settings.port,
+        vnc_password=settings.password,
+        has_vnc_password=settings.password_set,
+        gateway_enabled=settings.gateway_enabled,
+        prepare_url=url_for("devices.vnc_prepare", device_id=device.id),
+        ticket_url=url_for("devices.vnc_ticket", device_id=device.id),
+    )
+
+
+@bp.post("/devices/<int:device_id>/vnc/prepare")
+@login_required
+def vnc_prepare(device_id: int):
+    """Поставить или обновить TightVNC на ПК, затем клиент возьмёт билет."""
+    device = get_visible_device_or_404(device_id)
+    if device.sector is None or not device.shows_commands:
+        abort(404)
+    if not user_can_connect_vnc(current_user):
+        abort(403)
+
+    from app.services.script_service import ScriptError, start_vnc_ensure
+    from app.services.tightvnc_install_script import TightVncEnsureError
+    from app.services.vnc_settings import get_vnc_settings
+
+    payload = request.get_json(silent=True) or {}
+    typed = str(payload.get("password") or "").strip()
+    settings = get_vnc_settings(include_password=True)
+    password = typed or settings.password
+    try:
+        run = start_vnc_ensure(current_user, device, password)
+    except (TightVncEnsureError, ScriptError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        return jsonify({"error": "Не удалось запустить установку агента VNC."}), 400
+    return jsonify(
+        {
+            "run_id": run.id,
+            "status_url": url_for("scripts.run_status", run_id=run.id),
+            "ticket_url": url_for("devices.vnc_ticket", device_id=device.id),
+        }
+    )
+
+
+@bp.get("/devices/<int:device_id>/vnc/ticket")
+@login_required
+def vnc_ticket(device_id: int):
+    """Билет на шлюз после того, как агент на ПК готов."""
+    device = get_visible_device_or_404(device_id)
+    if device.sector is None or not device.shows_commands:
+        abort(404)
+    if not user_can_connect_vnc(current_user):
+        abort(403)
+
+    from app.services.vnc_settings import get_vnc_settings
+    from app.services.vnc_token import VncTokenError, mint_ticket
+
+    settings = get_vnc_settings(include_password=False)
     try:
         token = mint_ticket(
             device_id=device.id,
@@ -466,20 +524,9 @@ def vnc_session(device_id: int):
             port=settings.port,
         )
     except VncTokenError as exc:
-        flash(str(exc), "danger")
-        return redirect(url_for("devices.detail", device_id=device.id))
-
+        return jsonify({"error": str(exc)}), 400
     ws_scheme = "wss" if request.is_secure else "ws"
-    ws_url = f"{ws_scheme}://{request.host}/vnc/ws?token={token}"
-    return render_template(
-        "devices/vnc.html",
-        device=device,
-        ws_url=ws_url,
-        vnc_port=settings.port,
-        vnc_password=settings.password,
-        has_vnc_password=settings.password_set,
-        gateway_enabled=settings.gateway_enabled,
-    )
+    return jsonify({"ws_url": f"{ws_scheme}://{request.host}/vnc/ws?token={token}"})
 
 
 @bp.post("/devices/<int:device_id>/hardware-poll")

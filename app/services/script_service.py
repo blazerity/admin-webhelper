@@ -290,6 +290,38 @@ def start_script_on_devices(script: Script, user, devices: list[Device]) -> list
     return start_runs(runs)
 
 
+def start_vnc_ensure(user, device, password: str):
+    """Поставить агент TightVNC или переписать порт/пароль/файрвол. Пароль не в журнале."""
+    from app.models import RunStatus
+    from app.services.tightvnc_install_script import (
+        remember_ensure_password,
+        validate_vnc_agent_password,
+    )
+
+    validate_vnc_agent_password(password)
+    live = (
+        ScriptRun.query.filter(
+            ScriptRun.device_id == device.id,
+            ScriptRun.run_type == RunType.VNC_ENSURE,
+            ScriptRun.status.in_((RunStatus.PENDING, RunStatus.RUNNING)),
+        )
+        .order_by(ScriptRun.id.desc())
+        .first()
+    )
+    if live is not None:
+        remember_ensure_password(live.id, password)
+        return live
+    run = start_run(
+        RunType.VNC_ENSURE,
+        user,
+        device,
+        "установить или обновить агент TightVNC",
+        run_as=RunAs.SYSTEM,
+    )
+    remember_ensure_password(run.id, password)
+    return run
+
+
 def start_ping_on_devices(user, devices: list[Device]) -> tuple[str, list[ScriptRun]]:
     """Один batch_id и один commit для bulk ping."""
     if not devices:
@@ -353,7 +385,7 @@ def execute_run(app, run_id: int) -> None:
                     return
                 _cancel_events[run_id] = cancel_event
                 run.status = RunStatus.RUNNING
-                if run.run_type in {RunType.SCRIPT, RunType.COMMAND} and not (run.log_text or "").strip():
+                if run.run_type in {RunType.SCRIPT, RunType.COMMAND, RunType.VNC_ENSURE} and not (run.log_text or "").strip():
                     run.log_text = "Подключение к компьютеру, запуск…\n"
                 db.session.commit()
 
@@ -474,6 +506,42 @@ def _perform(
             body,
             timeout=timeout,
             as_system=run_as == RunAs.SYSTEM,
+            user_id=user_id,
+            on_output=on_output,
+            run_id=run_id,
+            extra_files=extra_files or None,
+        )
+        return rc, output, RunStatus.SUCCESS if rc == 0 else RunStatus.FAILED
+    if run_type == RunType.VNC_ENSURE:
+        from app.services.net_utils import NetworkInputError, source_ipv4_toward
+        from app.services.tightvnc_install_script import (
+            TightVncEnsureError,
+            build_ensure_script,
+            extra_admin_files,
+            take_ensure_password,
+        )
+        from app.services.vnc_settings import get_vnc_settings
+
+        settings = get_vnc_settings(include_password=True)
+        password = take_ensure_password(run_id) or settings.password
+        try:
+            bawh_ip = source_ipv4_toward(ip)
+            body = build_ensure_script(
+                password=password, bawh_ip=bawh_ip, port=settings.port
+            )
+        except (TightVncEnsureError, NetworkInputError) as exc:
+            raise ScriptError(str(exc)) from exc
+        extra_files = extra_admin_files()
+        if extra_files and on_output is not None:
+            names = ", ".join(key.rsplit("\\", 1)[-1] for key in extra_files)
+            on_output(f"С bAWH копирую MSI в C:\\Windows\\Temp: {names}\n")
+        timeout = int(current_app.config.get("SCRIPT_TIMEOUT_SECONDS", 600))
+        rc, output = run_remote_script(
+            ip,
+            "powershell",
+            body,
+            timeout=timeout,
+            as_system=True,
             user_id=user_id,
             on_output=on_output,
             run_id=run_id,
