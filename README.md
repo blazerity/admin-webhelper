@@ -4,7 +4,7 @@
 
 Рассчитан на корпоративную LAN. Не предназначен для публикации в интернет.
 
-Актуальная карта кода (слои, модели, сервисы, маршруты, authz) — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Перед навигацией по репозиторию или запросом к ИИ читайте этот файл. Требования к скриптам из веб-формы — [`docs/SCRIPTS.md`](docs/SCRIPTS.md). Веб-VNC — [`docs/VNC.md`](docs/VNC.md).
+Актуальная карта кода (слои, модели, сервисы, маршруты, authz) — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Перед навигацией по репозиторию или запросом к ИИ читайте этот файл. Требования к скриптам из веб-формы — [`docs/SCRIPTS.md`](docs/SCRIPTS.md). Веб-VNC — [`docs/VNC.md`](docs/VNC.md); MSI TightVNC кладите в [`vnc-agents/`](vnc-agents/README.md).
 
 ## Требования
 

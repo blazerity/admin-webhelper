@@ -108,6 +108,7 @@ bAWH/                          # на сервере = /opt/bawh
     templates/
     static/                    # css/, js/, vendor/bootstrap/
   deploy/                      # Debian 12: systemd, nginx, install
+  vnc-agents/                  # MSI TightVNC (файлы .msi не в git)
   tests/                       # локально, в gitignore
   logs/                        # runtime (в gitignore содержимое)
 ```
@@ -191,7 +192,7 @@ def ensure_schema() -> None:
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
     # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
     # 4) ветка обновлений beta, если ещё не выбирали (data_fix.update_branch_beta_v167)
-    # 5) скрипт TightVNC в библиотеке, если имени нет (data_fix.seed_tightvnc_script_v170)
+    # 5) скрипт TightVNC в библиотеке, если имени нет / стоковое тело (data_fix.seed_tightvnc_script_v171)
     # 6) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
@@ -214,10 +215,12 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 один раз приводит их к номиналу; маркер `data_fix.hw_gb_nominal_v151` в `app_settings`.
 Повторный WMI-опрос для этого не нужен.
 
-**Сид TightVNC:** при старте, если в `scripts` нет строки
-«TightVNC (тихая установка)», вставляется неопубликованное тело из
-`app/services/tightvnc_install_script.py`. Маркер `data_fix.seed_tightvnc_script_v170`
-не даёт вставить повторно после ручного удаления; уже существующую строку не затирает.
+**Сид TightVNC:** при старте в библиотеку кладётся неопубликованное тело
+«TightVNC (тихая установка)» из `app/services/tightvnc_install_script.py`.
+MSI админ кладёт в `vnc-agents/` (на сервере `/opt/bawh/vnc-agents/`);
+скрипт копирует его на ПК через ADMIN$ и может скачать `/vnc-agents/64bit.msi`.
+Маркер `data_fix.seed_tightvnc_script_v171`: стоковое тело (пустой пароль)
+обновляется, строку с уже подставленным паролем не затирает.
 
 ---
 
@@ -754,7 +757,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
-| Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session`, сид агента `tightvnc_install_script`, [`VNC.md`](VNC.md) |
+| Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session`, сид агента `tightvnc_install_script`, раздача MSI `routes/vnc_agents.py` + `vnc-agents/`, [`VNC.md`](VNC.md) |
 | HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Параметры `#tls` |
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
@@ -795,6 +798,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `.env`, `*.db`, `instance/`, `.venv/` | секреты и локальная БД |
 | `logs/*`, `backups/`, `*.log` | runtime |
 | `certs/` | PEM/ключи HTTPS из Параметров |
+| `vnc-agents/*.msi`, `vnc-agents/*.exe` | установщик TightVNC, который админ кладёт на сервер |
 | `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
 | `tests/` | локальные unittest, в поставку не входят |
 | `scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики |

@@ -29,6 +29,10 @@ tools/
 tmp/
 temp/
 
+# MSI TightVNC, которые админ кладёт на сервер (vnc-agents/README.md в git)
+vnc-agents/*.msi
+vnc-agents/*.exe
+
 # Юнит-тесты и ручные прогоны — только локально, не в git
 tests/
 

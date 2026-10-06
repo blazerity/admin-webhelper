@@ -100,6 +100,7 @@ def _register_blueprints(app: Flask) -> None:
     from app.routes.sectors import bp as sectors_bp
     from app.routes.sector_daily_report import bp as sector_daily_report_bp
     from app.routes.sector_daily_report import legacy_bp as sector_daily_report_legacy_bp
+    from app.routes.vnc_agents import bp as vnc_agents_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(devices_bp)
@@ -115,6 +116,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(sector_daily_report_legacy_bp)
     app.register_blueprint(login_services_bp)
     app.register_blueprint(notifications_bp)
+    app.register_blueprint(vnc_agents_bp)
 
 
 def _register_error_handlers(app: Flask) -> None:
