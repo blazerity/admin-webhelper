@@ -22,7 +22,7 @@ from app.models import AppSetting, RunAs, Script
 logger = logging.getLogger(__name__)
 
 TIGHTVNC_INSTALL_SCRIPT_NAME = "TightVNC (тихая установка)"
-TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v174"
+TIGHTVNC_SCRIPT_SEED_KEY = "data_fix.seed_tightvnc_script_v175"
 TIGHTVNC_PAYLOAD_SENTINEL = "# bAWH-payload: tightvnc-msi"
 VNC_AGENTS_DIRNAME = "vnc-agents"
 _SAFE_AGENT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -183,52 +183,22 @@ function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort
 }
 
 function Remove-TightVncStartMenu {
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $dirs = @(
-            (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs')
-        )
-        if ($env:ALLUSERSPROFILE) {
-            $dirs += (Join-Path $env:ALLUSERSPROFILE 'Microsoft\Windows\Start Menu\Programs')
+    $programs = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
+    if (-not (Test-Path -LiteralPath $programs)) { return }
+    $folder = Join-Path $programs 'TightVNC'
+    if (Test-Path -LiteralPath $folder) {
+        Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $folder)) {
+            L ("Удалил папку меню Пуск: {0}" -f $folder)
+        } else {
+            L ("Не удалось удалить папку меню Пуск: {0}" -f $folder)
         }
-        $usersRoot = Join-Path $env:SystemDrive 'Users'
-        if (Test-Path -LiteralPath $usersRoot) {
-            foreach ($userDir in @(Get-ChildItem -LiteralPath $usersRoot -Directory -Force -ErrorAction SilentlyContinue)) {
-                $dirs += (Join-Path $userDir.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs')
-            }
+    }
+    foreach ($lnk in @(Get-ChildItem -LiteralPath $programs -Filter '*TightVNC*.lnk' -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $lnk.FullName -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $lnk.FullName)) {
+            L ("Удалил ярлык: {0}" -f $lnk.FullName)
         }
-        $seen = @{}
-        $n = 0
-        foreach ($programs in $dirs) {
-            if (-not $programs) { continue }
-            $key = $programs.ToLowerInvariant()
-            if ($seen.ContainsKey($key)) { continue }
-            $seen[$key] = $true
-            if (-not (Test-Path -LiteralPath $programs)) { continue }
-            $folder = Join-Path $programs 'TightVNC'
-            if (Test-Path -LiteralPath $folder) {
-                Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
-                if (-not (Test-Path -LiteralPath $folder)) {
-                    $n++
-                    L ("Удалил папку меню Пуск: {0}" -f $folder)
-                } else {
-                    L ("Не удалось удалить папку меню Пуск: {0}" -f $folder)
-                }
-            }
-            foreach ($lnk in @(Get-ChildItem -LiteralPath $programs -Filter '*TightVNC*.lnk' -Force -ErrorAction SilentlyContinue)) {
-                Remove-Item -LiteralPath $lnk.FullName -Force -ErrorAction SilentlyContinue
-                if (-not (Test-Path -LiteralPath $lnk.FullName)) {
-                    $n++
-                    L ("Удалил ярлык: {0}" -f $lnk.FullName)
-                }
-            }
-        }
-        if ($n -eq 0) {
-            L 'Ярлыков TightVNC в меню Пуск не нашёл.'
-        }
-    } finally {
-        $ErrorActionPreference = $prev
     }
 }
 
@@ -562,21 +532,30 @@ def _canonical_start_menu_remover() -> str:
 
 
 def patch_tightvnc_start_menu(content: str) -> str | None:
-    """Вставить удаление ярлыков меню Пуск, сохранив $VncPassword и IP."""
+    """Вставить или обновить удаление ярлыков меню Пуск, сохранив $VncPassword и IP."""
     text = content or ""
-    has_fn = "function Remove-TightVncStartMenu" in text
-    has_call = _START_MENU_CALL.search(text) is not None
-    if has_fn and has_call:
-        return None
-    if not has_fn:
-        func = _canonical_start_menu_remover()
-        text, count = _MAIN_TRY.subn(lambda m: func + "\n\n" + m.group(0), text, count=1)
+    canonical = _canonical_start_menu_remover()
+    changed = False
+    match = _START_MENU_BLOCK.search(text)
+    if match is None:
+        text, count = _MAIN_TRY.subn(
+            lambda m: canonical + "\n\n" + m.group(0), text, count=1
+        )
         if count != 1:
             logger.warning(
                 "TightVNC script: cannot insert Remove-TightVncStartMenu function"
             )
             return None
-    if not has_call:
+        changed = True
+    elif match.group(0) != canonical:
+        text, count = _START_MENU_BLOCK.subn(lambda _m: canonical, text, count=1)
+        if count != 1:
+            logger.warning(
+                "TightVNC script: cannot replace Remove-TightVncStartMenu function"
+            )
+            return None
+        changed = True
+    if _START_MENU_CALL.search(text) is None:
         text, count = _GOTOVO_LINE.subn(
             lambda m: m.group("ind") + "Remove-TightVncStartMenu\n" + m.group(0),
             text,
@@ -587,7 +566,8 @@ def patch_tightvnc_start_menu(content: str) -> str | None:
                 "TightVNC script: cannot insert Remove-TightVncStartMenu call"
             )
             return None
-    return text
+        changed = True
+    return text if changed else None
 
 
 def _is_stock_body(content: str) -> bool:

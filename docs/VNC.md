@@ -29,9 +29,9 @@ MSI кладите в каталог [`vnc-agents/`](../vnc-agents/README.md) р
 (PowerShell, `NT AUTHORITY\SYSTEM`, хранение в базе, **не опубликован**).
 Каноническое тело: `app/services/tightvnc_install_script.py`. Стоковое тело
 (пустой `$VncPassword`) при старте обновляется целиком. В теле с уже
-подставленным паролем сид v174 не затирает пароль и IP: чинит
-`Convert-VncPasswordBytes` при необходимости и добавляет удаление ярлыков
-TightVNC из меню Пуск.
+подставленным паролем сид v175 не затирает пароль и IP: чинит
+`Convert-VncPasswordBytes` при необходимости и синхронизирует удаление
+ярлыков TightVNC из общего меню Пуск.
 
 Перед запуском:
 
@@ -60,8 +60,8 @@ MSI-свойства — по [официальной инструкции Tight
 пары `SET_*` + `VALUE_OF_*` (не `VALUE=SET_PASSWORD`), `ADDLOCAL=Server`,
 `SERVER_REGISTER_AS_SERVICE=1`, `SERVER_ALLOW_SAS=1`,
 `SERVER_ADD_FIREWALL_EXCEPTION=0` (дырку в 5900 на весь мир не открываем).
-После MSI пароль ещё пишется в реестр (VNC DES). Ярлыки TightVNC из меню Пуск
-(общая папка и профили пользователей) удаляются.
+После MSI пароль ещё пишется в реестр (VNC DES). Ярлыки TightVNC из общего
+меню Пуск (`ProgramData\...\Programs\TightVNC`) удаляются.
 
 Текст для ручной вставки в форму (тот же, что сидируется):
 
@@ -210,52 +210,22 @@ function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort
 }
 
 function Remove-TightVncStartMenu {
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $dirs = @(
-            (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs')
-        )
-        if ($env:ALLUSERSPROFILE) {
-            $dirs += (Join-Path $env:ALLUSERSPROFILE 'Microsoft\Windows\Start Menu\Programs')
+    $programs = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
+    if (-not (Test-Path -LiteralPath $programs)) { return }
+    $folder = Join-Path $programs 'TightVNC'
+    if (Test-Path -LiteralPath $folder) {
+        Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $folder)) {
+            L ("Удалил папку меню Пуск: {0}" -f $folder)
+        } else {
+            L ("Не удалось удалить папку меню Пуск: {0}" -f $folder)
         }
-        $usersRoot = Join-Path $env:SystemDrive 'Users'
-        if (Test-Path -LiteralPath $usersRoot) {
-            foreach ($userDir in @(Get-ChildItem -LiteralPath $usersRoot -Directory -Force -ErrorAction SilentlyContinue)) {
-                $dirs += (Join-Path $userDir.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs')
-            }
+    }
+    foreach ($lnk in @(Get-ChildItem -LiteralPath $programs -Filter '*TightVNC*.lnk' -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $lnk.FullName -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $lnk.FullName)) {
+            L ("Удалил ярлык: {0}" -f $lnk.FullName)
         }
-        $seen = @{}
-        $n = 0
-        foreach ($programs in $dirs) {
-            if (-not $programs) { continue }
-            $key = $programs.ToLowerInvariant()
-            if ($seen.ContainsKey($key)) { continue }
-            $seen[$key] = $true
-            if (-not (Test-Path -LiteralPath $programs)) { continue }
-            $folder = Join-Path $programs 'TightVNC'
-            if (Test-Path -LiteralPath $folder) {
-                Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
-                if (-not (Test-Path -LiteralPath $folder)) {
-                    $n++
-                    L ("Удалил папку меню Пуск: {0}" -f $folder)
-                } else {
-                    L ("Не удалось удалить папку меню Пуск: {0}" -f $folder)
-                }
-            }
-            foreach ($lnk in @(Get-ChildItem -LiteralPath $programs -Filter '*TightVNC*.lnk' -Force -ErrorAction SilentlyContinue)) {
-                Remove-Item -LiteralPath $lnk.FullName -Force -ErrorAction SilentlyContinue
-                if (-not (Test-Path -LiteralPath $lnk.FullName)) {
-                    $n++
-                    L ("Удалил ярлык: {0}" -f $lnk.FullName)
-                }
-            }
-        }
-        if ($n -eq 0) {
-            L 'Ярлыков TightVNC в меню Пуск не нашёл.'
-        }
-    } finally {
-        $ErrorActionPreference = $prev
     }
 }
 
