@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.6.5)
+# Архитектура bAWH (актуально для v1.6.6)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.6.5` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.6.6` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -84,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.6.5)
+  VERSION                      # semver (1.6.6)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -268,11 +268,11 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
 | `device_kind.py` | тип карты: имена AD, WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
-| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
+| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра **и** serial/hostname, кто ответил). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
-| `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices`, история при изменении. Mutex + `hardware_poll_runs` |
+| `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices` только если SN зонда совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs` |
 | `hardware_poll_settings.py` | cron / schedule_enabled в `app_settings` (default `0 12 * * *`, включено) |
-| `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки. CLI `refresh-hostnames`, кнопка в Параметрах |
+| `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки; чужой SN на том же IP — не пишет имя. CLI `refresh-hostnames`, кнопка в Параметрах |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
 
@@ -565,6 +565,7 @@ sequenceDiagram
       Ping->>Ping: TCP 445/135, 8728/8291, 9100/515, 554 + SNMP sysDescr
     end
     Ping->>DB: devices + device_history (+ fingerprint_kind)
+    Note over Ping,DB: SN занял IP — другие карточки с этим адресом → offline
     opt logged_on_user is not None
       Ping->>Acc: apply_logged_on_user (savepoint)
       Acc->>DB: endpoint_accounts + history
@@ -597,9 +598,11 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`n
 
 Scheduler cron (полдень) / CLI `hardware-poll` / UI Параметры или карточка →
 `run_hardware_poll` → ping известных Windows-целей (серийник WMI, имена n/w/v/сервер,
-fingerprint windows) → `lookup_wmi_hardware` → снимок на `devices` + строка
-`device_hardware_history` только если CPU/ОЗУ/диски/ОС изменились.
-Итог прогона — `hardware_poll_runs`. ICMP-опрос сети **не** трогает эти поля.
+fingerprint windows) → `lookup_wmi_hardware` (железо **и** serial/hostname) →
+снимок на карточку с тем же SN; если на IP отвечает другой известный SN —
+полный прогон пишет ему, разовый с карточки — skip. История — только если
+CPU/ОЗУ/диски/ОС изменились. Итог прогона — `hardware_poll_runs`.
+ICMP-опрос сети **не** трогает эти поля.
 
 ### E. Self-update
 
@@ -615,12 +618,12 @@ backup → git → pip → `flask init-db` → опциональный restart
 ## 12. Соглашения по домену и коду
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
-- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP-адреса обновляет IP/сектор/MAC у неё. Hostname и PTR **не** ключи слияния: одинаковое имя при разных SN — две карточки. Без SN можно переиспользовать только запись с тем же IP и пустым SN; зонд без SN не забирает строку, у которой SN уже есть. Призрак без SN на старом IP после появления SN на новом — известная дыра (не сливать автоматически).
-- **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames`.
+- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё. Другие карточки, у которых ещё записан этот IP, становятся offline (короткая аренда VPN). Hostname и PTR **не** ключи слияния: одинаковое имя при разных SN — две карточки. Без SN можно переиспользовать только запись с тем же IP и пустым SN; зонд без SN не забирает строку, у которой SN уже есть. Призрак без SN на старом IP после появления SN на новом — известная дыра (не сливать автоматически).
+- **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames` (чужой SN на том же IP имя не пишет).
 - **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI.
 - **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
 - **WMI UserName:** `None` в probe — WMI не вызывали/упал (текущую УЗ **не** трогаем); `""` — никто не залогинен.
-- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN с WMI, имена n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. CPU = `Win32_Processor.Name`, ОЗУ = сумма `Win32_PhysicalMemory.Capacity` (запасной — `TotalPhysicalMemory`) в ГиБ с привязкой к номиналу планок, диски = сумма `Win32_DiskDrive.Size` без USB в десятичных ГБ (этикетка 1000³, номинал 256/512/…) (запасной — локальные тома), ОС = Caption + DisplayVersion (реестр StdRegProv) / сборка.
+- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN с WMI, имена n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. CPU = `Win32_Processor.Name`, ОЗУ = сумма `Win32_PhysicalMemory.Capacity` (запасной — `TotalPhysicalMemory`) в ГиБ с привязкой к номиналу планок, диски = сумма `Win32_DiskDrive.Size` без USB в десятичных ГБ (этикетка 1000³, номинал 256/512/…) (запасной — локальные тома), ОС = Caption + DisplayVersion (реестр StdRegProv) / сборка. Снимок пишется только если WMI-серийник (запасной — короткое имя ОС) совпадает с карточкой: иначе это чужой ПК на переиспользованном VPN/DHCP-адресе.
 - **ILIKE:** только через `utils.ilike_pattern` (экранирование `%`/`_`).
 - **Время:** всегда timezone-aware UTC (`utils.utcnow` / `as_utc`); в шаблонах фильтр `dt`.
 - **Пустые адреса** в `devices` опрос не создаёт.
@@ -723,8 +726,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
-| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Параметры и вкладка «Оборудование»; тесты `tests/test_hardware_poll.py` |
-| Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; `tests/test_device_identity.py` |
+| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Параметры и вкладка «Оборудование»; тесты `tests/test_hardware_poll.py`. Снимок привязан к SN, не к IP. |
+| Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline; `tests/test_device_identity.py` |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |

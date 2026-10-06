@@ -28,6 +28,7 @@ from app.services.hardware_poll_service import (
     HardwarePollError,
     apply_hardware_snapshot,
     is_windows_hardware_target,
+    resolve_hardware_owner,
     run_hardware_poll,
 )
 from app.services.hardware_poll_settings import (
@@ -293,6 +294,8 @@ class HardwarePollServiceTests(unittest.TestCase):
                 os_build="26100",
                 os_display_version="25H2",
                 os_edition_id="Enterprise",
+                serial_number="SNWIN",
+                hostname="n179",
             )
 
         with (
@@ -325,6 +328,196 @@ class HardwarePollServiceTests(unittest.TestCase):
             1,
         )
 
+    def test_resolve_owner_rejects_foreign_serial_on_same_ip(self) -> None:
+        card = _device(self.sector.id, "10.254.240.10", hostname="n13888", serial="ULTRA7")
+        db.session.add(card)
+        db.session.commit()
+        self.assertIsNone(
+            resolve_hardware_owner(
+                card, live_serial="I5SN", live_hostname="n14001", allow_remap=False
+            )
+        )
+        self.assertIs(
+            resolve_hardware_owner(
+                card, live_serial="ULTRA7", live_hostname="n13888"
+            ),
+            card,
+        )
+
+    def test_resolve_owner_hostname_fallback_when_serial_missing(self) -> None:
+        card = _device(self.sector.id, "10.254.240.10", hostname="n13888.stepcon.ru", serial="ULTRA7")
+        db.session.add(card)
+        db.session.commit()
+        self.assertIs(
+            resolve_hardware_owner(card, live_serial=None, live_hostname="n13888"),
+            card,
+        )
+        self.assertIsNone(
+            resolve_hardware_owner(card, live_serial=None, live_hostname="n14001")
+        )
+
+    def test_run_does_not_mix_hardware_when_vpn_ip_reused(self) -> None:
+        """Короткий VPN-lease: на старом IP другой ПК — карточку не переписываем."""
+        notebook = _device(
+            self.sector.id, "10.254.240.10", hostname="n13888", serial="ULTRA7"
+        )
+        notebook.cpu_name = "Intel(R) Core(TM) Ultra 7 268V"
+        notebook.ram_gb = 32
+        notebook.disk_gb = 2048
+        notebook.os_family = "Windows 11"
+        notebook.os_edition = "Pro"
+        notebook.os_display_version = "25H2"
+        notebook.os_build = "26200"
+        from app.utils import utcnow
+
+        notebook.hardware_checked_at = utcnow()
+        db.session.add(notebook)
+        db.session.commit()
+        history = DeviceHardwareHistory(
+            device_id=notebook.id,
+            collected_at=notebook.hardware_checked_at,
+            cpu_name=notebook.cpu_name,
+            ram_gb=32,
+            disk_gb=2048,
+            os_family="Windows 11",
+            os_edition="Pro",
+            os_display_version="25H2",
+            os_build="26200",
+        )
+        db.session.add(history)
+        db.session.commit()
+
+        def fake_ping(ip: str, *args, **kwargs):
+            return PingResult(DeviceStatus.ONLINE, 1, "ok")
+
+        def fake_wmi(ip: str, creds=None):
+            return WmiHardware(
+                cpu_name="11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+                ram_bytes=8 * 1024**3,
+                disk_bytes=512 * 1000**3,
+                os_caption="Microsoft Windows 10 Pro",
+                os_version="10.0.19045",
+                os_build="19045",
+                os_display_version="22H2",
+                os_edition_id="Professional",
+                serial_number="I5SN",
+                hostname="n14001",
+            )
+
+        with (
+            patch(
+                "app.services.hardware_poll_service.discovery_service.discovery_credentials",
+                return_value=DiscoveryCredentials("u", "p", "corp"),
+            ),
+            patch(
+                "app.services.hardware_poll_service.ping_host",
+                side_effect=fake_ping,
+            ),
+            patch(
+                "app.services.hardware_poll_service.discovery_service.lookup_wmi_hardware",
+                side_effect=fake_wmi,
+            ),
+        ):
+            result = run_hardware_poll(mode="cli")
+
+        db.session.refresh(notebook)
+        self.assertEqual(result.online, 1)
+        self.assertEqual(result.collected, 0)
+        self.assertEqual(result.mismatched, 1)
+        self.assertEqual(notebook.cpu_name, "Intel(R) Core(TM) Ultra 7 268V")
+        self.assertEqual(notebook.ram_gb, 32)
+        self.assertEqual(notebook.os_family, "Windows 11")
+        self.assertEqual(
+            db.session.scalar(select(func.count()).select_from(DeviceHardwareHistory)),
+            1,
+        )
+
+    def test_run_writes_snapshot_to_serial_owner_not_stale_ip_card(self) -> None:
+        stale = _device(self.sector.id, "10.254.240.10", hostname="n13888", serial="ULTRA7")
+        owner = _device(self.sector.id, "10.254.240.99", hostname="n14001", serial="I5SN")
+        db.session.add_all([stale, owner])
+        db.session.commit()
+
+        def fake_ping(ip: str, *args, **kwargs):
+            return PingResult(DeviceStatus.ONLINE, 1, "ok")
+
+        def fake_wmi(ip: str, creds=None):
+            return WmiHardware(
+                cpu_name="11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+                ram_bytes=8 * 1024**3,
+                disk_bytes=512 * 1000**3,
+                os_caption="Microsoft Windows 10 Pro",
+                os_build="19045",
+                os_display_version="22H2",
+                os_edition_id="Professional",
+                serial_number="I5SN",
+                hostname="n14001",
+            )
+
+        with (
+            patch(
+                "app.services.hardware_poll_service.discovery_service.discovery_credentials",
+                return_value=DiscoveryCredentials("u", "p", "corp"),
+            ),
+            patch(
+                "app.services.hardware_poll_service.ping_host",
+                side_effect=fake_ping,
+            ),
+            patch(
+                "app.services.hardware_poll_service.discovery_service.lookup_wmi_hardware",
+                side_effect=fake_wmi,
+            ),
+        ):
+            result = run_hardware_poll(mode="cli")
+
+        db.session.refresh(stale)
+        db.session.refresh(owner)
+        self.assertGreaterEqual(result.collected, 1)
+        self.assertIsNone(stale.cpu_name)
+        self.assertIn("i5-1135G7", owner.cpu_name or "")
+        self.assertEqual(owner.ram_gb, 8)
+        self.assertEqual(owner.os_family, "Windows 10")
+
+    def test_targeted_poll_does_not_remap_to_other_card(self) -> None:
+        stale = _device(self.sector.id, "10.254.240.10", hostname="n13888", serial="ULTRA7")
+        owner = _device(self.sector.id, "10.254.240.99", hostname="n14001", serial="I5SN")
+        db.session.add_all([stale, owner])
+        db.session.commit()
+
+        def fake_wmi(ip: str, creds=None):
+            return WmiHardware(
+                cpu_name="Intel Core i5-1135G7",
+                ram_bytes=8 * 1024**3,
+                disk_bytes=512 * 1000**3,
+                os_caption="Microsoft Windows 10 Pro",
+                os_build="19045",
+                serial_number="I5SN",
+                hostname="n14001",
+            )
+
+        with (
+            patch(
+                "app.services.hardware_poll_service.discovery_service.discovery_credentials",
+                return_value=DiscoveryCredentials("u", "p", "corp"),
+            ),
+            patch(
+                "app.services.hardware_poll_service.ping_host",
+                return_value=PingResult(DeviceStatus.ONLINE, 1, "ok"),
+            ),
+            patch(
+                "app.services.hardware_poll_service.discovery_service.lookup_wmi_hardware",
+                side_effect=fake_wmi,
+            ),
+        ):
+            result = run_hardware_poll(mode="manual", device_ids=(stale.id,))
+
+        db.session.refresh(stale)
+        db.session.refresh(owner)
+        self.assertEqual(result.collected, 0)
+        self.assertEqual(result.mismatched, 1)
+        self.assertIsNone(stale.cpu_name)
+        self.assertIsNone(owner.cpu_name)
+
     def test_missing_creds_raises(self) -> None:
         with patch(
             "app.services.hardware_poll_service.discovery_service.discovery_credentials",
@@ -341,6 +534,61 @@ class HardwarePollServiceTests(unittest.TestCase):
         self.assertEqual(saved.schedule_cron, "30 12 * * 1-5")
         with self.assertRaises(ValueError):
             set_hardware_poll_settings(schedule_cron="noon")
+
+
+class HostnameSweepIdentityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = create_app("testing")
+
+    def setUp(self) -> None:
+        self.ctx = self.app.app_context()
+        self.ctx.push()
+        db.drop_all()
+        ensure_schema()
+        self.sector = Sector(name="vpn", description="")
+        db.session.add(self.sector)
+        db.session.commit()
+
+    def tearDown(self) -> None:
+        db.session.remove()
+        db.drop_all()
+        self.ctx.pop()
+
+    def test_sweep_skips_foreign_serial_on_reused_ip(self) -> None:
+        from app.services.discovery_service import WmiInventory
+        from app.services.hostname_sweep_service import run_hostname_sweep
+
+        device = _device(self.sector.id, "10.254.240.10", hostname="n13888", serial="ULTRA7")
+        db.session.add(device)
+        db.session.commit()
+
+        with (
+            patch(
+                "app.services.hostname_sweep_service.discovery_service.discovery_credentials",
+                return_value=DiscoveryCredentials("u", "p", "corp"),
+            ),
+            patch(
+                "app.services.hostname_sweep_service.ping_host",
+                return_value=PingResult(DeviceStatus.ONLINE, 1, "ok"),
+            ),
+            patch(
+                "app.services.hostname_sweep_service.discovery_service.lookup_hostname",
+                return_value=None,
+            ),
+            patch(
+                "app.services.hostname_sweep_service.discovery_service.lookup_wmi_inventory",
+                return_value=WmiInventory(
+                    serial_number="I5SN", hostname="n14001.stepcon.ru"
+                ),
+            ),
+        ):
+            result = run_hostname_sweep()
+
+        db.session.refresh(device)
+        self.assertEqual(result.skipped, 1)
+        self.assertEqual(result.updated, 0)
+        self.assertEqual(device.hostname, "n13888")
 
 
 if __name__ == "__main__":

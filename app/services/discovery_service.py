@@ -118,7 +118,11 @@ class WmiInventory:
 
 @dataclass(frozen=True)
 class WmiHardware:
-    """Сырой ответ WMI для ежедневного опроса железа (байты / Caption, ещё не ГБ)."""
+    """Сырой ответ WMI для ежедневного опроса железа (байты / Caption, ещё не ГБ).
+
+    serial_number / hostname — кто ответил на этом IP. VPN/DHCP может отдать
+    адрес другой машине; без серийника снимок нельзя писать на карточку.
+    """
 
     cpu_name: str | None = None
     ram_bytes: int | None = None
@@ -128,6 +132,8 @@ class WmiHardware:
     os_build: str | None = None
     os_display_version: str | None = None
     os_edition_id: str | None = None
+    serial_number: str | None = None
+    hostname: str | None = None
 
 
 def lookup_hostname(ip: str) -> str | None:
@@ -219,9 +225,10 @@ def lookup_wmi_hardware(
     ip: str,
     creds: DiscoveryCredentials | None = None,
 ) -> WmiHardware:
-    """CPU, ОЗУ, диски и версия Windows одним DCOM. Не для ICMP-опроса.
+    """CPU, ОЗУ, диски, версия Windows и кто ответил (serial/hostname). Не для ICMP.
 
     creds — с главного потока (как lookup_wmi_inventory). Без учётки — пусто.
+    Серийник нужен опросу железа: VPN/DHCP может отдать IP другой машине.
     """
     ip = assert_public_ipv4(ip)
     if creds is None:
@@ -347,11 +354,13 @@ def _wmi_inventory(ip: str, creds: DiscoveryCredentials) -> WmiInventory:
 
 
 def _wmi_hardware(ip: str, creds: DiscoveryCredentials) -> WmiHardware:
-    """Один DCOM: процессор, ОЗУ, диски, Caption ОС и DisplayVersion из реестра."""
+    """Один DCOM: серийник, имя, процессор, ОЗУ, диски, Caption ОС и DisplayVersion."""
     dcom, services = _wmi_open(ip, creds)
     if services is None:
         return WmiHardware()
     try:
+        serial_raw = _wmi_query_serial(services)
+        cs_hostname, _logged = _wmi_query_computer_system(services)
         cpu_name = _wmi_query_cpu(services)
         ram_bytes = _wmi_query_ram(services)
         disk_bytes = _wmi_query_disk(services)
@@ -373,6 +382,8 @@ def _wmi_hardware(ip: str, creds: DiscoveryCredentials) -> WmiHardware:
             os_build=build,
             os_display_version=display,
             os_edition_id=edition_id,
+            serial_number=normalize_serial(serial_raw),
+            hostname=cs_hostname,
         )
     except Exception as exc:
         logger.debug("WMI hardware: %s — %s", ip, exc)
