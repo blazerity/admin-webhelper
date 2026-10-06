@@ -276,12 +276,12 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `net_utils.py` | `parse_range`, `expand_ranges`, `normalize_mac`, `assert_host_or_ipv4`, `resolve_to_ipv4` |
 | `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
-| `device_kind.py` | тип карты: имена AD, WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
-| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра **и** serial/hostname, кто ответил). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Параметры или `DISCOVERY_*` |
+| `device_kind.py` | тип карты: имена AD (`BN***` = ноутбук, `n…`/`w…`/…), WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
+| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра **и** serial/hostname, кто ответил). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опросы ПК или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
 | `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices` только если SN зонда совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs` |
 | `hardware_poll_settings.py` | cron / schedule_enabled в `app_settings` (default `0 12 * * *`, включено) |
-| `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки; чужой SN на том же IP — не пишет имя. CLI `refresh-hostnames`, кнопка в Параметрах |
+| `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки; чужой SN на том же IP — не пишет имя. CLI `refresh-hostnames`, кнопка в Настройки → Опросы ПК |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
 
@@ -310,7 +310,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `psexec_service.py` | pypsexec-сессии, cancel/close. PowerShell: файл в `ADMIN$\Temp` + `cmd.exe -File` (не `-EncodedCommand`, иначе `STATUS_PIPE_BROKEN`); stdout в канал сразу (`on_output` → живой журнал); CLIXML вырезается |
 | `vnc_token.py` | itsdangerous-билет: IP/порт из инвентаря, TTL 90 с; прокси без БД |
 | `vnc_settings.py` | порт агента, общий пароль Fernet, тумблер шлюза |
-| `tls_pem.py` / `tls_settings.py` / `tls_service.py` | PEM из Параметров, файлы в `certs/`, `apply-nginx-tls.sh` |
+| `tls_pem.py` / `tls_settings.py` / `tls_service.py` | PEM из Настройки → HTTPS, файлы в `certs/`, `apply-nginx-tls.sh` |
 | `script_service.py` | CRUD/тело скриптов; enqueue на ThreadPoolExecutor в веб-процессе |
 | `batch_service.py` | bulk ping/script + статус batch |
 | `command_presets.py` | статические пресеты команд |
@@ -322,7 +322,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_service.py` | оркестрация прогона |
 | `password_ad_client.py` | LDAP: пользователи и days-left |
 | `password_mailer.py` | SMTP |
-| `password_expiry_settings.py` | SMTP общий (UI: Параметры → Почта), bind LDAP модуля, пороги; fallback на `.env` |
+| `password_expiry_settings.py` | SMTP общий (UI: Настройки → Общие), bind LDAP модуля, пороги; fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure своей службы |
@@ -409,14 +409,14 @@ List, `export.csv`, detail (только видимые по ACL).
 
 | Method | Path |
 | --- | --- |
-| GET/POST | `/admin/settings` |
+| GET/POST | `/admin/settings` | UI-разделы: `?section=general\|polls\|vnc\|tls` (бывш. монолит «Параметры») |
 | GET | `/admin/poll-runs/export.csv` |
 | POST | `/admin/poll-run` |
 | GET | `/admin/hardware-poll-runs/export.csv` |
 | POST | `/admin/hardware-poll-run` |
 | POST | `/admin/refresh-hostnames` |
 | GET/POST | `/admin/updates` |
-| GET | `/admin/audit` |
+| GET | `/admin/audit` | редирект на Настройки → Действия и аудит |
 
 ### Password expiry — prefix `/password-expiry`
 
@@ -492,13 +492,13 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | --- | --- |
 | `SECRET_KEY`, `FERNET_KEY`, LDAP/SMTP/DB пароли | только `.env` / EnvironmentFile |
 | Пароли PsExec / пароль входа | Fernet ciphertext в `remote_credentials` |
-| Учётка WMI discovery | `.env` `DISCOVERY_*` или Параметры (`settings_service`) |
+| Учётка WMI discovery | `.env` `DISCOVERY_*` или Настройки → Опросы ПК (`settings_service`) |
 | Пароль VNC (общий) | Fernet в `app_settings` (`vnc_password_encrypted`) |
 | TLS ключ/сертификат | файлы `/opt/bawh/certs/` (не БД) |
 
 Порядок учётки PsExec (`get_remote_admin_credentials(user_id)`):
 
-1. Заполненные username+password в строке пользователя (`/admin/settings`)
+1. Заполненные username+password в строке пользователя (Настройки → Общие / PsExec)
 2. Иначе имя входа + `LDAP_DOMAIN` + зашифрованный пароль последнего LDAP-входа
 
 ---
@@ -523,7 +523,7 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | `password-expiry-refresh` | каждые ~30 с | перечитать cron/тумблер из БД |
 
 Тумблер «Сервис отчётов» на UI модуля включает job и поднимает
-systemd-unit `bawh-password-reports` (sudo-учётка: Параметры → Управление службами).
+systemd-unit `bawh-password-reports` (sudo-учётка: Настройки → Общие).
 Выключение тумблера останавливает только эту службу — опрос сети не затрагивается.
 
 ### Процесс `bawh-pc-reports` — отчёты о ПК
@@ -541,7 +541,7 @@ systemd-unit `bawh-password-reports` (sudo-учётка: Параметры → 
 | --- | --- | --- |
 | `ThreadPoolExecutor` | `ping_service` | параллельный ICMP+discovery; запись в БД — в главном потоке |
 | `ThreadPoolExecutor` | `script_service.enqueue_run` | фоновый PsExec/ping/tracert; UI поллит `/scripts/runs/<id>/status` (~1.5 с, `run_log.js`) |
-| `threading.Thread` | `update_service.begin_update` / `begin_rollback` | фон, чтобы Gunicorn не упёрся в таймаут; поток с `app.app_context()` — sudo-учётка из Параметров / `UPDATE_SUDO_USER` |
+| `threading.Thread` | `update_service.begin_update` / `begin_rollback` | фон, чтобы Gunicorn не упёрся в таймаут; поток с `app.app_context()` — sudo-учётка из Настройки → Общие / `UPDATE_SUDO_USER` |
 
 **Нет** WebSocket / SSE / Celery / общей очереди сообщений.
 
@@ -571,7 +571,7 @@ sequenceDiagram
 
   Sch->>Ping: run_network_poll()
   Ping->>Ping: ICMP по CIDR секторов
-  Note over Ping: учётка WMI в главном потоке<br/>(Параметры / DISCOVERY_*)
+  Note over Ping: учётка WMI в главном потоке<br/>(Настройки → Опросы ПК / DISCOVERY_*)
   Note over Ping: итог → network_poll_runs
   alt online
     Ping->>Disc: WMI hostname (PTR запасной) / ARP MAC / serial
@@ -603,7 +603,7 @@ SMTP → `password_expiry_runs` + `password_notifications`.
 
 ### D2. Отчёты о ПК
 
-Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`n…`) и СБ (`w…`)
+Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`BN***` / `n…`) и СБ (`w…`)
 по секторам + агрегаты железа (ОЗУ/диск/ОС/CPU) + активность за прошедший
 локальный день → SMTP → `sector_daily_report_runs`. Дашборд `/pc-reports` строит
 живой снимок; Chart.js (vendor) рисует диаграммы. Дополнительно: кандидаты на
@@ -611,12 +611,13 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`n
 
 ### D3. Опрос железа Windows
 
-Scheduler cron (полдень) / CLI `hardware-poll` / UI Параметры или карточка →
-`run_hardware_poll` → ping известных Windows-целей (серийник WMI, имена n/w/v/сервер,
+Scheduler cron (полдень) / CLI `hardware-poll` / UI Настройки → Опросы ПК или карточка →
+`run_hardware_poll` → ping известных Windows-целей (серийник WMI, имена BN/n/w/v/сервер,
 fingerprint windows) → `lookup_wmi_hardware` (железо **и** serial/hostname) →
 снимок на карточку с тем же SN; если на IP отвечает другой известный SN —
 полный прогон пишет ему, разовый с карточки — skip. История — только если
-CPU/ОЗУ/диски/ОС изменились. Итог прогона — `hardware_poll_runs`.
+CPU/ОЗУ/диски/ОС изменились. Итог прогона — `hardware_poll_runs`
+(в UI: последние 5 + «Показать все»).
 ICMP-опрос сети **не** трогает эти поля.
 
 ### E. Self-update
@@ -627,7 +628,7 @@ Admin UI → `update_service` (фоновый поток + `app.app_context()`).
 ключ ещё пустой. Дальше:
 backup → git → pip → `flask init-db` → опциональный restart
 `bawh-web` + `bawh-scheduler` + при включённых тумблерах
-`bawh-password-reports` / `bawh-pc-reports` (sudo-учётка из Параметров / sudoers).
+`bawh-password-reports` / `bawh-pc-reports` (sudo-учётка из Настройки → Общие / sudoers).
 Перед restart — `deploy/sync-systemd-units.sh` (unit-файлы + sudoers).
 Ошибка перезапуска не должна помечать уже выполненную замену кода как failed.
 
@@ -638,10 +639,10 @@ backup → git → pip → `flask init-db` → опциональный restart
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
 - **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё. Другие карточки, у которых ещё записан этот IP, становятся offline (короткая аренда VPN). Hostname и PTR **не** ключи слияния: одинаковое имя при разных SN — две карточки. Без SN можно переиспользовать только запись с тем же IP и пустым SN; зонд без SN не забирает строку, у которой SN уже есть. Призрак без SN на старом IP после появления SN на новом — известная дыра (не сливать автоматически).
 - **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames` (чужой SN на том же IP имя не пишет).
-- **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI.
+- **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI. Ноутбуки: `BN***` (`bn` + 3 или 5 цифр) и префикс `n…`; СБ — `w…`.
 - **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
 - **WMI UserName:** `None` в probe — WMI не вызывали/упал (текущую УЗ **не** трогаем); `""` — никто не залогинен.
-- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN с WMI, имена n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. CPU = `Win32_Processor.Name`, ОЗУ = сумма `Win32_PhysicalMemory.Capacity` (запасной — `TotalPhysicalMemory`) в ГиБ с привязкой к номиналу планок, диски = сумма `Win32_DiskDrive.Size` без USB в десятичных ГБ (этикетка 1000³, номинал 256/512/…) (запасной — локальные тома), ОС = Caption + DisplayVersion (реестр StdRegProv) / сборка. Снимок пишется только если WMI-серийник (запасной — короткое имя ОС) совпадает с карточкой: иначе это чужой ПК на переиспользованном VPN/DHCP-адресе.
+- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN с WMI, имена BN/n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. CPU = `Win32_Processor.Name`, ОЗУ = сумма `Win32_PhysicalMemory.Capacity` (запасной — `TotalPhysicalMemory`) в ГиБ с привязкой к номиналу планок, диски = сумма `Win32_DiskDrive.Size` без USB в десятичных ГБ (этикетка 1000³, номинал 256/512/…) (запасной — локальные тома), ОС = Caption + DisplayVersion (реестр StdRegProv) / сборка. Снимок пишется только если WMI-серийник (запасной — короткое имя ОС) совпадает с карточкой: иначе это чужой ПК на переиспользованном VPN/DHCP-адресе.
 - **ILIKE:** только через `utils.ilike_pattern` (экранирование `%`/`_`).
 - **Время:** всегда timezone-aware UTC (`utils.utcnow` / `as_utc`); в шаблонах фильтр `dt`.
 - **Пустые адреса** в `devices` опрос не создаёт.
@@ -655,20 +656,24 @@ backup → git → pip → `flask init-db` → опциональный restart
 Канонические правила UI/UX (IA, токены, адаптив, разделение «работа vs конфиг») —
 в [`docs/UI_GUIDEBOOK.md`](UI_GUIDEBOOK.md). Ниже — карта файлов.
 
-**Шаблоны** (`app/templates/`): каркас `base.html` (навигация: карта, действия, УЗ,
-скрипты, пароли AD, отчёты о ПК, настройки). Домены: `accounts/`, `actions/`,
-`admin/`, `auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
-`macros/`, `password_expiry/`, `scripts/`, `sector_daily_report/` (UI «Отчёты о ПК»), `sectors/`.
+**Шаблоны** (`app/templates/`): каркас `base.html` (topbar: карта, пароли AD,
+отчёт о ПК, настройки). Сайдбар настроек (`layouts/settings.html`): сектора,
+общие / опросы ПК / VNC / HTTPS, модули, экран входа, скрипты, обнаруженные УЗ,
+действия и аудит, обновления. Домены: `accounts/`, `actions/`,
+`admin/` (`settings_general` / `settings_polls` / `settings_vnc` / `settings_tls`),
+`auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
+`macros/`, `password_expiry/`, `scripts/`, `sector_daily_report/` (UI «Отчёт о ПК»), `sectors/`.
 
 **Static:**
 
 | Путь | Назначение |
 | --- | --- |
 | `static/css/app.css` | стили; `.entity-link` — единый вид ссылок на устройство / УЗ |
+| `static/favicon.ico`, `favicon.svg` | иконка вкладки (`base.html`) |
 | `static/js/http.js` | общий fetch/CSRF helper |
-| `static/js/map.js` | карта сети; автообновление опционально (localStorage) |
-| `static/js/search.js` | живой фильтр карты (без suggest-dropdown) |
-| `static/js/live_search.js` | живой поиск списков Действия / Учётные записи |
+| `static/js/map.js` | карта сети (сайдбар поиск/фильтры); автообновление опционально (localStorage) |
+| `static/js/search.js` | живой фильтр карты (без suggest-dropdown); поиск по УЗ |
+| `static/js/live_search.js` | живой поиск списков Действия и аудит / Обнаруженные УЗ |
 | `static/js/batch.js` | bulk операции |
 | `static/js/notifications.js` | колокольчик |
 | `static/js/run_log.js` | поллинг лога запуска |
@@ -695,7 +700,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Crypto | `FERNET_KEY` |
 | Scripts | `SCRIPT_LIBRARY_DIR`, `SCRIPT_TIMEOUT_SECONDS` |
 | Updates | `GIT_REMOTE_URL`, `GIT_BRANCH` (запас, если в UI ветка не выбрана), `UPDATE_BACKUP_KEEP`, `UPDATE_RESTART`, `UPDATE_SUDO_USER` |
-| Cookies | `SESSION_COOKIE_SECURE` (также Параметры → HTTPS) |
+| Cookies | `SESSION_COOKIE_SECURE` (также Настройки → HTTPS) |
 | VNC proxy | `VNC_LISTEN_HOST`, `VNC_LISTEN_PORT`, `VNC_MAX_SESSIONS` |
 
 Также в коде: `PROJECT_ROOT`, `MAX_LOG_CHARS`, `MAX_REMOTE_COMMAND_CHARS`.
@@ -716,13 +721,13 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `deploy/bawh-vnc.service` | `python -m app.vnc_worker` (127.0.0.1:6080) |
 | `deploy/sync-systemd-units.sh` | cp unit'ов + sudoers + `daemon-reload` |
 | `deploy/nginx-bawh.conf` | :80 → gunicorn + `/vnc/ws` → bawh-vnc |
-| `deploy/apply-nginx-tls.sh` | PEM из Параметров → listen 443, reload nginx |
+| `deploy/apply-nginx-tls.sh` | PEM из Настройки → HTTPS → listen 443, reload nginx |
 | `deploy/bawh-update.sudoers` | passwordless restart всех служб + start/enable/stop отчётов/VNC + sync + TLS |
 | `deploy/logrotate-bawh` | logrotate |
 | `Dockerfile` | опционально, только web |
 
 Обязательны **web**, **scheduler** и **bawh-vnc** (шлюз можно остановить тумблером
-в Параметрах). Службы отчётов поднимаются тумблерами в UI. Один `.env` на все
+в Настройки → VNC). Службы отчётов поднимаются тумблерами в UI. Один `.env` на все
 процессы (общий `FERNET_KEY` / `SECRET_KEY`).
 
 ---
@@ -750,21 +755,21 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
-| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Параметры и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
+| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Настройки → Опросы ПК и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
 | Идентичность устройств | `ping_service._resolve_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
 | Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session` / `vnc_prepare`, сид удаления `tightvnc_install_script`, раздача MSI `routes/vnc_agents.py` + `vnc-agents/`, [`VNC.md`](VNC.md) |
-| HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Параметры `#tls` |
+| HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Настройки → HTTPS |
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
 | Отчёты о ПК | `sector_daily_report_service` + settings, `routes/sector_daily_report.py`, `static/js/pc_reports.js` |
 | Уведомления | `notification_service`, `routes/notifications.py` |
-| Настройки / опрос вручную | `routes/admin.py`, `settings_service` |
-| Аудит админа | `audit_service`, `/admin/audit` |
+| Настройки / опрос вручную | `routes/admin.py` (`section=general|polls|vnc|tls`), `settings_service` |
+| Аудит админа | `audit_service`, лента в Настройки → Действия и аудит (`/admin/audit` → редирект) |
 | Новая таблица | модель в `models/` → `__all__` в `models/__init__.py` → `ensure_schema` на старте |
 | Конфиг / env | `config.py` + `.env.example` |
 | Деплой unit | `deploy/*` |
@@ -779,8 +784,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | [README.md](../README.md) | Установка на Debian, минимальный `.env`, службы, обновление |
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
 | [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
-| [SCRIPTS.md](SCRIPTS.md) | Требования к телу скрипта из формы «Скрипты» (для агентов и авторов) |
-| [VNC.md](VNC.md) | Стол в браузере, агент TightVNC при подключении, тихое удаление, HTTPS из Параметров |
+| [SCRIPTS.md](SCRIPTS.md) | Требования к телу скрипта из формы Настройки → Скрипты (для агентов и авторов) |
+| [VNC.md](VNC.md) | Стол в браузере, агент TightVNC при подключении, тихое удаление, HTTPS из Настройки → HTTPS |
 
 ---
 
@@ -796,7 +801,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | `.env`, `*.db`, `instance/`, `.venv/` | секреты и локальная БД |
 | `logs/*`, `backups/`, `*.log` | runtime |
-| `certs/` | PEM/ключи HTTPS из Параметров |
+| `certs/` | PEM/ключи HTTPS из Настройки → HTTPS |
 | `vnc-agents/*.msi`, `vnc-agents/*.exe` | установщик TightVNC, который админ кладёт на сервер |
 | `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
 | `tests/` | локальные unittest, в поставку не входят |

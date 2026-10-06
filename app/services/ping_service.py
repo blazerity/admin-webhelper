@@ -493,7 +493,7 @@ def _probe_all(ips: list[str], stats: dict[str, int]) -> list[_Probe]:
     if wmi_creds is None:
         logger.warning(
             "Учётка WMI не задана: серийник, имя и MAC по WMI не запрашиваются "
-            "(Параметры → Учётка WMI или DISCOVERY_* в .env). "
+            "(Настройки → Опросы ПК или DISCOVERY_* в .env). "
             "Без серийника устройство не склеивается по имени — только заглушка по IP."
         )
     else:

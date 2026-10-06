@@ -1,5 +1,5 @@
 {% extends "layouts/settings.html" %}
-{% block title %}Отчёты о ПК — настройки{% endblock %}
+{% block title %}Отчёт о ПК — настройки{% endblock %}
 {% block settings_content %}
 <div class="page-header">
   <div>
@@ -50,7 +50,7 @@
         <div class="form-text">
           Тот же тумблер, что сверху на странице отчёта. При включении поднимается
           <code>bawh-pc-reports</code> через sudo-учётку из
-          <a href="{{ url_for('admin.settings') }}#service-control">Параметры → Управление службами</a>.
+          <a href="{{ url_for('admin.settings', section='general') }}#service-control">Настройки → Общие</a>.
         </div>
       </div>
     </div>

@@ -80,7 +80,7 @@ class Config:
     # После удачной замены перезапустить web, scheduler и службы отчётов через sudo.
     UPDATE_RESTART = _flag("UPDATE_RESTART", "1")
     # Linux-пользователь для sudo -u при управлении службами (пусто — root).
-    # В интерфейсе: Параметры → Управление службами. См. deploy/bawh-update.sudoers.
+    # В интерфейсе: Настройки → Общие. См. deploy/bawh-update.sudoers.
     UPDATE_SUDO_USER = os.environ.get("UPDATE_SUDO_USER", "").strip()
 
     SCRIPT_LIBRARY_DIR = os.environ.get("SCRIPT_LIBRARY_DIR", "script_library")

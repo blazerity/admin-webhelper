@@ -66,7 +66,7 @@ class PasswordMailer:
 
         if not self._smtp.configured:
             raise PasswordMailerError(
-                "SMTP не настроен: укажите хост и From в Настройки → Параметры → Почта "
+                "SMTP не настроен: укажите хост и From в Настройки → Общие "
                 "(или SMTP_HOST / SMTP_FROM в .env)"
             )
 
@@ -106,7 +106,7 @@ def test_smtp_connection(smtp: SmtpSettings | None = None) -> str:
     smtp = smtp or get_smtp_settings()
     if not smtp.configured:
         raise PasswordMailerError(
-            "SMTP не настроен: укажите хост и From в Настройки → Параметры → Почта"
+            "SMTP не настроен: укажите хост и From в Настройки → Общие"
         )
     try:
         with smtplib.SMTP(smtp.host, smtp.port, timeout=30) as client:
