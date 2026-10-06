@@ -3,10 +3,10 @@
 {% block settings_content %}
 <div class="page-header">
   <div>
-    <h1 class="page-title">Отчёты о ПК — настройки</h1>
+    <h1 class="page-title">Отчёт о ПК — настройки</h1>
     <p class="page-subtitle">
-      Расписание и получатели сводки по ноутбукам и СБ (количества, железо, кандидаты на замену).
-      SMTP общий с модулем «Пароли AD».
+      Расписание и получатели сводки по ноутбукам и СБ.
+      SMTP — в <a href="{{ url_for('admin.settings', section='general') }}#smtp">Настройки → Общие</a>.
     </p>
   </div>
   <a class="btn btn-outline-secondary" href="{{ url_for('sector_daily_report.dashboard') }}">К отчёту</a>
@@ -21,7 +21,7 @@
       SMTP не настроен.
     {% endif %}
     Параметры задаются в
-    <a href="{{ url_for('password_expiry.settings_page') }}">Настройки → Пароли AD</a>
+    <a href="{{ url_for('admin.settings', section='general') }}#smtp">Настройки → Общие</a>
     (или <code>SMTP_*</code> в <code>.env</code>).
   </p>
 </div>

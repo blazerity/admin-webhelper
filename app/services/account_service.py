@@ -329,13 +329,29 @@ def account_current_devices(account: EndpointAccount, user) -> list[Device]:
     return list(db.session.scalars(stmt).all())
 
 
-def device_account_sightings(device_id: int, *, limit: int = 50) -> list[DeviceAccountHistory]:
+def count_device_account_sightings(device_id: int) -> int:
+    return int(
+        db.session.scalar(
+            select(func.count())
+            .select_from(DeviceAccountHistory)
+            .where(DeviceAccountHistory.device_id == device_id)
+        )
+        or 0
+    )
+
+
+def device_account_sightings(
+    device_id: int, *, limit: int = 50, offset: int = 0
+) -> list[DeviceAccountHistory]:
+    limit = max(1, min(200, int(limit)))
+    offset = max(0, int(offset or 0))
     return list(
         db.session.scalars(
             select(DeviceAccountHistory)
             .options(selectinload(DeviceAccountHistory.account))
             .where(DeviceAccountHistory.device_id == device_id)
             .order_by(DeviceAccountHistory.seen_at.desc(), DeviceAccountHistory.id.desc())
+            .offset(offset)
             .limit(limit)
         ).all()
     )

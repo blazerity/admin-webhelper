@@ -219,16 +219,29 @@ def load_recent_hardware_poll_runs(
 
 
 def load_device_hardware_history(
-    device_id: int, *, limit: int = 20
+    device_id: int, *, limit: int = 20, offset: int = 0
 ) -> list[DeviceHardwareHistory]:
     limit = max(1, min(200, int(limit)))
+    offset = max(0, int(offset or 0))
     return list(
         db.session.scalars(
             select(DeviceHardwareHistory)
             .where(DeviceHardwareHistory.device_id == device_id)
             .order_by(DeviceHardwareHistory.collected_at.desc(), DeviceHardwareHistory.id.desc())
+            .offset(offset)
             .limit(limit)
         )
+    )
+
+
+def count_device_hardware_history(device_id: int) -> int:
+    return int(
+        db.session.scalar(
+            select(func.count())
+            .select_from(DeviceHardwareHistory)
+            .where(DeviceHardwareHistory.device_id == device_id)
+        )
+        or 0
     )
 
 
@@ -253,7 +266,7 @@ def run_hardware_poll(
         if creds is None:
             raise HardwarePollError(
                 "Учётка WMI не задана: железо не прочитать "
-                "(Параметры → Учётка WMI или DISCOVERY_* в .env)."
+                "(Настройки → Опросы ПК или DISCOVERY_* в .env)."
             )
 
         if not dry_run:

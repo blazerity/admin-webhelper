@@ -17,10 +17,14 @@ from app.authz import (
 from app.extensions import db
 from app.models import Device, DeviceHistory, RunType, Script, ScriptRun, Sector
 from app.run_display import run_launch_label, run_status_label, run_when_label
-from app.services.account_service import device_account_sightings
+from app.services.account_service import (
+    count_device_account_sightings,
+    device_account_sightings,
+)
 from app.services.hardware_poll_service import (
     HardwarePollError,
     HardwarePollInProgressError,
+    count_device_hardware_history,
     load_device_hardware_history,
     poll_one_device,
 )
@@ -30,13 +34,13 @@ from app.services.device_kind import hostname_sort_key, kind_counts
 from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
 from app.services import script_service
-from app.utils import parse_optional_int, utcnow
+from app.utils import normalize_page, parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
 
 _DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls", "hardware"})
 _DEFAULT_LIST_LIMIT = 5
-_ALL_LIST_LIMIT = 50
+_HISTORY_PER_PAGE = 20
 
 
 def _allowed_detail_tabs(device) -> frozenset[str]:
@@ -355,31 +359,42 @@ def command_presets_api():
     return jsonify({"presets": list_command_presets()})
 
 
-def _list_limit() -> tuple[int, bool]:
-    """(limit, show_all) — по умолчанию 5, при all=1 — расширенный список."""
+def _history_paging() -> tuple[bool, int, int, int]:
+    """(show_all, page, per_page, offset) для журналов карточки устройства.
+
+    По умолчанию — 5 последних. При all=1 — постраничный просмотр.
+    """
     show_all = (request.args.get("all") or "").strip() in {"1", "true", "yes"}
-    return (_ALL_LIST_LIMIT if show_all else _DEFAULT_LIST_LIMIT, show_all)
+    if not show_all:
+        return False, 1, _DEFAULT_LIST_LIMIT, 0
+    page, per_page = normalize_page(
+        parse_optional_int(request.args.get("page")),
+        parse_optional_int(request.args.get("per_page")) or _HISTORY_PER_PAGE,
+        max_per_page=100,
+    )
+    return True, page, per_page, (page - 1) * per_page
 
 
 def _launch_history(
-    device_id: int, run_types: tuple[str, ...], limit: int
-) -> tuple[list[dict], bool]:
-    """Последние запуски на устройстве заданных типов.
-
-    Возвращает (items, has_more). При урезанном списке читаем limit+1,
-    чтобы понять, есть ли ещё записи для кнопки «Показать все».
-    """
+    device_id: int,
+    run_types: tuple[str, ...],
+    *,
+    limit: int,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Запуски на устройстве: (items, total)."""
+    base = ScriptRun.query.filter(
+        ScriptRun.device_id == device_id,
+        ScriptRun.run_type.in_(run_types),
+    )
+    total = base.count()
     rows = (
-        ScriptRun.query.options(selectinload(ScriptRun.script))
-        .filter(
-            ScriptRun.device_id == device_id,
-            ScriptRun.run_type.in_(run_types),
-        )
+        base.options(selectinload(ScriptRun.script))
         .order_by(ScriptRun.started_at.desc(), ScriptRun.id.desc())
-        .limit(limit + 1)
+        .offset(offset)
+        .limit(limit)
         .all()
     )
-    has_more = len(rows) > limit
     items = [
         {
             "run": item,
@@ -387,9 +402,9 @@ def _launch_history(
             "status_label": run_status_label(item.status),
             "when": run_when_label(item.started_at),
         }
-        for item in rows[:limit]
+        for item in rows
     ]
-    return items, has_more
+    return items, total
 
 
 @bp.get("/devices/<int:device_id>")
@@ -401,37 +416,68 @@ def detail(device_id: int):
         abort(404)
 
     tab = _detail_tab_for(device)
-    limit, show_all = _list_limit()
+    show_all, page, per_page, offset = _history_paging()
+    preview_limit = _DEFAULT_LIST_LIMIT
 
     history = []
     launches = []
     account_rows = []
     hardware_rows = []
     has_more = False
+    list_total = 0
     if tab == "polls":
-        rows = (
-            DeviceHistory.query.filter_by(device_id=device.id)
-            .order_by(DeviceHistory.timestamp.desc())
-            .limit(limit + 1)
-            .all()
-        )
-        has_more = (not show_all) and len(rows) > limit
-        history = rows[:limit]
+        list_total = DeviceHistory.query.filter_by(device_id=device.id).count()
+        if show_all:
+            history = (
+                DeviceHistory.query.filter_by(device_id=device.id)
+                .order_by(DeviceHistory.timestamp.desc())
+                .offset(offset)
+                .limit(per_page)
+                .all()
+            )
+        else:
+            history = (
+                DeviceHistory.query.filter_by(device_id=device.id)
+                .order_by(DeviceHistory.timestamp.desc())
+                .limit(preview_limit)
+                .all()
+            )
+            has_more = list_total > preview_limit
     elif tab == "commands" and device.shows_commands:
-        launches, more = _launch_history(
-            device.id,
-            (RunType.COMMAND, RunType.SCRIPT, RunType.VNC_ENSURE),
-            limit,
-        )
-        has_more = (not show_all) and more
+        if show_all:
+            launches, list_total = _launch_history(
+                device.id,
+                (RunType.COMMAND, RunType.SCRIPT, RunType.VNC_ENSURE),
+                limit=per_page,
+                offset=offset,
+            )
+        else:
+            launches, list_total = _launch_history(
+                device.id,
+                (RunType.COMMAND, RunType.SCRIPT, RunType.VNC_ENSURE),
+                limit=preview_limit,
+            )
+            has_more = list_total > preview_limit
     elif tab == "accounts" and device.shows_accounts:
-        rows = device_account_sightings(device.id, limit=limit + 1)
-        has_more = (not show_all) and len(rows) > limit
-        account_rows = rows[:limit]
+        list_total = count_device_account_sightings(device.id)
+        if show_all:
+            account_rows = device_account_sightings(
+                device.id, limit=per_page, offset=offset
+            )
+        else:
+            account_rows = device_account_sightings(device.id, limit=preview_limit)
+            has_more = list_total > preview_limit
     elif tab == "hardware" and device.shows_hardware:
-        rows = load_device_hardware_history(device.id, limit=limit + 1)
-        has_more = (not show_all) and len(rows) > limit
-        hardware_rows = rows[:limit]
+        list_total = count_device_hardware_history(device.id)
+        if show_all:
+            hardware_rows = load_device_hardware_history(
+                device.id, limit=per_page, offset=offset
+            )
+        else:
+            hardware_rows = load_device_hardware_history(
+                device.id, limit=preview_limit
+            )
+            has_more = list_total > preview_limit
 
     # Пресеты/скрипты только если вкладка команд доступна этому типу.
     command_presets = list_command_presets() if device.shows_commands else []
@@ -447,7 +493,10 @@ def detail(device_id: int):
         tab=tab,
         show_all=show_all,
         has_more=has_more,
-        list_limit=limit,
+        list_limit=preview_limit if not show_all else per_page,
+        list_page=page,
+        list_per_page=per_page,
+        list_total=list_total,
         history=history,
         launches=launches,
         account_rows=account_rows,

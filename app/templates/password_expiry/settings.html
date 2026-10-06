@@ -5,8 +5,8 @@
   <div>
     <h1 class="page-title">Пароли AD — настройки</h1>
     <p class="page-subtitle">
-      Учётка AD для чтения каталога и пороги модуля.
-      Почта (SMTP) — в <a href="{{ url_for('admin.settings') }}#smtp">Параметры → Почта</a>.
+      Учётная запись AD для чтения каталога и пороги модуля.
+      SMTP — в <a href="{{ url_for('admin.settings', section='general') }}#smtp">Настройки → Общие</a>.
       Включение расписания — на <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
     </p>
   </div>
@@ -64,7 +64,7 @@
       SMTP не настроен.
     {% endif %}
     Общие параметры — в
-    <a href="{{ url_for('admin.settings') }}#smtp">Параметры → Почта</a>
+    <a href="{{ url_for('admin.settings', section='general') }}#smtp">Настройки → Общие</a>
     (или <code>SMTP_*</code> в <code>.env</code>).
   </p>
 </div>
