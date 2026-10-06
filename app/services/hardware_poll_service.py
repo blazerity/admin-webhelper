@@ -387,6 +387,8 @@ def _poll_targets(
     if not pending:
         return
 
+    from app.services.device_identity_service import absorb_ghosts, upsert_device_address
+
     target_ids = [item[0].device_id for item in pending]
     live_serials = {
         discovery_service.normalize_serial(serial)
@@ -458,7 +460,6 @@ def _poll_targets(
             by_serial[live_serial_norm] = owner
         if live_hostname and not owner.hostname:
             owner.hostname = live_hostname
-        from app.services.device_identity_service import absorb_ghosts, upsert_device_address
 
         upsert_device_address(
             owner,

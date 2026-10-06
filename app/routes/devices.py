@@ -34,7 +34,7 @@ from app.services.device_kind import hostname_sort_key, kind_counts
 from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
 from app.services import script_service
-from app.utils import normalize_page, parse_optional_int, utcnow
+from app.utils import as_utc, normalize_page, parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
 
@@ -487,10 +487,10 @@ def detail(device_id: int):
         else []
     )
     device_addresses = sorted(
-        list(device.addresses or []),
+        device.addresses,
         key=lambda row: (
             0 if row.ip == device.ip else 1,
-            -(row.last_seen.timestamp() if row.last_seen else 0),
+            -(as_utc(row.last_seen).timestamp() if row.last_seen else 0),
             row.id or 0,
         ),
     )
