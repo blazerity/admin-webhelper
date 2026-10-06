@@ -48,8 +48,11 @@
             <h2 class="device-object-name">{{ device.hostname or 'без имени' }}</h2>
             <p class="device-object-ip font-monospace">{{ device.ip }}</p>
           </div>
-          <div class="device-object-status" data-device-status-host>
+          <div class="device-object-status d-flex flex-column align-items-end gap-2" data-device-status-host>
             {{ status_badge(device.last_status) }}
+            {% if can_connect_vnc %}
+            <a class="btn btn-sm btn-primary" href="{{ url_for('devices.vnc_session', device_id=device.id) }}">Рабочий стол</a>
+            {% endif %}
           </div>
         </div>
         <dl class="device-object-meta">
@@ -102,6 +105,21 @@
         </dl>
       </div>
     </article>
+
+    {% if can_connect_vnc %}
+    <div class="panel content-card mt-3" id="device-vnc">
+      <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div>
+          <h2 class="panel-title mb-1">Рабочий стол в браузере</h2>
+          <p class="panel-hint mb-0">
+            Экспериментально: Debian открывает VNC на этом IP (порт из Параметров, обычно 5900)
+            и показывает картинку здесь. На ПК — TightVNC/UltraVNC (скрипт «TightVNC (тихая установка)»; MSI лежит в vnc-agents/ на bAWH), файрвол только с сервера bAWH.
+          </p>
+        </div>
+        <a class="btn btn-primary" href="{{ url_for('devices.vnc_session', device_id=device.id) }}">Подключиться</a>
+      </div>
+    </div>
+    {% endif %}
 
     {% if show_hardware %}
     <div class="panel content-card mt-3">

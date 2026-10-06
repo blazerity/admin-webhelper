@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.6.7)
+# Архитектура bAWH (актуально для v1.7.0)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -8,19 +8,19 @@
 
 **Продукт:** внутренний веб-помощник администратора сети (карта устройств,
 секторы/CIDR, ICMP+WMI+TCP/SNMP опрос, диагностика, скрипты на Windows через PsExec,
-LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
+веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.6.7` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.7.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
 (отдельный процесс) · ldap3 · cryptography Fernet · pypsexec · impacket (WMI) ·
-Gunicorn + Nginx · Bootstrap 5 (vendorized).
+Gunicorn + Nginx · Bootstrap 5 (vendorized) · noVNC + `websockets` (процесс `bawh-vnc`).
 
-**Нет в репозитории:** Alembic / Flask-Migrate, Redis, Celery, WebSocket,
+**Нет в репозитории:** Alembic / Flask-Migrate, Redis, Celery, WebSocket *в Flask*,
 Telegram, S3, SPA-фреймворка, Pydantic. Каталог `tests/` тоже не в git
-(локальный `unittest`, без pytest в requirements).
+(локальный `unittest`, без pytest в requirements). Веб-VNC — отдельный процесс, не Gunicorn.
 
 ---
 
@@ -58,6 +58,7 @@ HTTP / CLI / scheduler
 | Планировщик | `python -m app.scheduler_worker` | `create_app()` + `start_scheduler(app)`; опрос сети/железа. |
 | Отчёты паролей | `python -m app.password_report_worker` | `start_password_report_scheduler(app)`. |
 | Отчёты о ПК | `python -m app.pc_report_worker` | `start_pc_report_scheduler(app)`. |
+| VNC-прокси | `python -m app.vnc_worker` | WebSocket→TCP, без Flask/БД; билет `SECRET_KEY`. |
 | Flask CLI | `flask --app wsgi …` | `poll`, `hardware-poll`, `archive-logs`, `password-expiry [--dry-run]`, `sector-daily-report [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
 | Docker | `Dockerfile` | Опциональный web-only образ; scheduler/отчёты — отдельно. |
 
@@ -83,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.6.7)
+  VERSION                      # semver (1.7.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -107,6 +108,7 @@ bAWH/                          # на сервере = /opt/bawh
     templates/
     static/                    # css/, js/, vendor/bootstrap/
   deploy/                      # Debian 12: systemd, nginx, install
+  vnc-agents/                  # MSI TightVNC (файлы .msi не в git)
   tests/                       # локально, в gitignore
   logs/                        # runtime (в gitignore содержимое)
 ```
@@ -189,7 +191,9 @@ def ensure_schema() -> None:
     # 1) если в metadata есть таблицы, которых нет в БД → db.create_all()
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
     # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
-    # 4) если action_kinds пуст → seed_action_kinds() + commit
+    # 4) ветка обновлений beta, если ещё не выбирали (data_fix.update_branch_beta_v167)
+    # 5) скрипт TightVNC в библиотеке, если имени нет / стоковое тело (data_fix.seed_tightvnc_script_v175)
+    # 6) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
 Вызывается при каждом старте `create_app` (web и scheduler).  
@@ -210,6 +214,15 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 лежат «рваные» ГБ (15 ОЗУ, 238/244 диск). При старте 1.5.1 `normalize_stored_capacity_gb`
 один раз приводит их к номиналу; маркер `data_fix.hw_gb_nominal_v151` в `app_settings`.
 Повторный WMI-опрос для этого не нужен.
+
+**Сид TightVNC:** при старте в библиотеку кладётся неопубликованное тело
+«TightVNC (тихая установка)» из `app/services/tightvnc_install_script.py`.
+MSI админ кладёт в `vnc-agents/` (на сервере `/opt/bawh/vnc-agents/`);
+скрипт копирует его на ПК через ADMIN$ и может скачать `/vnc-agents/64bit.msi`.
+Маркер `data_fix.seed_tightvnc_script_v175`: стоковое тело (пустой пароль)
+обновляется целиком; в теле с уже подставленным паролем чинится
+`Convert-VncPasswordBytes` (если ещё старый RFB-challenge DES) и
+синхронизируется `Remove-TightVncStartMenu` (ярлыки в общем меню Пуск).
 
 ---
 
@@ -298,6 +311,9 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Модуль | Роль |
 | --- | --- |
 | `psexec_service.py` | pypsexec-сессии, cancel/close. PowerShell: файл в `ADMIN$\Temp` + `cmd.exe -File` (не `-EncodedCommand`, иначе `STATUS_PIPE_BROKEN`); stdout в канал сразу (`on_output` → живой журнал); CLIXML вырезается |
+| `vnc_token.py` | itsdangerous-билет: IP/порт из инвентаря, TTL 90 с; прокси без БД |
+| `vnc_settings.py` | порт агента, общий пароль Fernet, тумблер шлюза |
+| `tls_pem.py` / `tls_settings.py` / `tls_service.py` | PEM из Параметров, файлы в `certs/`, `apply-nginx-tls.sh` |
 | `script_service.py` | CRUD/тело скриптов; enqueue на ThreadPoolExecutor в веб-процессе |
 | `batch_service.py` | bulk ping/script + статус batch |
 | `command_presets.py` | статические пресеты команд |
@@ -356,7 +372,8 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
 | GET | `/api/command-presets` | Пресеты (**admin**) |
-| GET | `/devices/<id>` | Карточка: вкладки по типу — overview (+ accounts у ноут/СБ/прочее; commands/hardware у ноут/СБ/сервер/прочее; polls у всех; SN только ноут/СБ) |
+| GET | `/devices/<id>` | Карточка: вкладки по типу — overview (+ accounts у ноут/СБ/прочее; commands/hardware у ноут/СБ/сервер/прочее; polls у всех; SN только ноут/СБ). Кнопка «Рабочий стол» у admin/operator на Windows-подобных |
+| GET | `/devices/<id>/vnc` | Экспериментальный noVNC: билет 90 с, цель только `Device.ip` + порт 5900–5999 |
 | POST | `/devices/<id>/hardware-poll` | Разовый WMI-опрос железа (**admin**) |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
@@ -457,7 +474,7 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | --- | --- | --- | --- |
 | `admin` | `LDAP_ADMIN_GROUP` | `is_admin` | Всё (`user_has_role` считает admin обладателем любой роли) |
 | `viewer` | `LDAP_VIEWER_GROUP` | `is_viewer` | Чтение карты/устройств в рамках `sector_access`; **без** ping/скриптов |
-| `operator` | `LDAP_OPERATOR_GROUP` | `is_operator` | Ping/tracert + запуск **опубликованных** скриптов; CRUD скриптов — только admin |
+| `operator` | `LDAP_OPERATOR_GROUP` | `is_operator` | Ping/tracert + веб-VNC + запуск **опубликованных** скриптов; CRUD скриптов — только admin |
 | `password_viewer` | `LDAP_PASSWORD_VIEWER_GROUP` | `is_password_viewer` | Отчёт паролей AD; SMTP/settings — admin |
 
 Базовые правила:
@@ -468,7 +485,7 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 - UI-скрытие меню **не** защита: каждый mutating endpoint проверяет на сервере.
 
 Хелперы: `admin_required`, `user_has_role`, `user_can_run_scripts`, `user_can_run_script`,
-`user_can_run_diagnostics`, `user_can_view_password_expiry`, `accessible_sector_ids`,
+`user_can_run_diagnostics`, `user_can_connect_vnc` (как диагностика), `user_can_view_password_expiry`, `accessible_sector_ids`,
 `user_can_access_device`, `get_visible_device_or_404`, `filter_accessible_devices`,
 `user_can_see_script_run`.
 
@@ -479,6 +496,8 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | `SECRET_KEY`, `FERNET_KEY`, LDAP/SMTP/DB пароли | только `.env` / EnvironmentFile |
 | Пароли PsExec / пароль входа | Fernet ciphertext в `remote_credentials` |
 | Учётка WMI discovery | `.env` `DISCOVERY_*` или Параметры (`settings_service`) |
+| Пароль VNC (общий) | Fernet в `app_settings` (`vnc_password_encrypted`) |
+| TLS ключ/сертификат | файлы `/opt/bawh/certs/` (не БД) |
 
 Порядок учётки PsExec (`get_remote_admin_credentials(user_id)`):
 
@@ -658,8 +677,10 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/js/run_log.js` | поллинг лога запуска |
 | `static/js/login_status.js` | статус сервисов на `/login` |
 | `static/js/pc_reports.js` | диаграммы отчётов о ПК (Chart.js) |
+| `static/js/vnc_session.js` | noVNC RFB на `/devices/<id>/vnc` |
 | `static/vendor/bootstrap/` | Bootstrap 5 offline (air-gap) |
 | `static/vendor/chart.js/` | Chart.js 4 UMD offline (air-gap) |
+| `static/vendor/novnc/` | noVNC 1.5.0 core (air-gap) |
 
 ---
 
@@ -677,7 +698,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Crypto | `FERNET_KEY` |
 | Scripts | `SCRIPT_LIBRARY_DIR`, `SCRIPT_TIMEOUT_SECONDS` |
 | Updates | `GIT_REMOTE_URL`, `GIT_BRANCH` (запас, если в UI ветка не выбрана), `UPDATE_BACKUP_KEEP`, `UPDATE_RESTART`, `UPDATE_SUDO_USER` |
-| Cookies | `SESSION_COOKIE_SECURE` |
+| Cookies | `SESSION_COOKIE_SECURE` (также Параметры → HTTPS) |
+| VNC proxy | `VNC_LISTEN_HOST`, `VNC_LISTEN_PORT`, `VNC_MAX_SESSIONS` |
 
 Также в коде: `PROJECT_ROOT`, `MAX_LOG_CHARS`, `MAX_REMOTE_COMMAND_CHARS`.
 
@@ -694,14 +716,17 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` (опрос / железо / архив) |
 | `deploy/bawh-password-reports.service` | `python -m app.password_report_worker` |
 | `deploy/bawh-pc-reports.service` | `python -m app.pc_report_worker` |
+| `deploy/bawh-vnc.service` | `python -m app.vnc_worker` (127.0.0.1:6080) |
 | `deploy/sync-systemd-units.sh` | cp unit'ов + sudoers + `daemon-reload` |
-| `deploy/nginx-bawh.conf` | :80 → gunicorn |
-| `deploy/bawh-update.sudoers` | passwordless restart всех служб + start/enable/stop отчётов + sync |
+| `deploy/nginx-bawh.conf` | :80 → gunicorn + `/vnc/ws` → bawh-vnc |
+| `deploy/apply-nginx-tls.sh` | PEM из Параметров → listen 443, reload nginx |
+| `deploy/bawh-update.sudoers` | passwordless restart всех служб + start/enable/stop отчётов/VNC + sync + TLS |
 | `deploy/logrotate-bawh` | logrotate |
 | `Dockerfile` | опционально, только web |
 
-Обязательны **web** и **scheduler**. Службы отчётов поднимаются тумблерами
-в UI. Один `.env` на все процессы (общий `FERNET_KEY`).
+Обязательны **web**, **scheduler** и **bawh-vnc** (шлюз можно остановить тумблером
+в Параметрах). Службы отчётов поднимаются тумблерами в UI. Один `.env` на все
+процессы (общий `FERNET_KEY` / `SECRET_KEY`).
 
 ---
 
@@ -734,6 +759,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
+| Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session`, сид агента `tightvnc_install_script`, раздача MSI `routes/vnc_agents.py` + `vnc-agents/`, [`VNC.md`](VNC.md) |
+| HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Параметры `#tls` |
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
@@ -756,6 +783,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
 | [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
 | [SCRIPTS.md](SCRIPTS.md) | Требования к телу скрипта из формы «Скрипты» (для агентов и авторов) |
+| [VNC.md](VNC.md) | Экспериментальный стол в браузере, тихая установка TightVNC, HTTPS из Параметров |
 
 ---
 
@@ -771,6 +799,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | `.env`, `*.db`, `instance/`, `.venv/` | секреты и локальная БД |
 | `logs/*`, `backups/`, `*.log` | runtime |
+| `certs/` | PEM/ключи HTTPS из Параметров |
+| `vnc-agents/*.msi`, `vnc-agents/*.exe` | установщик TightVNC, который админ кладёт на сервер |
 | `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
 | `tests/` | локальные unittest, в поставку не входят |
 | `scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики |

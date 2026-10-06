@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Стол · {{ device.hostname or device.ip }}{% endblock %}
+{% block main_class %}app-main-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="mb-1">
+      <a href="{{ url_for('devices.detail', device_id=device.id) }}">← К карточке</a>
+    </p>
+    <h1 class="page-title">{{ device.hostname or device.ip }}</h1>
+    <p class="page-subtitle">Экспериментальный VNC в браузере. Агент на ПК, шлюз на Debian.</p>
+  </div>
+</div>
+
+{% if not gateway_enabled %}
+<div class="flash-inline text-warning mb-3">
+  Шлюз <code>bawh-vnc</code> выключен в Параметрах — соединение, скорее всего, не откроется.
+</div>
+{% endif %}
+
+<div class="panel content-card mb-3">
+  <form class="vnc-toolbar" id="vnc-toolbar" autocomplete="off">
+    <div class="vnc-toolbar-fields">
+      <div>
+        <label class="form-label" for="vnc-password">Пароль VNC на ПК</label>
+        <input
+          class="form-control"
+          id="vnc-password"
+          name="vnc_password"
+          type="password"
+          value="{{ vnc_password or '' }}"
+          maxlength="8"
+          placeholder="{{ 'сохранён в Параметрах' if has_vnc_password else 'пароль агента TightVNC / UltraVNC, до 8 символов' }}"
+          autocomplete="off"
+        >
+      </div>
+      <p class="vnc-toolbar-meta text-muted small mb-0">
+        <span class="font-monospace">{{ device.ip }}:{{ vnc_port }}</span>
+        · билет на 90 с · после «Подключить» пароль уходит в RFB, не в журнал
+      </p>
+    </div>
+    <div class="vnc-toolbar-actions">
+      <button class="btn btn-primary" type="button" id="vnc-connect">Подключить</button>
+      <button class="btn btn-outline-secondary" type="button" id="vnc-disconnect" disabled>Отключить</button>
+    </div>
+  </form>
+  <p class="small mb-0 mt-2" id="vnc-status" data-kind="">ожидание</p>
+</div>
+
+<div
+  class="vnc-screen-shell terminal-panel"
+  id="vnc-session"
+  data-ws-url="{{ ws_url }}"
+  data-has-password="{{ '1' if has_vnc_password else '0' }}"
+  data-auto-connect="{{ '1' if (vnc_password or not has_vnc_password) else '0' }}"
+>
+  <div class="terminal-bar">
+    <span>{{ device.hostname or device.ip }}</span>
+    <span class="text-nowrap">noVNC</span>
+  </div>
+  <div id="vnc-screen" class="vnc-screen" tabindex="0"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='js/vnc_session.js') }}"></script>
+{% endblock %}

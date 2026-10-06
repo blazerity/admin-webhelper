@@ -1815,6 +1815,51 @@ code {
   color: #808080;
 }
 
+.vnc-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+}
+
+.vnc-toolbar-fields {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.vnc-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.vnc-screen-shell {
+  margin-bottom: 1.5rem;
+}
+
+.vnc-screen {
+  min-height: min(70vh, 48rem);
+  height: min(70vh, 48rem);
+  background: #1e1e1e;
+}
+
+.vnc-screen canvas {
+  display: block;
+  margin: 0 auto;
+}
+
+#vnc-status[data-kind="ok"] { color: var(--ok); }
+#vnc-status[data-kind="bad"] { color: var(--bad); }
+#vnc-status[data-kind="warn"] { color: var(--warn); }
+
+@media (max-width: 640px) {
+  .vnc-screen {
+    min-height: 60vh;
+    height: 60vh;
+  }
+}
+
 .terminal-form {
   display: flex;
   gap: 0.5rem;

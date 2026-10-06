@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Параметры</h1>
-    <p class="page-subtitle">Почта, учётки PsExec и WMI, интервал и журнал опроса сети</p>
+    <p class="page-subtitle">Почта, учётки PsExec и WMI, VNC в браузере, HTTPS-сертификат, интервал опроса</p>
   </div>
 </div>
 
@@ -324,12 +324,165 @@
   <p class="text-muted small mt-3 mb-0">Прогонов железа ещё нет — дождитесь полудня или нажмите «Опросить железо сейчас».</p>
   {% endif %}
 </div>
+
+<div class="panel content-card mb-3" id="vnc">
+  <h2 class="h5 mb-1">VNC в браузере</h2>
+  <p class="text-muted mb-3">
+    Лёгкий шлюз <code>bawh-vnc</code> (WebSocket на 127.0.0.1:6080) и noVNC на карточке устройства.
+    На Windows — TightVNC или UltraVNC, порт обычно 5900, файрвол только с IP этого сервера.
+    Тихая установка: библиотека
+    <a href="{{ url_for('scripts.list_scripts') }}">Скрипты</a> → «TightVNC (тихая установка)».
+    MSI кладите в <code>vnc-agents/</code> на этом сервере (обычно <code>/opt/bawh/vnc-agents/</code>),
+    имя с <code>64bit</code> или <code>32bit</code>. Пароль TightVNC — не больше 8 символов.
+  </p>
+  {% set vnc_agents_list = vnc_agents if vnc_agents is defined else [] %}
+  <p class="small mb-3">
+    Установщик на сервере:
+    {% if vnc_agents_list %}
+      {% for item in vnc_agents_list %}
+        <code>{{ item.name }}</code>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    {% else %}
+      <span class="text-warning">пока нет MSI в <code>vnc-agents/</code></span>
+    {% endif %}
+  </p>
+  {% set vnc_cfg = vnc if vnc is defined else none %}
+  {% set vnc_st = vnc_unit if vnc_unit is defined else none %}
+  {% if vnc_st %}
+  <p class="small mb-3">
+    Служба <code>bawh-vnc</code>:
+    {% if vnc_st.active %}
+    <span class="badge text-bg-success">запущена</span>
+    {% else %}
+    <span class="badge text-bg-secondary">{{ vnc_st.active_state }}</span>
+    {% endif %}
+  </p>
+  {% endif %}
+  <form method="post" class="row g-3 mb-0" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="vnc">
+    <div class="col-12">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="1" id="vnc_gateway_enabled" name="vnc_gateway_enabled"{% if vnc_cfg and vnc_cfg.gateway_enabled %} checked{% endif %}>
+        <label class="form-check-label" for="vnc_gateway_enabled">Включить шлюз VNC</label>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="vnc_port">Порт агента на ПК</label>
+      <input class="form-control" id="vnc_port" name="vnc_port" type="number" min="5900" max="5999" value="{{ vnc_cfg.port if vnc_cfg else 5900 }}">
+    </div>
+    <div class="col-md-5">
+      <label class="form-label" for="vnc_password">Общий пароль VNC</label>
+      <input class="form-control" id="vnc_password" name="vnc_password" type="password" maxlength="8" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if vnc_cfg and vnc_cfg.password_set else 'необязательно, до 8 символов' }}">
+    </div>
+    <div class="col-md-4 d-flex align-items-end">
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" value="1" id="vnc_password_clear" name="vnc_password_clear">
+        <label class="form-check-label" for="vnc_password_clear">Сбросить сохранённый пароль</label>
+      </div>
+    </div>
+    <div class="col-12">
+      <button class="btn btn-primary" type="submit">Сохранить</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel content-card mb-3" id="tls">
+  <h2 class="h5 mb-1">HTTPS-сертификат</h2>
+  <p class="text-muted mb-3">
+    Для буфера обмена и WebSocket в браузере с телефона удобен HTTPS.
+    Вставьте PEM (сертификат + закрытый ключ без парольной фразы) или загрузите файлы.
+    Ключ на диск в <code>certs/</code>, в базу не пишется. Nginx перечитывает
+    <code>deploy/apply-nginx-tls.sh</code> (нужна sudo-учётка ниже).
+  </p>
+  {% set tls_cfg = tls if tls is defined else none %}
+  {% if tls_cfg %}
+  <dl class="scheduler-health-grid mb-3">
+    <div>
+      <dt>HTTPS</dt>
+      <dd>
+        {% if tls_cfg.https_enabled %}
+        <span class="badge text-bg-success">включён</span>
+        {% else %}
+        <span class="badge text-bg-secondary">выключен</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Сертификат</dt>
+      <dd>
+        {% if tls_cfg.cert_present %}
+          {{ tls_cfg.subject or 'сохранён' }}
+          {% if tls_cfg.not_after %}<div class="small text-muted">до {{ tls_cfg.not_after }}</div>{% endif %}
+        {% else %}
+        <span class="text-muted">ещё не загружен</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>SAN / отпечаток</dt>
+      <dd>
+        {% if tls_cfg.san %}<div>{{ tls_cfg.san }}</div>{% endif %}
+        {% if tls_cfg.fingerprint %}
+        <span class="font-monospace small">{{ tls_cfg.fingerprint[:16] }}…</span>
+        {% else %}
+        <span class="text-muted">—</span>
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+  {% endif %}
+  <form method="post" class="row g-3 mb-0" enctype="multipart/form-data" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="tls">
+    <div class="col-md-6">
+      <label class="form-label" for="tls_server_name">Имя сайта</label>
+      <input class="form-control" id="tls_server_name" name="tls_server_name" value="{{ tls_cfg.server_name if tls_cfg else '' }}" placeholder="bawh.example.com" spellcheck="false">
+    </div>
+    <div class="col-md-6 d-flex align-items-end">
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" value="1" id="tls_redirect_http" name="tls_redirect_http"{% if tls_cfg and tls_cfg.redirect_http %} checked{% endif %}>
+        <label class="form-check-label" for="tls_redirect_http">Редирект HTTP → HTTPS</label>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="tls_cert_pem">Сертификат (PEM, можно с цепочкой)</label>
+      <textarea class="form-control font-monospace" id="tls_cert_pem" name="tls_cert_pem" rows="6" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="tls_key_pem">Закрытый ключ (PEM, без пароля)</label>
+      <textarea class="form-control font-monospace" id="tls_key_pem" name="tls_key_pem" rows="6" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="tls_cert_file">или файл сертификата</label>
+      <input class="form-control" id="tls_cert_file" name="tls_cert_file" type="file" accept=".pem,.crt,.cer,.txt">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="tls_key_file">или файл ключа</label>
+      <input class="form-control" id="tls_key_file" name="tls_key_file" type="file" accept=".pem,.key,.txt">
+    </div>
+    <div class="col-12">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="1" id="tls_secure_cookie" name="tls_secure_cookie"{% if tls_cfg and tls_cfg.secure_cookie %} checked{% endif %}>
+        <label class="form-check-label" for="tls_secure_cookie">
+          Записать <code>SESSION_COOKIE_SECURE=1</code> в .env (нужен перезапуск web)
+        </label>
+      </div>
+    </div>
+    <div class="col-12 d-flex flex-wrap gap-2">
+      <button class="btn btn-outline-secondary" type="submit" name="tls_action" value="save">Сохранить сертификат</button>
+      <button class="btn btn-primary" type="submit" name="tls_action" value="apply">Включить HTTPS</button>
+      <button class="btn btn-outline-danger" type="submit" name="tls_action" value="disable">Выключить HTTPS</button>
+    </div>
+  </form>
+</div>
+
 <div class="panel content-card mb-3 service-control-panel" id="service-control">
   <h2 class="h5 mb-1">Управление службами</h2>
   <p class="text-muted mb-3">
     Linux-учётка для <code>systemctl</code>: запуск служб отчётов
-    (<code>bawh-password-reports</code>, <code>bawh-pc-reports</code>) при включении
-    тумблеров и перезапуск всех служб после обновления из git.
+    (<code>bawh-password-reports</code>, <code>bawh-pc-reports</code>) и VNC-шлюза
+    при тумблерах, перезапуск после обновления из git, применение HTTPS-сертификата.
   </p>
   <form method="post" class="mb-0" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -351,7 +504,7 @@
       Обычно <code>root</code>. Пароль шифруется Fernet (<code>FERNET_KEY</code>) и передаётся в
       <code>su</code> — отдельный sudoers не нужен. Без пароля — <code>sudo -n</code> и
       <code>deploy/bawh-update.sudoers</code> (restart всех служб / start / enable / stop
-      scheduler и служб отчётов / sync-systemd-units.sh).
+      scheduler, отчётов и VNC / sync-systemd-units.sh / apply-nginx-tls.sh).
       Пустой логин очищает учётку.
     </p>
   </form>

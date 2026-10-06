@@ -8,7 +8,8 @@
 - updates       GET/POST /admin/updates
 
 Формы на странице настроек различаются скрытым полем form:
-psexec, discovery, poll, hardware_poll или update. Открытый пароль в шаблон и во flash не попадает.
+psexec, discovery, poll, hardware_poll, smtp, test_smtp, update, vnc, tls.
+Открытый пароль в шаблон и во flash не попадает.
 
 PsExec: учётка только текущего администратора. Пустые пользователь
 и пароль означают запуск от его входа на сайт. Пустой пароль при уже
@@ -72,6 +73,16 @@ from app.services.settings_service import (
 )
 from app.services.password_expiry_settings import get_smtp_settings, set_smtp_settings
 from app.services.password_mailer import PasswordMailerError, test_smtp_connection
+from app.services.systemd_service import (
+    VNC_UNIT,
+    SystemdError,
+    ensure_unit_running,
+    get_unit_status,
+    stop_unit,
+)
+from app.services.tls_pem import TlsPemError
+from app.services.tls_service import TlsApplyError, apply_nginx_tls, save_certificate_files
+from app.services.tls_settings import get_tls_settings
 from app.services.update_service import (
     UpdateError,
     begin_rollback,
@@ -81,6 +92,8 @@ from app.services.update_service import (
     refresh_remote_branches,
     save_update_branch,
 )
+from app.services.vnc_settings import clear_vnc_password, get_vnc_settings, set_vnc_settings
+from app.services.tightvnc_install_script import list_vnc_agent_summaries
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +248,113 @@ def settings():
                 flash("Учётка управления службами очищена.", "success")
             audit_service.log(current_user, "update", "admin_settings", "update_sudo")
             return redirect(url_for("admin.settings") + "#service-control")
+        if kind == "vnc":
+            want_enabled = request.form.get("vnc_gateway_enabled") == "1"
+            try:
+                set_vnc_settings(
+                    gateway_enabled=want_enabled,
+                    port=request.form.get("vnc_port", ""),
+                    password=request.form.get("vnc_password"),
+                )
+                if request.form.get("vnc_password_clear") == "1":
+                    clear_vnc_password()
+            except (ValueError, CryptoNotConfigured, CryptoError) as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.settings") + "#vnc")
+            try:
+                if want_enabled:
+                    ensure = ensure_unit_running(VNC_UNIT)
+                    flash(
+                        f"VNC-шлюз включён (порт агента {request.form.get('vnc_port') or '5900'}). "
+                        f"{ensure.message}",
+                        "success",
+                    )
+                else:
+                    stopped = stop_unit(VNC_UNIT)
+                    flash(
+                        f"VNC-шлюз выключен. Подключение из браузера не будет работать. "
+                        f"{stopped.message}",
+                        "success",
+                    )
+            except SystemdError as exc:
+                flash(
+                    f"Настройки VNC сохранены, но службу bawh-vnc переключить не удалось: {exc}",
+                    "warning",
+                )
+            audit_service.log(
+                current_user,
+                "update",
+                "admin_settings",
+                "vnc",
+                detail=f"enabled={int(want_enabled)} port={request.form.get('vnc_port', '')}",
+            )
+            return redirect(url_for("admin.settings") + "#vnc")
+        if kind == "tls":
+            action = (request.form.get("tls_action") or "save").strip()
+            server_name = request.form.get("tls_server_name", "")
+            redirect_http = request.form.get("tls_redirect_http") == "1"
+            secure_cookie = request.form.get("tls_secure_cookie") == "1"
+            cert_pem = request.form.get("tls_cert_pem") or ""
+            key_pem = request.form.get("tls_key_pem") or ""
+            cert_file = request.files.get("tls_cert_file")
+            key_file = request.files.get("tls_key_file")
+            if cert_file and cert_file.filename:
+                cert_pem = cert_file.read().decode("utf-8", "replace")
+            if key_file and key_file.filename:
+                key_pem = key_file.read().decode("utf-8", "replace")
+            try:
+                if action == "disable":
+                    message = apply_nginx_tls(
+                        enable=False,
+                        redirect=False,
+                        server_name=server_name,
+                        secure_cookie=False,
+                    )
+                    flash(message, "success")
+                elif action == "apply":
+                    message = apply_nginx_tls(
+                        enable=True,
+                        redirect=redirect_http,
+                        server_name=server_name,
+                        secure_cookie=secure_cookie,
+                        cert_pem=cert_pem,
+                        key_pem=key_pem,
+                    )
+                    flash(message, "success")
+                    if secure_cookie:
+                        flash(
+                            "SESSION_COOKIE_SECURE записан в .env. "
+                            "Чтобы флаг применился сразу, перезапустите службы "
+                            "(Параметры → Управление службами / обновление).",
+                            "warning",
+                        )
+                else:
+                    if not (cert_pem.strip() and key_pem.strip()):
+                        flash("Вставьте или загрузите сертификат и ключ.", "danger")
+                        return redirect(url_for("admin.settings") + "#tls")
+                    info = save_certificate_files(cert_pem, key_pem, server_name)
+                    flash(
+                        f"Сертификат сохранён ({info.subject}). "
+                        "Нажмите «Включить HTTPS», чтобы Nginx начал слушать 443.",
+                        "success",
+                    )
+            except (TlsPemError, ValueError) as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.settings") + "#tls")
+            except TlsApplyError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.settings") + "#tls")
+            except SystemdError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.settings") + "#tls")
+            audit_service.log(
+                current_user,
+                "update",
+                "admin_settings",
+                "tls",
+                detail=action,
+            )
+            return redirect(url_for("admin.settings") + "#tls")
         flash("Неизвестная форма.", "warning")
         return redirect(url_for("admin.settings"))
 
@@ -257,6 +377,10 @@ def settings():
         smtp=get_smtp_settings(),
         update_sudo_user=update_sudo.username,
         update_sudo_password_set=update_sudo.password_set,
+        vnc=get_vnc_settings(),
+        vnc_unit=get_unit_status(VNC_UNIT),
+        vnc_agents=list_vnc_agent_summaries(),
+        tls=get_tls_settings(),
     )
 
 

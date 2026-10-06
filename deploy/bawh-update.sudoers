@@ -10,10 +10,12 @@
 #
 # Нужно для:
 #   - синхронизации unit-файлов и перезапуска после «Обновить из git»
-#   - start/enable/stop служб отчётов при тумблерах
+#   - start/enable/stop служб отчётов и VNC-шлюза при тумблерах
 #   - start/enable bawh-scheduler (опрос сети)
+#   - apply-nginx-tls.sh (сертификат HTTPS из Параметров)
 bawh ALL=(root) NOPASSWD: /usr/bin/bash /opt/bawh/deploy/sync-systemd-units.sh *
-bawh ALL=(root) NOPASSWD: /usr/bin/systemctl restart bawh-scheduler bawh-web bawh-password-reports bawh-pc-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/bash /opt/bawh/deploy/apply-nginx-tls.sh *
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl restart bawh-scheduler bawh-web bawh-password-reports bawh-pc-reports bawh-vnc
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl restart bawh-scheduler bawh-web
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl start bawh-scheduler
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable bawh-scheduler
@@ -26,3 +28,7 @@ bawh ALL=(root) NOPASSWD: /usr/bin/systemctl start bawh-pc-reports
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable bawh-pc-reports
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now bawh-pc-reports
 bawh ALL=(root) NOPASSWD: /usr/bin/systemctl stop bawh-pc-reports
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl start bawh-vnc
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable bawh-vnc
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now bawh-vnc
+bawh ALL=(root) NOPASSWD: /usr/bin/systemctl stop bawh-vnc

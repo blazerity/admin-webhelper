@@ -462,6 +462,12 @@ def _perform(
             )
         body = get_script_body(script)
         timeout = int(current_app.config.get("SCRIPT_TIMEOUT_SECONDS", 600))
+        from app.services.tightvnc_install_script import extra_admin_files_for_script
+
+        extra_files = extra_admin_files_for_script(script)
+        if extra_files and on_output is not None:
+            names = ", ".join(key.rsplit("\\", 1)[-1] for key in extra_files)
+            on_output(f"С bAWH копирую MSI в C:\\Windows\\Temp: {names}\n")
         rc, output = run_remote_script(
             ip,
             script.interpreter,
@@ -471,6 +477,7 @@ def _perform(
             user_id=user_id,
             on_output=on_output,
             run_id=run_id,
+            extra_files=extra_files or None,
         )
         return rc, output, RunStatus.SUCCESS if rc == 0 else RunStatus.FAILED
     raise ScriptError(f"Неизвестный тип запуска: {run_type}")

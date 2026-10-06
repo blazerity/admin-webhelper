@@ -224,6 +224,7 @@ def run_remote_script(
     user_id: int | None = None,
     on_output=None,
     run_id: int | None = None,
+    extra_files: dict[str, bytes] | None = None,
 ) -> tuple[int, str]:
     """Запускает текст из библиотеки. bash в v1 отклоняется: PsExec — только Windows.
 
@@ -250,6 +251,8 @@ def run_remote_script(
 
         def prepare(client) -> None:
             _write_admin_file(client, remote_ps1, payload)
+            for relative, data in (extra_files or {}).items():
+                _write_admin_file(client, relative, data)
 
         return _run(
             checked_ip,

@@ -1,10 +1,10 @@
 # bAWH
 
-Внутренний веб-помощник администратора сети: карта устройств, опрос, диагностика, скрипты на Windows (PsExec), пароли AD, ACL по секторам.
+Внутренний веб-помощник администратора сети: карта устройств, опрос, диагностика, скрипты на Windows (PsExec), рабочий стол в браузере (VNC, экспериментально), пароли AD, ACL по секторам.
 
 Рассчитан на корпоративную LAN. Не предназначен для публикации в интернет.
 
-Актуальная карта кода (слои, модели, сервисы, маршруты, authz) — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Перед навигацией по репозиторию или запросом к ИИ читайте этот файл. Требования к скриптам из веб-формы — [`docs/SCRIPTS.md`](docs/SCRIPTS.md).
+Актуальная карта кода (слои, модели, сервисы, маршруты, authz) — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Перед навигацией по репозиторию или запросом к ИИ читайте этот файл. Требования к скриптам из веб-формы — [`docs/SCRIPTS.md`](docs/SCRIPTS.md). Веб-VNC — [`docs/VNC.md`](docs/VNC.md); MSI TightVNC кладите в [`vnc-agents/`](vnc-agents/README.md).
 
 ## Требования
 
@@ -31,12 +31,12 @@ sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsS
 После установки заполните LDAP в `/opt/bawh/.env` и перезапустите службы:
 
 ```bash
-sudo systemctl restart bawh-web bawh-scheduler
+sudo systemctl restart bawh-web bawh-scheduler bawh-vnc
 ```
 
 Проверка: `curl -s http://127.0.0.1:8000/health` → `{"status":"ok"}`.
 
-Пока сайт по HTTP, оставьте `SESSION_COOKIE_SECURE=0`.
+Пока сайт по HTTP, оставьте `SESSION_COOKIE_SECURE=0`. HTTPS-сертификат загружается в **Параметры**.
 
 ## Конфигурация
 
@@ -56,20 +56,21 @@ sudo systemctl restart bawh-web bawh-scheduler
 
 Роли (опционально): `LDAP_VIEWER_GROUP`, `LDAP_OPERATOR_GROUP`, `LDAP_PASSWORD_VIEWER_GROUP`.
 
-Учётку PsExec и WMI можно задать в веб-интерфейсе: **Параметры**.
+Учётку PsExec и WMI, шлюз VNC и HTTPS-сертификат можно задать в веб-интерфейсе: **Параметры**.
 
 ## Службы
 
 | Юнит | Назначение |
 | --- | --- |
-| `bawh-web` | Gunicorn (`127.0.0.1:8000`), снаружи — Nginx :80 |
+| `bawh-web` | Gunicorn (`127.0.0.1:8000`), снаружи — Nginx :80 (443 после сертификата в Параметрах) |
 | `bawh-scheduler` | опрос сети / железа / архив логов |
+| `bawh-vnc` | WebSocket-прокси для noVNC (`127.0.0.1:6080`) |
 | `bawh-password-reports` | рассылка отчётов о паролях AD (тумблер в UI) |
 | `bawh-pc-reports` | рассылка отчётов о ПК (тумблер в UI) |
 
 ```bash
-sudo systemctl status bawh-web bawh-scheduler bawh-password-reports bawh-pc-reports
-journalctl -u bawh-web -u bawh-scheduler -u bawh-password-reports -u bawh-pc-reports -f
+sudo systemctl status bawh-web bawh-scheduler bawh-vnc bawh-password-reports bawh-pc-reports
+journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -u bawh-pc-reports -f
 ```
 
 ## Обновление
@@ -78,11 +79,12 @@ journalctl -u bawh-web -u bawh-scheduler -u bawh-password-reports -u bawh-pc-rep
 
 Или повторный запуск установщика из каталога с кодом / через one-liner — обновит `/opt/bawh`, зависимости и юниты; существующий `.env` не перезаписывает.
 
-Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.6.7`).
+Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.7.0`).
 
 На странице **Обновления** можно выбрать ветку git (список с сервера).
 Выбор хранится в базе и важнее `GIT_BRANCH` в `.env`. С хотфикса 1.6.7,
 если ветку ещё не выбирали, при старте ставится `beta`.
+Откат релиза — резервная копия на той же странице.
 
 ## Тесты
 

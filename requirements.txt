@@ -31,3 +31,6 @@ impacket>=0.11
 
 # Прод-сервер
 gunicorn>=22.0
+
+# VNC WebSocket-прокси (процесс bawh-vnc, не Gunicorn)
+websockets>=13,<16
