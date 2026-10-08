@@ -6,9 +6,12 @@ from flask_login import current_user, login_required
 from app.services import audit_service
 from app.services.action_service import list_action_kinds, list_system_actions
 from app.services.export_service import csv_attachment, export_actions_csv
-from app.utils import format_utc, normalize_page, parse_optional_int
+from app.utils import as_truthy, format_utc, normalize_page, parse_optional_int
 
 bp = Blueprint("actions", __name__, url_prefix="/actions")
+
+_PREVIEW_LIMIT = 5
+_HISTORY_PER_PAGE = 20
 
 
 def _wants_json() -> bool:
@@ -50,12 +53,22 @@ def _actions_payload(result: dict) -> dict:
 @login_required
 def list_actions():
     """Недавние действия на доступных устройствах."""
-    page, per_page = normalize_page(
-        parse_optional_int(request.args.get("page")),
-        parse_optional_int(request.args.get("per_page")),
-    )
+    show_all = as_truthy(request.args.get("all"))
     q = (request.args.get("q") or "").strip()
     kind = (request.args.get("kind") or "").strip()
+    # Поиск или фильтр по типу — сразу полный список, иначе превью 5.
+    if q or kind:
+        show_all = True
+
+    if show_all:
+        page, per_page = normalize_page(
+            parse_optional_int(request.args.get("page")),
+            parse_optional_int(request.args.get("per_page")) or _HISTORY_PER_PAGE,
+            max_per_page=200,
+        )
+    else:
+        page, per_page = 1, _PREVIEW_LIMIT
+
     kinds = list_action_kinds()
     result = list_system_actions(
         current_user,
@@ -66,9 +79,19 @@ def list_actions():
     )
     if _wants_json():
         return jsonify(_actions_payload(result))
+
     audit_entries = []
+    audit_total = 0
+    audit_show_all = False
     if getattr(current_user, "is_admin", False):
-        audit_entries = audit_service.list_audit_entries(limit=200)
+        audit_total = audit_service.count_audit_entries()
+        audit_show_all = as_truthy(request.args.get("audit_all"))
+        # Полный журнал без отдельной пагинации (как раньше до 200),
+        # чтобы не пересекаться с page ленты действий на той же странице.
+        audit_entries = audit_service.list_audit_entries(
+            limit=200 if audit_show_all else _PREVIEW_LIMIT
+        )
+
     return render_template(
         "actions/list.html",
         action_kinds=kinds,
@@ -78,7 +101,11 @@ def list_actions():
         per_page=result["per_page"],
         search_query=q,
         kind_filter=kind,
+        show_all=show_all,
+        has_more=(not show_all and result["total"] > len(result["items"])),
         audit_entries=audit_entries,
+        audit_total=audit_total,
+        audit_show_all=audit_show_all,
     )
 
 

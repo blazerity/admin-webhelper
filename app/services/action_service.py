@@ -177,14 +177,28 @@ def list_system_actions(
             ).where(Device.sector_id.in_(sector_ids))
         sight_rows = list(db.session.scalars(sight_stmt).all())
 
+    # Одно событие на пару УЗ+устройство (последнее обнаружение), иначе лента
+    # забивается почасовыми повторными sighting'ами одного и того же пользователя.
     code = ActionKindCode.ACCOUNT_SIGHTING
+    sight_counts: dict[tuple[int | None, int | None], int] = {}
+    latest_sights: list[DeviceAccountHistory] = []
     for row in sight_rows:
+        key = (row.account_id, row.device_id)
+        sight_counts[key] = sight_counts.get(key, 0) + 1
+        if sight_counts[key] == 1:
+            latest_sights.append(row)
+
+    for row in latest_sights:
         account_label = row.account.account_key if row.account else "—"
+        repeats = sight_counts.get((row.account_id, row.device_id), 1)
+        title = f"УЗ {account_label}"
+        if repeats > 1:
+            title = f"{title} · ещё {repeats - 1}"
         items.append(
             SystemActionItem(
                 kind_code=code,
                 kind_title=action_kind_title(kinds, code),
-                title=f"УЗ {account_label}",
+                title=title,
                 status="seen",
                 when=row.seen_at,
                 device_id=row.device_id,

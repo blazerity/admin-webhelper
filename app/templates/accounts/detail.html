@@ -1,9 +1,12 @@
 {% extends "layouts/settings.html" %}
+{% from "macros/pagination.html" import page_nav %}
 {% from "macros/status.html" import status_badge, device_entity_link %}
 {% block title %}{{ account.account_key }}{% endblock %}
 {% block body_class %}page-account-detail{% endblock %}
 {% block settings_content %}
 {% set show_raw_value = show_raw_value|default(sightings|selectattr('raw_value')|list|length > 0) %}
+{% set show_all = show_all|default(false) %}
+{% set has_more = has_more|default(false) %}
 <div class="page-header">
   <div>
     <p class="mb-1"><a href="{{ url_for('accounts.list_accounts') }}">← К обнаруженным УЗ</a></p>
@@ -106,5 +109,22 @@
       </tbody>
     </table>
   </div>
+  {% if show_all %}
+  {{ page_nav(
+       'accounts.detail',
+       list_page|default(1),
+       list_per_page|default(20),
+       list_total|default(0),
+       {'account_id': account.id, 'all': '1'}
+     ) }}
+  <p class="px-3 pb-2 mb-0">
+    <a class="btn btn-sm btn-link" href="{{ url_for('accounts.detail', account_id=account.id) }}">Только последние 5</a>
+  </p>
+  {% elif has_more %}
+  <p class="px-3 pb-2 mb-0">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('accounts.detail', account_id=account.id, all=1) }}">Показать все</a>
+    <span class="text-muted small">({{ list_total }})</span>
+  </p>
+  {% endif %}
 </div>
 {% endblock %}

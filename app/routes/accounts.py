@@ -6,13 +6,17 @@ from flask_login import current_user, login_required
 from app.services.account_service import (
     account_current_devices,
     account_device_sightings,
+    count_account_device_sightings,
     get_visible_account_or_404,
     list_visible_accounts,
 )
 from app.services.export_service import csv_attachment, export_accounts_csv
-from app.utils import format_utc, normalize_page, parse_optional_int
+from app.utils import as_truthy, format_utc, normalize_page, parse_optional_int
 
 bp = Blueprint("accounts", __name__, url_prefix="/accounts")
+
+_PREVIEW_LIMIT = 5
+_HISTORY_PER_PAGE = 20
 
 
 def _wants_json() -> bool:
@@ -84,7 +88,23 @@ def export_csv():
 def detail(account_id: int):
     """Карточка УЗ: где сейчас и где видели раньше."""
     account = get_visible_account_or_404(current_user, account_id)
-    sightings = account_device_sightings(account, current_user, limit=50)
+    show_all = as_truthy(request.args.get("all"))
+    list_total = count_account_device_sightings(account, current_user)
+    if show_all:
+        page, per_page = normalize_page(
+            parse_optional_int(request.args.get("page")),
+            parse_optional_int(request.args.get("per_page")) or _HISTORY_PER_PAGE,
+            max_per_page=100,
+        )
+        offset = (page - 1) * per_page
+        sightings = account_device_sightings(
+            account, current_user, limit=per_page, offset=offset
+        )
+    else:
+        page, per_page = 1, _PREVIEW_LIMIT
+        sightings = account_device_sightings(
+            account, current_user, limit=_PREVIEW_LIMIT
+        )
     show_raw_value = any((row.raw_value or "").strip() for row in sightings)
     return render_template(
         "accounts/detail.html",
@@ -92,4 +112,9 @@ def detail(account_id: int):
         current_devices=account_current_devices(account, current_user),
         sightings=sightings,
         show_raw_value=show_raw_value,
+        show_all=show_all,
+        list_page=page,
+        list_per_page=per_page,
+        list_total=list_total,
+        has_more=(not show_all and list_total > len(sightings)),
     )

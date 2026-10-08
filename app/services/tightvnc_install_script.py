@@ -182,6 +182,10 @@ function Set-TvnRegistry([string]$RegPath, [byte[]]$PasswordBytes, [int]$RfbPort
     New-ItemProperty -LiteralPath $RegPath -Name AcceptRfbConnections -PropertyType DWord -Value 1 -Force | Out-Null
     New-ItemProperty -LiteralPath $RegPath -Name AcceptHttpConnections -PropertyType DWord -Value 0 -Force | Out-Null
     New-ItemProperty -LiteralPath $RegPath -Name RfbPort -PropertyType DWord -Value $RfbPort -Force | Out-Null
+    # Без иконки в трее и без снятия обоев при подключении (как SET_RUNCONTROLINTERFACE /
+    # SET_REMOVEWALLPAPER в MSI Silent Install).
+    New-ItemProperty -LiteralPath $RegPath -Name RunControlInterface -PropertyType DWord -Value 0 -Force | Out-Null
+    New-ItemProperty -LiteralPath $RegPath -Name RemoveWallpaper -PropertyType DWord -Value 0 -Force | Out-Null
     # Не режем IP внутри TightVNC: deny-all ломает вход, если $BawhServerIp не тот
     # интерфейс, с которого Debian ходит на ПК. Ограничение — правило файрвола bAWH VNC.
     Remove-ItemProperty -LiteralPath $RegPath -Name IpAccessControl -ErrorAction SilentlyContinue
@@ -289,7 +293,11 @@ try {
             'VALUE_OF_ACCEPTRFBCONNECTIONS=1',
             'SET_RFBPORT=1',
             ('VALUE_OF_RFBPORT={0}' -f $Port),
-            'SET_IPACCESSCONTROL=-1'
+            'SET_IPACCESSCONTROL=-1',
+            'SET_RUNCONTROLINTERFACE=1',
+            'VALUE_OF_RUNCONTROLINTERFACE=0',
+            'SET_REMOVEWALLPAPER=1',
+            'VALUE_OF_REMOVEWALLPAPER=0'
         ) -join ' '
         $msiexec = Get-MsiexecPath
         L ("msiexec: {0} (пароль в журнал не пишу)" -f $msiexec)
@@ -305,7 +313,7 @@ try {
         }
         $exe = Get-TvnServerExe
     } else {
-        L 'MSI не трогаю — служба уже есть. Обновляю пароль, порт, файрвол и меню Пуск.'
+        L 'MSI не трогаю — служба уже есть. Обновляю пароль, порт, трей/обои, файрвол и меню Пуск.'
     }
 
     $pwBytes = Convert-VncPasswordBytes $VncPassword

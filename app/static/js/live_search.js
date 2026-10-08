@@ -58,6 +58,10 @@
     url.searchParams.set("per_page", String(perPage));
     if (nextPage > 1) url.searchParams.set("page", String(nextPage));
     else url.searchParams.delete("page");
+    // Лента действий: режим «Показать все» (превью 5 без all).
+    if (kind === "actions") {
+      url.searchParams.set("all", "1");
+    }
     return url;
   }
 

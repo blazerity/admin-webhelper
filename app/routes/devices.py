@@ -34,6 +34,7 @@ from app.services.device_kind import hostname_sort_key, kind_counts
 from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
 from app.services import script_service
+from app.services.net_utils import normalize_mac
 from app.utils import as_utc, normalize_page, parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
@@ -41,6 +42,31 @@ bp = Blueprint("devices", __name__)
 _DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls", "hardware"})
 _DEFAULT_LIST_LIMIT = 5
 _HISTORY_PER_PAGE = 20
+
+
+def _latest_address_per_mac(addresses, primary_ip: str | None):
+    """На карточке — один актуальный IP на MAC (последний last_seen).
+
+    Адреса без MAC оставляем как есть: это отдельные наблюдения.
+    """
+    by_mac: dict[str, object] = {}
+    no_mac: list = []
+    for row in addresses:
+        mac = normalize_mac(getattr(row, "mac", None))
+        if not mac:
+            no_mac.append(row)
+            continue
+        prev = by_mac.get(mac)
+        if prev is None:
+            by_mac[mac] = row
+            continue
+        prev_ts = as_utc(prev.last_seen).timestamp() if prev.last_seen else 0
+        row_ts = as_utc(row.last_seen).timestamp() if row.last_seen else 0
+        prev_primary = 1 if prev.ip == primary_ip else 0
+        row_primary = 1 if row.ip == primary_ip else 0
+        if (row_ts, row_primary, row.id or 0) >= (prev_ts, prev_primary, prev.id or 0):
+            by_mac[mac] = row
+    return list(by_mac.values()) + no_mac
 
 
 def _allowed_detail_tabs(device) -> frozenset[str]:
@@ -487,7 +513,7 @@ def detail(device_id: int):
         else []
     )
     device_addresses = sorted(
-        device.addresses,
+        _latest_address_per_mac(device.addresses, device.ip),
         key=lambda row: (
             0 if row.ip == device.ip else 1,
             -(as_utc(row.last_seen).timestamp() if row.last_seen else 0),

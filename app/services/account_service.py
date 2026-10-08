@@ -288,13 +288,33 @@ def get_visible_account_or_404(user, account_id: int) -> EndpointAccount:
     return account
 
 
+def count_account_device_sightings(account: EndpointAccount, user) -> int:
+    """Сколько появлений УЗ видно пользователю (для превью 5 + «Показать все»)."""
+    stmt = (
+        select(func.count())
+        .select_from(DeviceAccountHistory)
+        .where(DeviceAccountHistory.account_id == account.id)
+    )
+    if not user.is_admin:
+        sector_ids = accessible_sector_ids(user)
+        if not sector_ids:
+            return 0
+        stmt = stmt.join(Device, Device.id == DeviceAccountHistory.device_id).where(
+            Device.sector_id.in_(sector_ids)
+        )
+    return int(db.session.scalar(stmt) or 0)
+
+
 def account_device_sightings(
     account: EndpointAccount,
     user,
     *,
     limit: int = 50,
+    offset: int = 0,
 ) -> list[DeviceAccountHistory]:
     """История появлений УЗ на устройствах, видимых пользователю."""
+    limit = max(1, min(200, int(limit)))
+    offset = max(0, int(offset or 0))
     stmt = (
         select(DeviceAccountHistory)
         .options(
@@ -310,7 +330,7 @@ def account_device_sightings(
         stmt = stmt.join(Device, Device.id == DeviceAccountHistory.device_id).where(
             Device.sector_id.in_(sector_ids)
         )
-    return list(db.session.scalars(stmt.limit(limit)).all())
+    return list(db.session.scalars(stmt.offset(offset).limit(limit)).all())
 
 
 def account_current_devices(account: EndpointAccount, user) -> list[Device]:
