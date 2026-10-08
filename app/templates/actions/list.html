@@ -24,6 +24,7 @@
   </div>
 </div>
 
+{% if show_all %}
 <form
   class="panel content-card mb-3 live-search-form"
   method="get"
@@ -31,6 +32,7 @@
   data-live-list
   data-live-kind="actions"
 >
+  <input type="hidden" name="all" value="1">
   <div class="row g-2 align-items-end">
     <div class="col-md-4">
       <label class="form-label" for="action-q">Поиск</label>
@@ -47,7 +49,7 @@
     </div>
     <div class="col-md-2">
       <label class="form-label" for="action-per-page">На странице</label>
-      <input class="form-control" id="action-per-page" name="per_page" type="number" min="1" max="200" value="{{ per_page|default(50) }}" data-live-per-page>
+      <input class="form-control" id="action-per-page" name="per_page" type="number" min="1" max="200" value="{{ per_page|default(20) }}" data-live-per-page>
     </div>
     <div class="col-md-3 d-flex gap-2">
       <button class="btn btn-primary" type="submit">Показать</button>
@@ -55,11 +57,18 @@
     </div>
   </div>
 </form>
+{% endif %}
 
 <div class="panel content-card p-0 overflow-hidden mb-3" data-live-panel>
   <div class="px-3 pt-3 pb-2">
     <h2 class="panel-title">Недавние события</h2>
-    <p class="panel-hint mb-0" data-live-meta>Всего: {{ total|default(actions|length) }} · страница {{ page|default(1) }}</p>
+    <p class="panel-hint mb-0" data-live-meta>
+      {% if show_all %}
+      Всего: {{ total|default(actions|length) }} · страница {{ page|default(1) }}
+      {% else %}
+      Последние {{ actions|length }}{% if total|default(0) > actions|length %} из {{ total }}{% endif %}
+      {% endif %}
+    </p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
@@ -101,15 +110,25 @@
       </tbody>
     </table>
   </div>
+  {% if show_all %}
   <div data-live-pager>
   {{ page_nav(
        'actions.list_actions',
        page|default(1),
-       per_page|default(50),
+       per_page|default(20),
        total|default(0),
-       {'q': search_query|default(''), 'kind': kind_filter|default('')}
+       {'q': search_query|default(''), 'kind': kind_filter|default(''), 'all': '1'}
      ) }}
   </div>
+  <p class="px-3 pb-2 mb-0">
+    <a class="btn btn-sm btn-link" href="{{ url_for('actions.list_actions') }}">Только последние 5</a>
+  </p>
+  {% elif total|default(0) > actions|length %}
+  <p class="px-3 pb-2 mb-0">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('actions.list_actions', all=1) }}">Показать все</a>
+    <span class="text-muted small">({{ total }})</span>
+  </p>
+  {% endif %}
 </div>
 
 {% if current_user.is_admin %}
@@ -144,9 +163,21 @@
       </tbody>
     </table>
   </div>
+  {% if audit_show_all %}
+  <p class="px-3 pb-2 mb-0">
+    <a class="btn btn-sm btn-link" href="{{ url_for('actions.list_actions') }}#audit">Только последние 5</a>
+  </p>
+  {% elif audit_total|default(0) > audit_entries|length %}
+  <p class="px-3 pb-2 mb-0">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('actions.list_actions', audit_all=1) }}#audit">Показать все</a>
+    <span class="text-muted small">({{ audit_total }})</span>
+  </p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}
 {% block scripts %}
+{% if show_all %}
 <script src="{{ url_for('static', filename='js/live_search.js') }}"></script>
+{% endif %}
 {% endblock %}

@@ -20,7 +20,9 @@ Gunicorn пиксели не гоняет: отдельный процесс `ba
    (`ADMIN$\Temp`, запасной HTTP `/vnc-agents/64bit.msi`);
 2. если служба уже есть — MSI не трогает;
 3. всегда переписывает пароль, порт из Настройки → VNC, файрвол `bAWH VNC`
-   (только с IP сервера) и снимает ярлыки из общего меню Пуск.
+   (только с IP сервера), гасит иконку в трее (`RunControlInterface=0`),
+   оставляет обои при подключении (`RemoveWallpaper=0`) и снимает ярлыки
+   из общего меню Пуск.
 
 Пароль в `script_runs.command_text` не попадает. Коды: `0` ок; `2` нет пароля;
 `3` нет IP/порта; `4` нет MSI; `5` msiexec; `6` служба/файрвол; `1` ошибка.
@@ -28,7 +30,11 @@ Gunicorn пиксели не гоняет: отдельный процесс `ba
 MSI кладите в `/opt/bawh/vnc-agents/` (`tightvnc-*-setup-64bit.msi`).
 Свойства MSI — [TightVNC 2.7](https://www.tightvnc.com/doc/win/TightVNC_2.7_for_Windows_Installing_from_MSI_Packages.pdf):
 `SET_*` + `VALUE_OF_*`, `ADDLOCAL=Server`, `SERVER_REGISTER_AS_SERVICE=1`,
-`SERVER_ALLOW_SAS=1`, `SERVER_ADD_FIREWALL_EXCEPTION=0`.
+`SERVER_ALLOW_SAS=1`, `SERVER_ADD_FIREWALL_EXCEPTION=0`,
+`SET_RUNCONTROLINTERFACE=1` / `VALUE_OF_RUNCONTROLINTERFACE=0` (без трея),
+`SET_REMOVEWALLPAPER=1` / `VALUE_OF_REMOVEWALLPAPER=0` (обои остаются).
+Те же DWORD пишутся в `HKLM\SOFTWARE\TightVNC\Server` после MSI
+(и при повторном «Подключить», если служба уже стоит).
 
 ### Библиотека скриптов (Настройки → Скрипты)
 

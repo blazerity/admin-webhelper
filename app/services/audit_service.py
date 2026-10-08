@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.extensions import db
 from app.models.audit import AdminAuditLog
@@ -35,12 +35,19 @@ def log(actor, action: str, entity_type: str, entity_id, detail: str = "") -> Ad
     return row
 
 
-def list_audit_entries(*, limit: int = 100) -> list[AdminAuditLog]:
-    """Недавние записи для GET /admin/audit (новые сверху)."""
+def count_audit_entries() -> int:
+    """Число строк аудита (для «Показать все»)."""
+    return int(db.session.scalar(select(func.count()).select_from(AdminAuditLog)) or 0)
+
+
+def list_audit_entries(*, limit: int = 100, offset: int = 0) -> list[AdminAuditLog]:
+    """Недавние записи аудита (новые сверху)."""
     limit = max(1, min(int(limit or 100), 500))
+    offset = max(0, int(offset or 0))
     stmt = (
         select(AdminAuditLog)
         .order_by(AdminAuditLog.created_at.desc(), AdminAuditLog.id.desc())
+        .offset(offset)
         .limit(limit)
     )
     return list(db.session.scalars(stmt).all())

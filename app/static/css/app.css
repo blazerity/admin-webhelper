@@ -31,6 +31,11 @@ body {
   min-height: 100%;
 }
 
+/* overflow-x на html (не на .app-shell): иначе sticky сайдбара карты не работает. */
+html {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   color: var(--ink);
@@ -56,8 +61,6 @@ code {
 
 .app-shell {
   min-height: 100vh;
-  /* clip ломал горизонтальный scroll у .table-responsive на узких экранах (RDP/mobile). */
-  overflow-x: hidden;
 }
 
 .app-topbar {
@@ -546,6 +549,17 @@ code {
   flex: 1 1 auto;
 }
 
+/* Mobile / узкий экран: поиск закреплён сверху при скролле результатов. */
+@media (max-width: 899.98px) {
+  .map-search {
+    position: sticky;
+    top: var(--topbar-h);
+    z-index: 40;
+    background: var(--surface-solid);
+    box-shadow: var(--shadow);
+  }
+}
+
 @media (min-width: 900px) {
   .map-layout {
     flex-direction: row;
@@ -557,9 +571,11 @@ code {
     flex: 0 0 300px;
     width: 300px;
     position: sticky;
-    top: 4.75rem;
-    max-height: calc(100vh - 5.5rem);
+    top: calc(var(--topbar-h) + 0.75rem);
+    z-index: 30;
+    max-height: calc(100vh - var(--topbar-h) - 1.5rem);
     overflow-y: auto;
+    align-self: flex-start;
   }
 
   .map-main {
