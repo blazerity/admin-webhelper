@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.8.1)
+# Архитектура bAWH (актуально для v1.9.0)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.8.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.9.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -84,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.8.1)
+  VERSION                      # semver (1.9.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -277,11 +277,11 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
 | `device_kind.py` | тип карты: имена AD (`BN***` = ноутбук, `n…`/`w…`/…), WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
-| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра **и** serial/hostname, кто ответил). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опросы ПК или `DISCOVERY_*` |
+| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра **и** serial/hostname, кто ответил). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опрос сети или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
 | `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices` только если SN зонда совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs` |
 | `hardware_poll_settings.py` | cron / schedule_enabled в `app_settings` (default `0 12 * * *`, включено) |
-| `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки; чужой SN на том же IP — не пишет имя. CLI `refresh-hostnames`, кнопка в Настройки → Опросы ПК |
+| `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки; чужой SN на том же IP — не пишет имя. CLI `refresh-hostnames`, кнопка в Настройки → Опрос сети |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
 
@@ -322,7 +322,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_service.py` | оркестрация прогона |
 | `password_ad_client.py` | LDAP: пользователи и days-left |
 | `password_mailer.py` | SMTP |
-| `password_expiry_settings.py` | SMTP общий (UI: Настройки → Общие), bind LDAP модуля, пороги; fallback на `.env` |
+| `password_expiry_settings.py` | SMTP общий (UI: Настройки → Почта (SMTP)), bind LDAP (UI: Настройки → LDAP), пороги (UI: Настройки → Отчёт о паролях); fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure своей службы |
@@ -492,7 +492,7 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | --- | --- |
 | `SECRET_KEY`, `FERNET_KEY`, LDAP/SMTP/DB пароли | только `.env` / EnvironmentFile |
 | Пароли PsExec / пароль входа | Fernet ciphertext в `remote_credentials` |
-| Учётка WMI discovery | `.env` `DISCOVERY_*` или Настройки → Опросы ПК (`settings_service`) |
+| Учётка WMI discovery | `.env` `DISCOVERY_*` или Настройки → Опрос сети (`settings_service`) |
 | Пароль VNC (общий) | Fernet в `app_settings` (`vnc_password_encrypted`) |
 | TLS ключ/сертификат | файлы `/opt/bawh/certs/` (не БД) |
 
@@ -571,7 +571,7 @@ sequenceDiagram
 
   Sch->>Ping: run_network_poll()
   Ping->>Ping: ICMP по CIDR секторов
-  Note over Ping: учётка WMI в главном потоке<br/>(Настройки → Опросы ПК / DISCOVERY_*)
+  Note over Ping: учётка WMI в главном потоке<br/>(Настройки → Опрос сети / DISCOVERY_*)
   Note over Ping: итог → network_poll_runs
   alt online
     Ping->>Disc: WMI hostname (PTR запасной) / ARP MAC / serial
@@ -611,7 +611,7 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`B
 
 ### D3. Опрос железа Windows
 
-Scheduler cron (полдень) / CLI `hardware-poll` / UI Настройки → Опросы ПК или карточка →
+Scheduler cron (полдень) / CLI `hardware-poll` / UI Настройки → Опросы железа или карточка →
 `run_hardware_poll` → ping известных Windows-целей (серийник WMI, имена BN/n/w/v/сервер,
 fingerprint windows) → `lookup_wmi_hardware` (железо **и** serial/hostname) →
 снимок на карточку с тем же SN; если на IP отвечает другой известный SN —
@@ -661,10 +661,11 @@ backup → git → pip → `flask init-db` → опциональный restart
 в [`docs/UI_GUIDEBOOK.md`](UI_GUIDEBOOK.md). Ниже — карта файлов.
 
 **Шаблоны** (`app/templates/`): каркас `base.html` (topbar: карта, пароли AD,
-отчёт о ПК, настройки). Сайдбар настроек (`layouts/settings.html`): сектора,
-общие / опросы ПК / VNC / HTTPS, модули, экран входа, скрипты, обнаруженные УЗ,
-действия и аудит, обновления. Домены: `accounts/`, `actions/`,
-`admin/` (`settings_general` / `settings_polls` / `settings_vnc` / `settings_tls`),
+отчёт о ПК, настройки). Сайдбар настроек (`layouts/settings.html`) — четыре блока:
+Общие (туда же VNC и экран входа), Сектора, Скрипты, HTTPS, Почта (SMTP), LDAP;
+Опрос сети, Опросы железа, Отчёт о паролях; Действия и аудит, Обнаруженные УЗ,
+Удаление дублей; Обновления. Домены: `accounts/`, `actions/`,
+`admin/` (`settings_general` / `settings_polls` / `settings_mail` / `settings_tls`, панель `_vnc_panel.html`),
 `auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
 `macros/`, `password_expiry/`, `scripts/`, `sector_daily_report/` (UI «Отчёт о ПК»), `sectors/`.
 
@@ -699,7 +700,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | App | `APP_CONFIG`, `SECRET_KEY`, `APP_NAME`, `LOG_*`, `LOG_ARCHIVE_*` |
 | DB | `DATABASE_URL` |
 | LDAP | `LDAP_HOST/PORT/USE_SSL/BASE_DN/BIND_*/USER_FILTER/ADMIN_GROUP/VIEWER_GROUP/OPERATOR_GROUP/PASSWORD_VIEWER_GROUP/DOMAIN` |
-| SMTP | `SMTP_HOST/PORT/USE_STARTTLS/FROM/USER/PASSWORD` (UI модуля паролей может переопределить) |
+| SMTP | `SMTP_HOST/PORT/USE_STARTTLS/FROM/USER/PASSWORD` (UI: Настройки → Почта (SMTP), иначе `.env`) |
 | Poll | `POLL_INTERVAL_SECONDS`, `MIN_CIDR_PREFIX`, `MAX_HOSTS_PER_POLL`, `DISCOVERY_USERNAME/PASSWORD/DOMAIN` |
 | Crypto | `FERNET_KEY` |
 | Scripts | `SCRIPT_LIBRARY_DIR`, `SCRIPT_TIMEOUT_SECONDS` |
@@ -731,7 +732,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `Dockerfile` | опционально, только web |
 
 Обязательны **web**, **scheduler** и **bawh-vnc** (шлюз можно остановить тумблером
-в Настройки → VNC). Службы отчётов поднимаются тумблерами в UI. Один `.env` на все
+в Настройки → Общие). Службы отчётов поднимаются тумблерами в UI. Один `.env` на все
 процессы (общий `FERNET_KEY` / `SECRET_KEY`).
 
 ---
@@ -759,7 +760,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
-| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Настройки → Опросы ПК и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
+| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Настройки → Опросы железа и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
 | Идентичность устройств | `ping_service._find_existing_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Дубли устройств | `device_dedup_service` (SN / призраки / история IP / suspected), GET/POST `/admin/duplicates` |

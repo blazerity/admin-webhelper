@@ -102,6 +102,8 @@ class BackupInfo:
     subject: str
     reason_label: str
     version: str = ""
+    branch: str = ""
+    update_branch: str = ""
 
 
 @dataclass(frozen=True)
@@ -445,7 +447,7 @@ def perform_update(
 
     progress("Создаю резервную копию текущей версии")
     try:
-        backup = create_backup(root, reason="before-update")
+        backup = create_backup(root, reason="before-update", update_branch=branch)
     except UpdateError:
         raise
     except Exception as exc:
@@ -556,10 +558,28 @@ def perform_rollback(
         raise UpdateError(f"{_sentence(detail)} {restore_note}") from exc
 
 
-def create_backup(root: Path, *, reason: str) -> Path:
+def current_install_branch(root: Path) -> str:
+    """Ветка кода, который сейчас стоит: installed.json, иначе git HEAD."""
+    installed = _read_json(backup_dir(root) / "installed.json")
+    raw = str(installed.get("branch") or "").strip()
+    if raw and raw != "HEAD":
+        return raw
+    if (root / ".git").exists() and shutil.which("git"):
+        try:
+            name = _git_text("rev-parse", "--abbrev-ref", "HEAD", cwd=root)
+        except UpdateError:
+            return ""
+        if name and name != "HEAD":
+            return name
+    return ""
+
+
+def create_backup(root: Path, *, reason: str, update_branch: str = "") -> Path:
     if reason not in _REASON_LABELS:
         raise UpdateError("Неизвестная причина копии.")
     root = root.resolve()
+    snapshot_branch = current_install_branch(root)
+    incoming = (update_branch or "").strip()
     commit, subject, version = local_version(root)
     short = commit[:12] if _COMMIT.fullmatch(commit or "") else "none"
     now = utcnow()
@@ -584,6 +604,8 @@ def create_backup(root: Path, *, reason: str) -> Path:
                 "subject": subject,
                 "version": version,
                 "reason": reason,
+                "branch": snapshot_branch,
+                "update_branch": incoming,
             },
         )
     except Exception:
@@ -617,6 +639,8 @@ def list_backups(root: Path) -> list[BackupInfo]:
                 subject=str(manifest.get("subject") or ""),
                 reason_label=_REASON_LABELS.get(reason, reason or "копия"),
                 version=version,
+                branch=str(manifest.get("branch") or "").strip(),
+                update_branch=str(manifest.get("update_branch") or "").strip(),
             )
         )
     found.sort(key=lambda item: item.id, reverse=True)

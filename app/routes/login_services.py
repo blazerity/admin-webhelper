@@ -20,7 +20,6 @@ from app.models import LoginService
 from app.services.login_service_status import LoginServiceError
 from app.services.login_service_status import check_enabled_services
 from app.services.login_service_status import delete_service as remove_service
-from app.services.login_service_status import list_services as load_services
 from app.services.login_service_status import save_service
 from app.services.net_utils import NetworkInputError
 
@@ -30,10 +29,8 @@ bp = Blueprint("login_services", __name__)
 @bp.get("/login-services/")
 @admin_required
 def list_services():
-    return render_template(
-        "login_services/list.html",
-        services=load_services(),
-    )
+    """Список переехал в Настройки → Общие."""
+    return redirect(url_for("admin.settings", section="general") + "#login-services")
 
 
 @bp.get("/login-services/new")

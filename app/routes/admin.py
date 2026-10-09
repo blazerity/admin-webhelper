@@ -2,7 +2,8 @@
 
 Эндпоинты:
 - settings      GET/POST /admin/settings[/<section>]
-  section: general | polls | vnc | tls (по умолчанию general)
+  section: general | polls | mail | tls (по умолчанию general).
+  Старый section=vnc открывает Общие#vnc.
 - poll-run      POST /admin/poll-run — принудительный опрос сети
 - hardware-poll-run POST /admin/hardware-poll-run — опрос железа Windows
 - refresh-hostnames POST /admin/refresh-hostnames — WMI-имена на известных машинах
@@ -24,8 +25,10 @@ Discovery: глобальная учётка WMI для опроса (серий
 Опрос: интервал в app_settings; журнал прогонов — network_poll_runs;
 кнопка «Запустить сейчас» вызывает ту же run_network_poll, что и планировщик.
 
-Опрос железа: cron и журнал hardware_poll_runs на разделе polls;
-кнопка вызывает run_hardware_poll.
+Опрос железа: cron и журнал hardware_poll_runs на странице
+«Опросы железа» (/pc-reports/settings); кнопка вызывает run_hardware_poll.
+
+SMTP — раздел mail. VNC и сервисы экрана входа — на general.
 
 Обновление — отдельные кнопки на /admin/updates. Замена кода
 начинается только после резервной копии, см. update_service.
@@ -52,15 +55,12 @@ from app.services.device_dedup_service import (
     find_duplicate_groups,
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
-from app.services.network_summary_service import get_scheduler_health
 from app.services.hardware_poll_service import (
     HardwarePollError,
     HardwarePollInProgressError,
-    count_hardware_poll_runs,
-    load_recent_hardware_poll_runs,
     run_hardware_poll,
 )
-from app.services.hardware_poll_settings import get_hardware_poll_settings, set_hardware_poll_settings
+from app.services.hardware_poll_settings import set_hardware_poll_settings
 from app.services.hostname_sweep_service import (
     HostnameSweepError,
     run_hostname_sweep,
@@ -104,22 +104,23 @@ from app.services.update_service import (
 )
 from app.services.vnc_settings import clear_vnc_password, get_vnc_settings, set_vnc_settings
 from app.services.tightvnc_install_script import list_vnc_agent_summaries
+from app.services.login_service_status import list_services as load_login_services
 from app.utils import as_truthy, normalize_page, parse_optional_int
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-_SETTINGS_SECTIONS = frozenset({"general", "polls", "vnc", "tls"})
+_SETTINGS_SECTIONS = frozenset({"general", "polls", "mail", "vnc", "tls"})
 _FORM_TO_SECTION = {
-    "smtp": "general",
-    "test_smtp": "general",
+    "smtp": "mail",
+    "test_smtp": "mail",
     "psexec": "general",
     "update": "general",
     "discovery": "polls",
     "poll": "polls",
     "hardware_poll": "polls",
-    "vnc": "vnc",
+    "vnc": "general",
     "tls": "tls",
 }
 _POLL_HISTORY_PREVIEW = 5
@@ -147,13 +148,18 @@ def _credential_view(user_id: int) -> tuple[str, str, bool]:
     return row.username or "", row.domain or "", bool(row.password_encrypted)
 
 
+def _hardware_settings_url(*, anchor: str = "hardware-poll") -> str:
+    """Страница «Опросы железа», куда переехал блок опроса Windows."""
+    target = url_for("sector_daily_report.settings_page")
+    if anchor:
+        target = f"{target}#{anchor.lstrip('#')}"
+    return target
+
+
 def _poll_history_context() -> dict:
-    """Журналы опросов: 5 последних или пагинация при all/poll_all/hw_all=1."""
-    all_flag = as_truthy(request.args.get("all"))
-    poll_show_all = all_flag or as_truthy(request.args.get("poll_all"))
-    hardware_show_all = all_flag or as_truthy(request.args.get("hw_all"))
+    """Журнал сетевого опроса: 5 последних или пагинация при all/poll_all=1."""
+    poll_show_all = as_truthy(request.args.get("all")) or as_truthy(request.args.get("poll_all"))
     poll_total = count_poll_runs()
-    hardware_total = count_hardware_poll_runs()
 
     if poll_show_all:
         poll_page, poll_per_page = normalize_page(
@@ -167,34 +173,12 @@ def _poll_history_context() -> dict:
         poll_page, poll_per_page = 1, _POLL_HISTORY_PREVIEW
         poll_runs = load_recent_poll_runs(limit=_POLL_HISTORY_PREVIEW)
 
-    if hardware_show_all:
-        # Отдельный page для железа, если оба журнала развернуты.
-        hw_page_raw = request.args.get("hw_page") if poll_show_all else request.args.get("page")
-        hw_per_raw = request.args.get("hw_per_page") if poll_show_all else request.args.get("per_page")
-        hardware_page, hardware_per_page = normalize_page(
-            parse_optional_int(hw_page_raw),
-            parse_optional_int(hw_per_raw) or _POLL_HISTORY_PER_PAGE,
-            max_per_page=50,
-        )
-        hardware_offset = (hardware_page - 1) * hardware_per_page
-        hardware_poll_runs = load_recent_hardware_poll_runs(
-            limit=hardware_per_page, offset=hardware_offset
-        )
-    else:
-        hardware_page, hardware_per_page = 1, _POLL_HISTORY_PREVIEW
-        hardware_poll_runs = load_recent_hardware_poll_runs(limit=_POLL_HISTORY_PREVIEW)
-
     return {
         "poll_runs": poll_runs,
         "poll_runs_total": poll_total,
         "poll_page": poll_page,
         "poll_per_page": poll_per_page,
         "poll_show_all": poll_show_all,
-        "hardware_poll_runs": hardware_poll_runs,
-        "hardware_poll_runs_total": hardware_total,
-        "hardware_page": hardware_page,
-        "hardware_per_page": hardware_per_page,
-        "hardware_show_all": hardware_show_all,
     }
 
 
@@ -205,6 +189,10 @@ def settings(section: str | None = None):
     section = (section or "general").strip().lower() or "general"
     if section not in _SETTINGS_SECTIONS:
         abort(404)
+    if request.method == "GET" and section == "vnc":
+        return redirect(_settings_redirect("general", anchor="vnc"))
+    if request.method == "GET" and section == "polls" and as_truthy(request.args.get("hw_all")):
+        return redirect(url_for("sector_daily_report.settings_page", hw_all=1))
 
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
@@ -280,7 +268,7 @@ def settings(section: str | None = None):
                 )
             except ValueError as exc:
                 flash(str(exc), "danger")
-                return redirect(_settings_redirect("polls", anchor="hardware-poll"))
+                return redirect(_hardware_settings_url())
             audit_service.log(
                 current_user,
                 "update",
@@ -289,7 +277,7 @@ def settings(section: str | None = None):
                 detail=f"enabled={int(want_enabled)} cron={request.form.get('hardware_poll_cron', '')}",
             )
             flash("Расписание опроса железа сохранено.", "success")
-            return redirect(_settings_redirect("polls", anchor="hardware-poll"))
+            return redirect(_hardware_settings_url())
         if kind == "smtp":
             try:
                 set_smtp_settings(
@@ -302,10 +290,10 @@ def settings(section: str | None = None):
                 )
             except ValueError as exc:
                 flash(str(exc), "danger")
-                return redirect(_settings_redirect("general", anchor="smtp"))
+                return redirect(_settings_redirect("mail", anchor="smtp"))
             audit_service.log(current_user, "update", "admin_settings", "smtp")
             flash("Настройки SMTP сохранены.", "success")
-            return redirect(_settings_redirect("general", anchor="smtp"))
+            return redirect(_settings_redirect("mail", anchor="smtp"))
         if kind == "test_smtp":
             try:
                 message = test_smtp_connection()
@@ -313,7 +301,7 @@ def settings(section: str | None = None):
                 flash(str(exc), "danger")
             else:
                 flash(message, "success")
-            return redirect(_settings_redirect("general", anchor="smtp"))
+            return redirect(_settings_redirect("mail", anchor="smtp"))
         if kind == "update":
             try:
                 saved = save_update_sudo_credentials(
@@ -352,7 +340,7 @@ def settings(section: str | None = None):
                     clear_vnc_password()
             except (ValueError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
-                return redirect(_settings_redirect("vnc"))
+                return redirect(_settings_redirect("general", anchor="vnc"))
             try:
                 if want_enabled:
                     ensure = ensure_unit_running(VNC_UNIT)
@@ -380,7 +368,7 @@ def settings(section: str | None = None):
                 "vnc",
                 detail=f"enabled={int(want_enabled)} port={request.form.get('vnc_port', '')}",
             )
-            return redirect(_settings_redirect("vnc"))
+            return redirect(_settings_redirect("general", anchor="vnc"))
         if kind == "tls":
             action = (request.form.get("tls_action") or "save").strip()
             server_name = request.form.get("tls_server_name", "")
@@ -458,10 +446,12 @@ def settings(section: str | None = None):
             username=username,
             domain=domain,
             password_set=password_set,
-            scheduler_health=get_scheduler_health(),
-            smtp=get_smtp_settings(),
             update_sudo_user=update_sudo.username,
             update_sudo_password_set=update_sudo.password_set,
+            vnc=get_vnc_settings(),
+            vnc_unit=get_unit_status(VNC_UNIT),
+            vnc_agents=list_vnc_agent_summaries(),
+            login_services=load_login_services(),
         )
     elif section == "polls":
         discovery = get_discovery_credential_view()
@@ -470,15 +460,10 @@ def settings(section: str | None = None):
             discovery_domain=discovery.domain,
             discovery_password_set=discovery.password_set,
             poll_interval=get_poll_interval_seconds(),
-            hardware_poll_settings=get_hardware_poll_settings(),
             **_poll_history_context(),
         )
-    elif section == "vnc":
-        ctx.update(
-            vnc=get_vnc_settings(),
-            vnc_unit=get_unit_status(VNC_UNIT),
-            vnc_agents=list_vnc_agent_summaries(),
-        )
+    elif section == "mail":
+        ctx.update(smtp=get_smtp_settings())
     elif section == "tls":
         ctx.update(tls=get_tls_settings())
 
@@ -509,14 +494,14 @@ def hardware_poll_run():
         result = run_hardware_poll(mode="manual")
     except HardwarePollInProgressError as exc:
         flash(str(exc), "warning")
-        return redirect(_settings_redirect("polls", anchor="hardware-poll"))
+        return redirect(_hardware_settings_url())
     except HardwarePollError as exc:
         flash(str(exc), "warning")
-        return redirect(_settings_redirect("polls", anchor="hardware-poll"))
+        return redirect(_hardware_settings_url())
     except Exception as exc:  # noqa: BLE001
         logger.exception("Сбой ручного опроса железа")
         flash(f"Ошибка опроса железа: {exc}", "danger")
-        return redirect(_settings_redirect("polls", anchor="hardware-poll"))
+        return redirect(_hardware_settings_url())
 
     flash(
         "Опрос железа: проверено {scanned}, онлайн {online}, "
@@ -526,7 +511,7 @@ def hardware_poll_run():
         ),
         "success",
     )
-    return redirect(_settings_redirect("polls", anchor="hardware-poll"))
+    return redirect(_hardware_settings_url())
 
 
 @bp.route("/poll-run", methods=["POST"])

@@ -1,7 +1,10 @@
 """UI модуля уведомлений о сроке паролей AD.
 
 Доступ — только администраторам bAWH (LDAP-группа), без отдельного Basic Auth.
-Отчёт — отдельный пункт верхнего меню; настройки — в разделе «Настройки».
+Отчёт — отдельный пункт верхнего меню.
+Подключение к каталогу — Настройки → LDAP.
+Пороги и получатели — Настройки → Отчёт о паролях.
+Почта — Настройки → Почта (SMTP).
 """
 
 from __future__ import annotations
@@ -112,24 +115,7 @@ def settings_page():
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
         if kind == "module":
-            try:
-                set_password_expiry_settings(
-                    max_pwd_age_days=int(request.form.get("max_pwd_age_days") or 0),
-                    first_warning_days=int(request.form.get("first_warning_days") or 0),
-                    daily_warning_threshold=int(
-                        request.form.get("daily_warning_threshold") or 0
-                    ),
-                    instructions_url=request.form.get("instructions_url", ""),
-                    excluded_ou=request.form.get("excluded_ou", ""),
-                    search_base=request.form.get("search_base", ""),
-                    schedule_cron=request.form.get("schedule_cron", ""),
-                    admin_recipients=request.form.get("admin_recipients", ""),
-                )
-            except (ValueError, TypeError) as exc:
-                flash(str(exc), "danger")
-                return redirect(url_for("password_expiry.settings_page"))
-            flash("Настройки модуля сохранены.", "success")
-            return redirect(url_for("password_expiry.settings_page"))
+            return _save_report_settings()
 
         if kind == "ldap_bind":
             try:
@@ -158,9 +144,44 @@ def settings_page():
     ldap = get_ldap_bind_settings()
     return render_template(
         "password_expiry/settings.html",
-        settings=get_password_expiry_settings(),
-        smtp=get_smtp_settings(),
         ldap=ldap,
+    )
+
+
+def _save_report_settings():
+    try:
+        set_password_expiry_settings(
+            max_pwd_age_days=int(request.form.get("max_pwd_age_days") or 0),
+            first_warning_days=int(request.form.get("first_warning_days") or 0),
+            daily_warning_threshold=int(request.form.get("daily_warning_threshold") or 0),
+            instructions_url=request.form.get("instructions_url", ""),
+            excluded_ou=request.form.get("excluded_ou", ""),
+            search_base=request.form.get("search_base", ""),
+            schedule_cron=request.form.get("schedule_cron", ""),
+            admin_recipients=request.form.get("admin_recipients", ""),
+        )
+    except (ValueError, TypeError) as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("password_expiry.report_settings"))
+    flash("Настройки отчёта о паролях сохранены.", "success")
+    return redirect(url_for("password_expiry.report_settings"))
+
+
+@bp.route("/report-settings", methods=["GET", "POST"])
+@admin_required
+def report_settings():
+    """Пороги, cron и получатели модуля паролей (без LDAP и SMTP)."""
+    if request.method == "POST":
+        kind = (request.form.get("form") or "").strip()
+        if kind == "module":
+            return _save_report_settings()
+        flash("Неизвестная форма.", "danger")
+        return redirect(url_for("password_expiry.report_settings"))
+
+    return render_template(
+        "password_expiry/report_settings.html",
+        settings=get_password_expiry_settings(),
+        ldap=get_ldap_bind_settings(),
     )
 
 

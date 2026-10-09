@@ -1,35 +1,124 @@
 {% extends "layouts/settings.html" %}
-{% block title %}Отчёт о ПК — настройки{% endblock %}
+{% from "macros/pagination.html" import page_nav %}
+{% block title %}Опросы железа{% endblock %}
 {% block settings_content %}
 <div class="page-header">
   <div>
-    <h1 class="page-title">Отчёт о ПК — настройки</h1>
+    <h1 class="page-title">Опросы железа</h1>
     <p class="page-subtitle">
-      Расписание и получатели сводки по ноутбукам и СБ.
-      SMTP — в <a href="{{ url_for('admin.settings', section='general') }}#smtp">Настройки → Общие</a>.
+      Сбор конфигурации Windows и рассылка сводки по ноутбукам и СБ.
+      Почта — в <a href="{{ url_for('admin.settings', section='mail') }}">Настройки → Почта (SMTP)</a>.
     </p>
   </div>
   <a class="btn btn-outline-secondary" href="{{ url_for('sector_daily_report.dashboard') }}">К отчёту</a>
 </div>
 
-<div class="panel content-card mb-3">
-  <h2 class="h5 mb-2">SMTP</h2>
-  <p class="text-muted mb-0">
-    {% if smtp.configured %}
-      Используется {{ smtp.host }}:{{ smtp.port }}, From {{ smtp.from_address }}.
-    {% else %}
-      SMTP не настроен.
-    {% endif %}
-    Параметры задаются в
-    <a href="{{ url_for('admin.settings', section='general') }}#smtp">Настройки → Общие</a>
-    (или <code>SMTP_*</code> в <code>.env</code>).
+<div class="panel content-card mb-3" id="hardware-poll">
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="hardware_poll">
+    <h2 class="h5 mb-2">Опрос железа Windows</h2>
+    <p class="text-muted mb-3">
+      Отдельный проход по известным Windows-машинам: процессор, ОЗУ, диски и версия ОС.
+      Учётка та же, что для WMI в
+      <a href="{{ url_for('admin.settings', section='polls') }}">Опросе сети</a>.
+      По умолчанию — ежедневно в полдень.
+    </p>
+    {% set hw = hardware_poll_settings if hardware_poll_settings is defined else none %}
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label" for="hardware_poll_cron">Cron расписания</label>
+        <input class="form-control" id="hardware_poll_cron" name="hardware_poll_cron" value="{{ hw.schedule_cron if hw else '0 12 * * *' }}">
+        <div class="form-text">По умолчанию <code>0 12 * * *</code>.</div>
+      </div>
+      <div class="col-md-8 d-flex align-items-end">
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" value="1" id="hardware_poll_enabled" name="hardware_poll_enabled"{% if not hw or hw.schedule_enabled %} checked{% endif %}>
+          <label class="form-check-label" for="hardware_poll_enabled">
+            Расписание включено
+          </label>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">Сохранить расписание</button>
+  </form>
+  <hr class="my-3">
+  <form method="post" action="{{ url_for('admin.hardware_poll_run') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-primary" type="submit">Опросить железо сейчас</button>
+  </form>
+  <p class="mt-3 mb-0">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.export_hardware_poll_runs') }}">Скачать журнал опроса железа (CSV)</a>
   </p>
+  {% if hardware_poll_runs %}
+  <h3 class="h6 mt-4 mb-2">Последние прогоны железа</h3>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>Начало</th>
+          <th>Конец</th>
+          <th>Режим</th>
+          <th>Проверено</th>
+          <th>Онлайн</th>
+          <th>Собрано</th>
+          <th>Изменено</th>
+          <th>Офлайн</th>
+          <th>Ошибки</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in hardware_poll_runs %}
+        <tr>
+          <td>{{ run.started_at|dt }}</td>
+          <td>
+            {% if run.finished_at %}
+              {{ run.finished_at|dt }}
+            {% else %}
+              <span class="text-warning">идёт…</span>
+            {% endif %}
+          </td>
+          <td>{{ run.mode }}</td>
+          <td>{{ run.scanned }}</td>
+          <td>{{ run.online }}</td>
+          <td>{{ run.collected }}</td>
+          <td>{{ run.changed }}</td>
+          <td>{{ run.offline }}</td>
+          <td>
+            {{ run.errors }}
+            {% if run.error %}
+              <div class="text-danger small">{{ run.error }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if not hardware_show_all and hardware_poll_runs_total|default(0) > hardware_poll_runs|length %}
+  <p class="mt-2 mb-0">
+    <a href="{{ url_for('sector_daily_report.settings_page', hw_all=1) }}">Показать все</a>
+    <span class="text-muted small">({{ hardware_poll_runs_total }})</span>
+  </p>
+  {% elif hardware_show_all %}
+  {{ page_nav(
+       'sector_daily_report.settings_page',
+       hardware_page|default(1),
+       hardware_per_page|default(20),
+       hardware_poll_runs_total|default(0),
+       {'hw_all': '1'}
+     ) }}
+  {% endif %}
+  {% else %}
+  <p class="text-muted small mt-3 mb-0">Прогонов железа ещё нет — дождитесь расписания или нажмите «Опросить железо сейчас».</p>
+  {% endif %}
 </div>
 
 <div class="panel content-card">
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <h2 class="h5 mb-3">Параметры модуля</h2>
+    <input type="hidden" name="form" value="module">
+    <h2 class="h5 mb-3">Параметры сводки</h2>
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label" for="schedule_cron">Cron расписания</label>

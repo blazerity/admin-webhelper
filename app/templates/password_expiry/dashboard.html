@@ -17,7 +17,7 @@
   </div>
   {% if is_admin %}
   <div class="d-flex gap-2 flex-wrap">
-    <a class="btn btn-outline-secondary" href="{{ url_for('password_expiry.settings_page') }}">Настройки модуля</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('password_expiry.report_settings') }}">Настройки модуля</a>
   </div>
   {% endif %}
 </div>
@@ -44,7 +44,7 @@
           не запущена ({{ scheduler.active_state }}){% if can_toggle %} — включение тумблера поднимет её{% endif %}
         {% endif %}
         · управление в
-        <a href="{{ url_for('admin.settings') }}#service-control">Параметры</a>
+        <a href="{{ url_for('admin.settings', section='general') }}#service-control">Общие</a>
       </p>
     </div>
     {% if can_toggle %}
@@ -131,7 +131,7 @@
   <p class="text-muted small mt-2 mb-0">
     LDAP: {{ ldap.host }} · база {{ settings.search_base or ldap.base_dn or "—" }}.
     SMTP: {% if smtp.configured %}{{ smtp.host }}:{{ smtp.port }}{% else %}не настроен{% endif %}
-    (<a href="{{ url_for('admin.settings', section='general') }}#smtp">Настройки → Общие</a>).
+    (<a href="{{ url_for('admin.settings', section='mail') }}">Настройки → Почта (SMTP)</a>).
   </p>
 </div>
 

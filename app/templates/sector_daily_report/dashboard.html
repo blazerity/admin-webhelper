@@ -135,7 +135,7 @@
     В отчёт попадают только ноутбуки (<code>n…</code>) и системные блоки (<code>w…</code>).
     «Активный» — хотя бы один online-опрос за прошедший календарный день.
     SMTP: {% if smtp.configured %}{{ smtp.host }}:{{ smtp.port }}{% else %}не настроен{% endif %}
-    (настройки в <a href="{{ url_for('password_expiry.settings_page') }}">Пароли AD</a>).
+    (настройки в <a href="{{ url_for('admin.settings', section='mail') }}">Почта (SMTP)</a>).
   </p>
 </div>
 

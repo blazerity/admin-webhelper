@@ -1,14 +1,4 @@
-{% extends "layouts/settings.html" %}
-{% block title %}VNC{% endblock %}
-{% block settings_content %}
-<div class="page-header">
-  <div>
-    <h1 class="page-title">VNC</h1>
-    <p class="page-subtitle">Шлюз удалённого стола в браузере</p>
-  </div>
-</div>
-
-<div class="panel content-card mb-0" id="vnc">
+<div class="panel content-card mb-3" id="vnc">
   <h2 class="h5 mb-1">VNC в браузере</h2>
   <p class="text-muted mb-3">
     Шлюз bawh-vnc и noVNC на карточке устройства. При подключении на Windows устанавливается TightVNC (MSI в каталоге vnc-agents/). Пароль — не более 8 символов.
@@ -64,4 +54,3 @@
     </div>
   </form>
 </div>
-{% endblock %}

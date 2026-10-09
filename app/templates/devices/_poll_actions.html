@@ -3,27 +3,12 @@
 <div class="device-actions">
   <div class="device-actions-group">
     <p class="device-actions-label">Статус в инвентаре</p>
-    <div class="device-actions-row">
-      <form method="post" action="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="tab" value="polls">
-        <button class="btn btn-primary w-100" type="submit" title="ICMP и запись в историю опросов">Проверить сейчас</button>
-      </form>
-    </div>
-    <p class="small text-muted mb-0">ICMP-проверка; результат сохраняется в историю опросов.</p>
-  </div>
-  <div class="device-actions-group mt-3">
-    <p class="device-actions-label">Диагностика с журналом</p>
-    <div class="device-actions-row">
-      <form method="post" action="{{ url_for('diagnostics.ping_device', device_id=device.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-primary w-100" type="submit" title="ICMP с полным логом в журнале запусков">Ping (лог)</button>
-      </form>
-      <form method="post" action="{{ url_for('diagnostics.tracert_device', device_id=device.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-primary w-100" type="submit">Трассировка</button>
-      </form>
-    </div>
+    <form method="post" action="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="tab" value="polls">
+      <button class="btn btn-primary" type="submit" title="ICMP и запись в историю опросов">Проверить сейчас</button>
+    </form>
+    <p class="small text-muted mb-0">ICMP-проверка; результат сохраняется в историю опросов. Ping и трассировка с журналом — на обзоре карточки.</p>
   </div>
 </div>
 {% else %}

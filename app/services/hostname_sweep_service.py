@@ -139,7 +139,7 @@ def run_hostname_sweep(
     if creds is None:
         raise HostnameSweepError(
             "Учётка WMI не задана: имена с машин не прочитать "
-            "(Настройки → Опросы ПК или DISCOVERY_* в .env)."
+            "(Настройки → Опрос сети или DISCOVERY_* в .env)."
         )
 
     targets = _load_targets(limit=limit, device_ids=device_ids)

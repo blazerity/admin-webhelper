@@ -1,6 +1,7 @@
 """UI отчётов о ПК (ноутбуки и СБ по секторам + конфигурации железа).
 
-Доступ — только администраторам. SMTP — общий с модулем паролей AD.
+Доступ — только администраторам. SMTP — Настройки → Почта (SMTP).
+Опрос железа Windows — на странице настроек этого модуля («Опросы железа»).
 URL prefix: /pc-reports (старый /sector-daily-report редиректит сюда).
 """
 
@@ -10,8 +11,12 @@ import logging
 from datetime import datetime
 
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
+from flask_login import current_user
 
 from app.authz import admin_required
+from app.services import audit_service
+from app.services.hardware_poll_service import count_hardware_poll_runs, load_recent_hardware_poll_runs
+from app.services.hardware_poll_settings import get_hardware_poll_settings, set_hardware_poll_settings
 from app.services.password_expiry_settings import get_smtp_settings
 from app.services.report_toggle_service import apply_report_toggle, pc_reports_status
 from app.services.sector_daily_report_service import (
@@ -34,6 +39,10 @@ from app.services.systemd_service import (
     SystemdError,
     ensure_unit_running,
 )
+from app.utils import as_truthy, normalize_page, parse_optional_int
+
+_HW_HISTORY_PREVIEW = 5
+_HW_HISTORY_PER_PAGE = 20
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +94,57 @@ def toggle_schedule():
     return redirect(url_for("sector_daily_report.dashboard"))
 
 
+def _hardware_history_context() -> dict:
+    """Журнал опроса железа: 5 последних или пагинация при hw_all=1."""
+    hardware_show_all = as_truthy(request.args.get("hw_all")) or as_truthy(request.args.get("all"))
+    hardware_total = count_hardware_poll_runs()
+    if hardware_show_all:
+        hardware_page, hardware_per_page = normalize_page(
+            parse_optional_int(request.args.get("page")),
+            parse_optional_int(request.args.get("per_page")) or _HW_HISTORY_PER_PAGE,
+            max_per_page=50,
+        )
+        hardware_offset = (hardware_page - 1) * hardware_per_page
+        hardware_poll_runs = load_recent_hardware_poll_runs(
+            limit=hardware_per_page, offset=hardware_offset
+        )
+    else:
+        hardware_page, hardware_per_page = 1, _HW_HISTORY_PREVIEW
+        hardware_poll_runs = load_recent_hardware_poll_runs(limit=_HW_HISTORY_PREVIEW)
+    return {
+        "hardware_poll_runs": hardware_poll_runs,
+        "hardware_poll_runs_total": hardware_total,
+        "hardware_page": hardware_page,
+        "hardware_per_page": hardware_per_page,
+        "hardware_show_all": hardware_show_all,
+    }
+
+
 @bp.route("/settings", methods=["GET", "POST"])
 @admin_required
 def settings_page():
     if request.method == "POST":
+        kind = (request.form.get("form") or "module").strip() or "module"
+        if kind == "hardware_poll":
+            want_enabled = request.form.get("hardware_poll_enabled") == "1"
+            try:
+                set_hardware_poll_settings(
+                    schedule_enabled=want_enabled,
+                    schedule_cron=request.form.get("hardware_poll_cron", ""),
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("sector_daily_report.settings_page") + "#hardware-poll")
+            audit_service.log(
+                current_user,
+                "update",
+                "admin_settings",
+                "hardware_poll",
+                detail=f"enabled={int(want_enabled)} cron={request.form.get('hardware_poll_cron', '')}",
+            )
+            flash("Расписание опроса железа сохранено.", "success")
+            return redirect(url_for("sector_daily_report.settings_page") + "#hardware-poll")
+
         want_enabled = request.form.get("schedule_enabled") == "1"
         try:
             set_sector_daily_report_settings(
@@ -112,7 +168,8 @@ def settings_page():
     return render_template(
         "sector_daily_report/settings.html",
         settings=get_sector_daily_report_settings(),
-        smtp=get_smtp_settings(),
+        hardware_poll_settings=get_hardware_poll_settings(),
+        **_hardware_history_context(),
     )
 
 

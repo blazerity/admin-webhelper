@@ -129,7 +129,13 @@ def stale_after_seconds(poll_interval: int | None = None) -> int:
 
 
 def get_scheduler_health() -> dict:
-    """Состояние опроса для блока на /admin/settings."""
+    """Признак устаревания сетевого опроса.
+
+    Раньше показывался блоком «Состояние планировщика» в Настройках.
+    Тот же последний прогон уже есть в журнале «Опрос сети», а из блока
+    нельзя было ничего сделать, поэтому панель убрана. Функция остаётся
+    для диагностики.
+    """
     last_success = latest_successful_poll_run()
     last_run = latest_poll_run()
     threshold = stale_after_seconds()

@@ -1,0 +1,71 @@
+{% extends "layouts/settings.html" %}
+{% block title %}Отчёт о паролях{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Отчёт о паролях</h1>
+    <p class="page-subtitle">
+      Пороги, поиск в каталоге и получатели админ-отчёта.
+      Подключение к каталогу — в <a href="{{ url_for('password_expiry.settings_page') }}">LDAP</a>.
+      Почта — в <a href="{{ url_for('admin.settings', section='mail') }}">Настройки → Почта (SMTP)</a>.
+      Включение расписания — на <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
+    </p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('password_expiry.dashboard') }}">К отчёту</a>
+</div>
+
+<div class="panel content-card">
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="module">
+    <h2 class="h5 mb-3">Параметры модуля</h2>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label" for="max_pwd_age_days">Макс. срок пароля, дней</label>
+        <input class="form-control" type="number" min="1" id="max_pwd_age_days" name="max_pwd_age_days" value="{{ settings.max_pwd_age_days }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="first_warning_days">Первое предупреждение, дней</label>
+        <input class="form-control" type="number" min="1" id="first_warning_days" name="first_warning_days" value="{{ settings.first_warning_days }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="daily_warning_threshold">Ежедневные с порога, дней</label>
+        <input class="form-control" type="number" min="1" id="daily_warning_threshold" name="daily_warning_threshold" value="{{ settings.daily_warning_threshold }}">
+      </div>
+      <div class="col-md-8">
+        <label class="form-label" for="search_base">search_base (пусто = LDAP_BASE_DN)</label>
+        <input class="form-control" id="search_base" name="search_base" value="{{ settings.search_base_override }}" placeholder="{{ ldap.base_dn }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="schedule_cron">Cron расписания</label>
+        <input class="form-control" id="schedule_cron" name="schedule_cron" value="{{ settings.schedule_cron }}">
+      </div>
+      <div class="col-md-12">
+        <label class="form-label" for="excluded_ou">Исключённые OU (фрагменты DN через ;)</label>
+        <input class="form-control" id="excluded_ou" name="excluded_ou" value="{{ settings.excluded_ou|join(';') }}">
+      </div>
+      <div class="col-md-12">
+        <label class="form-label" for="instructions_url">Ссылка на инструкцию смены пароля</label>
+        <input class="form-control" id="instructions_url" name="instructions_url" value="{{ settings.instructions_url }}">
+      </div>
+      <div class="col-md-12">
+        <label class="form-label" for="admin_recipients">Получатели админ-отчёта (email через запятую)</label>
+        <input class="form-control" id="admin_recipients" name="admin_recipients" value="{{ settings.admin_recipients|join(', ') }}">
+      </div>
+      <div class="col-md-12">
+        <p class="form-text mb-0">
+          Расписание сейчас:
+          {% if settings.schedule_enabled %}
+            <span class="text-success">включено</span>
+          {% else %}
+            <span class="text-muted">выключено</span>
+          {% endif %}
+          — переключается на
+          <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
+        </p>
+      </div>
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">Сохранить</button>
+  </form>
+</div>
+{% endblock %}

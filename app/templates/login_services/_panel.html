@@ -1,17 +1,13 @@
-{# Список перенесён в Настройки → Общие. GET /login-services/ редиректит туда. #}
-{% extends "layouts/settings.html" %}
-{% block title %}Экран входа{% endblock %}
-{% block settings_content %}
-<div class="page-header">
-  <div>
-    <h1 class="page-title">Экран входа</h1>
-    <p class="page-subtitle">Сервисы, чья доступность видна до авторизации</p>
+<div class="panel content-card mb-3" id="login-services">
+  <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+    <div>
+      <h2 class="h5 mb-1">Экран входа</h2>
+      <p class="text-muted mb-0">Сервисы, чья доступность видна до авторизации</p>
+    </div>
+    <a class="btn btn-primary" href="{{ url_for('login_services.new_service') }}">Добавить сервис</a>
   </div>
-  <a class="btn btn-primary" href="{{ url_for('login_services.new_service') }}">Добавить сервис</a>
-</div>
-<div class="panel content-card p-0 overflow-hidden">
   <div class="table-responsive">
-    <table class="table">
+    <table class="table table-sm mb-0">
       <thead>
         <tr>
           <th>Название</th>
@@ -22,7 +18,7 @@
         </tr>
       </thead>
       <tbody>
-      {% for service in services %}
+      {% for service in login_services|default([]) %}
         <tr>
           <td>{{ service.name }}</td>
           <td class="font-monospace">{{ service.address }}</td>
@@ -37,4 +33,3 @@
     </table>
   </div>
 </div>
-{% endblock %}

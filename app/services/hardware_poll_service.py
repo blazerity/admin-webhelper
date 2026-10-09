@@ -266,7 +266,7 @@ def run_hardware_poll(
         if creds is None:
             raise HardwarePollError(
                 "Учётка WMI не задана: железо не прочитать "
-                "(Настройки → Опросы ПК или DISCOVERY_* в .env)."
+                "(Настройки → Опрос сети или DISCOVERY_* в .env)."
             )
 
         if not dry_run:

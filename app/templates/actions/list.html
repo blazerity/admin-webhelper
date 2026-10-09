@@ -6,22 +6,9 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Действия и аудит</h1>
-    <p class="page-subtitle">Типы событий и недавние действия на устройствах</p>
+    <p class="page-subtitle">Недавние действия на устройствах и журнал аудита</p>
   </div>
   <a class="btn btn-sm btn-outline-primary" data-live-csv href="{{ url_for('actions.export_csv', kind=kind_filter|default('')) }}">CSV</a>
-</div>
-
-<div class="panel content-card mb-3">
-  <h2 class="panel-title mb-3">Типы действий</h2>
-  <div class="action-kind-grid">
-    {% for kind in action_kinds %}
-    <div class="action-kind-item">
-      <p class="action-kind-code font-monospace">{{ kind.code }}</p>
-      <p class="action-kind-title">{{ kind.title }}</p>
-      <p class="action-kind-desc">{{ kind.description }}</p>
-    </div>
-    {% endfor %}
-  </div>
 </div>
 
 {% if show_all %}

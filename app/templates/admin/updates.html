@@ -117,7 +117,7 @@
   <div class="table-responsive">
     <table class="table">
       <thead>
-        <tr><th>Когда</th><th>Версия</th><th></th></tr>
+        <tr><th>Когда</th><th>Версия</th><th>Ветки</th><th></th></tr>
       </thead>
       <tbody>
       {% for backup in status.backups %}
@@ -129,6 +129,18 @@
             {% else %}—{% endif %}
             {% if backup.subject %}<div class="text-muted">{{ backup.subject }}</div>{% endif %}
           </td>
+          <td>
+            <div>Копия из ветки <strong>{{ backup.branch or 'не записана' }}</strong></div>
+            <div class="text-muted">
+              {% if backup.update_branch %}
+                Обновление из ветки <strong>{{ backup.update_branch }}</strong>
+              {% elif backup.reason_label == 'перед откатом' %}
+                Снята перед откатом, обновления не было
+              {% else %}
+                Обновление из ветки не записано
+              {% endif %}
+            </div>
+          </td>
           <td class="text-end">
             <form method="post" action="{{ url_for('admin.updates') }}" onsubmit="return confirm('Вернуть файлы из этой копии? Текущая версия тоже будет сохранена.');">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -139,7 +151,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="3" class="text-muted">Копий ещё нет. Они появляются перед обновлением и перед откатом.</td></tr>
+        <tr><td colspan="4" class="text-muted">Копий ещё нет. Они появляются перед обновлением и перед откатом.</td></tr>
       {% endfor %}
       </tbody>
     </table>
