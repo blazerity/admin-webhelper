@@ -9,6 +9,7 @@ from app.services.crypto_service import CryptoError, CryptoNotConfigured, decryp
 from app.services.vnc_token import DEFAULT_VNC_PORT, VNC_PORT_MAX, VNC_PORT_MIN
 from app.utils import as_truthy
 
+# Тумблер «возможность подключения по VNC»: UI-кнопки, маршруты и служба bawh-vnc.
 VNC_GATEWAY_ENABLED = "vnc_gateway_enabled"
 VNC_PORT_KEY = "vnc_port"
 VNC_PASSWORD_KEY = "vnc_password_encrypted"
@@ -34,12 +35,16 @@ def _set_raw(key: str, value: str) -> None:
     set_app_setting(key, value)
 
 
-def get_vnc_settings(*, include_password: bool = False) -> VncSettings:
+def is_vnc_enabled() -> bool:
+    """Включена ли возможность подключения по VNC (Настройки → VNC)."""
     raw_enabled = _get_raw(VNC_GATEWAY_ENABLED)
     if raw_enabled is None or not str(raw_enabled).strip():
-        gateway_enabled = True
-    else:
-        gateway_enabled = as_truthy(str(raw_enabled).strip(), default=True)
+        return True
+    return as_truthy(str(raw_enabled).strip(), default=True)
+
+
+def get_vnc_settings(*, include_password: bool = False) -> VncSettings:
+    gateway_enabled = is_vnc_enabled()
     raw_port = (_get_raw(VNC_PORT_KEY) or "").strip()
     try:
         port = int(raw_port) if raw_port else DEFAULT_VNC_PORT
