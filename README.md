@@ -65,7 +65,7 @@ sudo systemctl restart bawh-web bawh-scheduler bawh-vnc
 | `bawh-web` | Gunicorn (`127.0.0.1:8000`), снаружи — Nginx :80 (443 после сертификата в Настройках → HTTPS) |
 | `bawh-scheduler` | опрос сети / железа / архив логов |
 | `bawh-vnc` | WebSocket-прокси для noVNC (`127.0.0.1:6080`) |
-| `bawh-password-reports` | рассылка отчётов о паролях AD (тумблер в UI) |
+| `bawh-password-reports` | рассылка отчётов о паролях AD и проверка пароля перед отпуском (тумблеры в UI) |
 | `bawh-pc-reports` | рассылка отчётов о ПК (тумблер в UI) |
 
 ```bash
@@ -79,7 +79,7 @@ journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -u
 
 Или повторный запуск установщика из каталога с кодом / через one-liner — обновит `/opt/bawh`, зависимости и юниты; существующий `.env` не перезаписывает.
 
-Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.9.1`).
+Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.10.0`).
 
 На странице **Обновления** можно выбрать ветку git (список с сервера).
 Выбор хранится в базе и важнее `GIT_BRANCH` в `.env`. С хотфикса 1.6.7,

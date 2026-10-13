@@ -63,6 +63,7 @@ class AdUser:
     days_left: int | None
     expiry_date: date | None
     status: UserStatus
+    password_never_expires: bool = False
 
 
 def filetime_to_datetime(value: Any) -> datetime | None:
@@ -174,8 +175,16 @@ def _open_service_connection() -> Connection:
 def fetch_password_users(
     settings: PasswordExpirySettings | None = None,
     today: date | None = None,
+    *,
+    include_without_mail: bool = False,
+    include_never_expires: bool = False,
 ) -> list[AdUser]:
-    """Выгрузить активных пользователей и рассчитать срок пароля."""
+    """Выгрузить активных пользователей и рассчитать срок пароля.
+
+    Плановый отчёт пропускает учётки без email и с «пароль не истекает».
+    Проверка перед отпуском включает их: без почты нельзя написать
+    сотруднику, но риск всё равно виден в сводке; never-expires — не риск.
+    """
     settings = settings or get_password_expiry_settings()
     if not settings.search_base:
         raise PasswordAdError(
@@ -212,25 +221,30 @@ def fetch_password_users(
                 continue
 
             uac = int(_first_value(attrs.get("userAccountControl"), 0) or 0)
-            if uac & UAC_PASSWORD_NEVER_EXPIRES:
+            never_expires = bool(uac & UAC_PASSWORD_NEVER_EXPIRES)
+            if never_expires and not include_never_expires:
                 skipped_never_expires += 1
                 continue
 
             mail = str(_first_value(attrs.get("mail"), "") or "").strip()
-            if not mail:
+            if not mail and not include_without_mail:
                 skipped_no_mail += 1
                 continue
 
             raw_pwd = _first_value(attrs.get("pwdLastSet"), 0)
             pwd_dt = filetime_to_datetime(raw_pwd)
-            days_left, expiry = compute_days_left(
-                pwd_dt, settings.max_pwd_age_days, today=today
-            )
-            status = classify_user(
-                days_left,
-                settings.first_warning_days,
-                must_change=pwd_dt is None,
-            )
+            if never_expires:
+                days_left, expiry = None, None
+                status: UserStatus = "ok"
+            else:
+                days_left, expiry = compute_days_left(
+                    pwd_dt, settings.max_pwd_age_days, today=today
+                )
+                status = classify_user(
+                    days_left,
+                    settings.first_warning_days,
+                    must_change=pwd_dt is None,
+                )
             full_name = str(
                 _first_value(attrs.get("displayName"))
                 or _first_value(attrs.get("cn"))
@@ -248,6 +262,7 @@ def fetch_password_users(
                     days_left=days_left,
                     expiry_date=expiry,
                     status=status,
+                    password_never_expires=never_expires,
                 )
             )
 

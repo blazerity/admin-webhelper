@@ -68,4 +68,59 @@
     <button class="btn btn-primary mt-3" type="submit">Сохранить</button>
   </form>
 </div>
+
+<div class="panel content-card mt-3">
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="vacation">
+    <h2 class="h5 mb-3">Проверка перед отпуском</h2>
+    <p class="text-muted">
+      Перешлите письма отдела кадров на служебный ящик. Сервис читает непрочитанные
+      и считает отпуск в {{ vacation.vacation_days }} календарных дней, если в письме срока нет.
+      Включение расписания — на <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
+    </p>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label" for="vacation_days">Срок отпуска, календарных дней</label>
+        <input class="form-control" type="number" min="1" max="366" id="vacation_days" name="vacation_days" value="{{ vacation.vacation_days }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="vacation_cron">Cron проверки ящика</label>
+        <input class="form-control" id="vacation_cron" name="vacation_cron" value="{{ vacation.schedule_cron }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="imap_folder">Папка IMAP</label>
+        <input class="form-control" id="imap_folder" name="imap_folder" value="{{ vacation.imap_folder }}" placeholder="INBOX">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="imap_host">Сервер IMAP</label>
+        <input class="form-control" id="imap_host" name="imap_host" value="{{ vacation.imap_host }}" placeholder="mail.example.com">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label" for="imap_port">Порт</label>
+        <input class="form-control" id="imap_port" name="imap_port" value="{{ vacation.imap_port }}">
+      </div>
+      <div class="col-md-4 d-flex align-items-end">
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="imap_use_ssl" name="imap_use_ssl" value="1" {% if vacation.imap_use_ssl %}checked{% endif %}>
+          <label class="form-check-label" for="imap_use_ssl">SSL (IMAP4)</label>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="imap_user">Логин ящика</label>
+        <input class="form-control" id="imap_user" name="imap_user" value="{{ vacation.imap_user }}" autocomplete="off">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="imap_password">Пароль ящика</label>
+        <input class="form-control" type="password" id="imap_password" name="imap_password" value="" placeholder="{% if vacation.has_imap_password %}сохранён, пустое поле не меняет{% else %}не задан{% endif %}" autocomplete="new-password">
+      </div>
+    </div>
+    <button class="btn btn-primary mt-3" type="submit">Сохранить ящик</button>
+  </form>
+  <form method="post" class="mt-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="test_imap">
+    <button class="btn btn-outline-secondary" type="submit">Проверить IMAP</button>
+  </form>
+</div>
 {% endblock %}

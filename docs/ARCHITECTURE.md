@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.9.1)
+# Архитектура bAWH (актуально для v1.10.0)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.9.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.10.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -56,10 +56,10 @@ HTTP / CLI / scheduler
 | Веб (prod) | `wsgi.py` → `create_app()` → Gunicorn `wsgi:app` | Только HTTP. Опрос здесь **запрещён**. |
 | Веб (dev) | `python wsgi.py` (:8000) или `flask --app wsgi run` | То же. |
 | Планировщик | `python -m app.scheduler_worker` | `create_app()` + `start_scheduler(app)`; опрос сети/железа. |
-| Отчёты паролей | `python -m app.password_report_worker` | `start_password_report_scheduler(app)`. |
+| Отчёты паролей | `python -m app.password_report_worker` | `start_password_report_scheduler(app)`: cron отчёта и cron проверки отпусков. |
 | Отчёты о ПК | `python -m app.pc_report_worker` | `start_pc_report_scheduler(app)`. |
 | VNC-прокси | `python -m app.vnc_worker` | WebSocket→TCP, без Flask/БД; билет `SECRET_KEY`. |
-| Flask CLI | `flask --app wsgi …` | `poll`, `hardware-poll`, `archive-logs`, `password-expiry [--dry-run]`, `sector-daily-report [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
+| Flask CLI | `flask --app wsgi …` | `poll`, `hardware-poll`, `archive-logs`, `password-expiry [--dry-run]`, `password-vacation [--dry-run]`, `sector-daily-report [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
 | Docker | `Dockerfile` | Опциональный web-only образ; scheduler/отчёты — отдельно. |
 
 Фабрика: `app/__init__.py` → `create_app(config_name)`.
@@ -84,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.9.1)
+  VERSION                      # semver (1.10.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -239,6 +239,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | `Script`, `ScriptRun` | `scripts`, `script_runs` | `script.py` | Библиотека и журнал запусков. У скрипта: `run_as`, `is_published`. У run: `run_type`, `batch_id`, статус. |
 | `AppSetting`, `RemoteCredential` | `app_settings`, `remote_credentials` | `setting.py` | KV-настройки; per-user Fernet-шифротекст PsExec/пароля входа. |
 | `PasswordNotification`, `PasswordExpiryRun` | `password_notifications`, `password_expiry_runs` | `password_expiry.py` | Письма о сроке пароля + снимки прогонов. |
+| `VacationNotice`, `VacationPasswordCheck` | `vacation_notices`, `vacation_password_checks` | `password_expiry.py` | Письма кадров об отпуске и проверка, истечёт ли пароль за отпуск. |
 | `SectorDailyReportRun` | `sector_daily_report_runs` | `sector_daily_report.py` | Снимки ежедневного отчёта о ПК (ноутбуки/СБ, железо, кандидаты). |
 | `LoginService` | `login_services` | `login_service.py` | Сервисы для блока доступности на `/login`. |
 | `AdminAuditLog` | `admin_audit_log` | `audit.py` | Журнал админ-действий. |
@@ -325,6 +326,9 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_settings.py` | SMTP общий (UI: Настройки → Почта (SMTP)), bind LDAP (UI: Настройки → LDAP), пороги (UI: Настройки → Отчёт о паролях); fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
+| `vacation_notice_parser.py` | разбор письма кадров: дата «С ДД.ММ.ГГГГ» и ФИО |
+| `vacation_imap.py` | IMAP служебного ящика, непрочитанные, флаг \\Seen |
+| `vacation_password_service.py` | сверка срока пароля с отпуском (по умолчанию 14 дней) |
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure своей службы |
 | `systemd_service.py` | `systemctl` start/enable/restart через sudo-учётку |
 
@@ -424,7 +428,10 @@ List, `export.csv`, detail (только видимые по ACL).
 | --- | --- | --- |
 | GET | `/` | `password_viewer` |
 | POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-password-reports` |
-| GET/POST | `/settings`, POST `/run`, `/pause`, `/notify` | admin |
+| POST | `/vacation-toggle`, `/vacation-run` | admin — cron и ручной разбор писем об отпуске |
+| GET/POST | `/settings` | admin — bind LDAP |
+| GET/POST | `/report-settings` | admin — пороги, cron, ящик IMAP и срок отпуска |
+| POST | `/run`, `/pause`, `/notify` | admin |
 
 ### Отчёт о ПК — prefix `/pc-reports` (legacy `/sector-daily-report` → 301)
 
@@ -601,6 +608,14 @@ ThreadPool `execute_run` → `psexec_service` или локальный ping/tra
 Scheduler cron / CLI / UI → `run_password_expiry` → LDAP fetch → classify →
 SMTP → `password_expiry_runs` + `password_notifications`.
 
+Тот же воркер `bawh-password-reports`, отдельный cron → `run_vacation_checks` →
+IMAP непрочитанных писем кадров → разбор «С ДД.ММ.ГГГГ» и ФИО → тот же расчёт
+`pwdLastSet + max_pwd_age` → пароль истекает за отпуск, если дата истечения
+раньше дня выхода (срок отпуска из настроек, по умолчанию 14 календарных дней).
+Письмо сотруднику один раз на «логин + дата начала»; сводка — на получателей
+админ-отчёта. Итог → `vacation_notices` + `vacation_password_checks`.
+Обработанное письмо помечается прочитанным.
+
 ### D2. Отчёты о ПК
 
 Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`BN***` / `n…`) и СБ (`w…`)
@@ -743,6 +758,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- | --- |
 | AD / LDAP | ldap3 bind+search | `ldap_service`, `password_ad_client` |
 | SMTP | mailer | `password_mailer` |
+| IMAP | служебный ящик писем об отпуске | `vacation_imap` |
 | ICMP / traceroute | OS `ping` / `traceroute` | `ping_service` |
 | TCP fingerprint | короткий connect 445/135/8728/8291/9100/515/554 | `fingerprint_service` |
 | SNMPv1 sysDescr | UDP/161 community `public`, без pysnmp | `fingerprint_service` |
@@ -773,6 +789,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
+| Пароль перед отпуском | `vacation_password_service`, `vacation_notice_parser`, `vacation_imap`; настройки в «Отчёт о паролях» |
 | Отчёты о ПК | `sector_daily_report_service` + settings, `routes/sector_daily_report.py`, `static/js/pc_reports.js` |
 | Уведомления | `notification_service`, `routes/notifications.py` |
 | Настройки / опрос вручную | `routes/admin.py` (`section=general|polls|vnc|tls`), `settings_service` |

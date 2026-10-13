@@ -38,7 +38,12 @@ from app.services.password_expiry_service import run_password_expiry
 from app.services.password_expiry_settings import (
     DEFAULT_SCHEDULE_CRON as DEFAULT_PASSWORD_SCHEDULE_CRON,
 )
-from app.services.password_expiry_settings import get_password_expiry_settings
+from app.services.password_expiry_settings import (
+    DEFAULT_VACATION_CRON,
+    get_password_expiry_settings,
+    get_vacation_check_settings,
+)
+from app.services.vacation_password_service import run_vacation_checks
 from app.services.ping_service import PollInProgressError, run_network_poll
 from app.services.sector_daily_report_service import run_sector_daily_report
 from app.services.sector_daily_report_settings import (
@@ -57,6 +62,7 @@ _POLL_COMMAND_KEY = "bawh_poll_command"
 JOB_ID = "poll-devices"
 ARCHIVE_JOB_ID = "archive-logs"
 PASSWORD_EXPIRY_JOB_ID = "password-expiry"
+PASSWORD_VACATION_JOB_ID = "password-vacation"
 PASSWORD_REFRESH_JOB_ID = "password-expiry-refresh"
 SECTOR_DAILY_JOB_ID = "sector-daily-report"
 SECTOR_REFRESH_JOB_ID = "sector-daily-refresh"
@@ -66,8 +72,8 @@ _REPORT_REFRESH_SECONDS = 30
 
 
 def register_commands(app) -> None:
-    """Команды CLI: poll, archive-logs, password-expiry, sector-daily-report,
-    refresh-hostnames, hardware-poll.
+    """Команды CLI: poll, archive-logs, password-expiry, password-vacation,
+    sector-daily-report, refresh-hostnames, hardware-poll.
 
     Повторный вызов ничего не делает. Иначе Click упадёт
     с «command already registered», когда create_app вызовут дважды
@@ -120,6 +126,34 @@ def register_commands(app) -> None:
                         "resolved": result.resolved_count,
                         "upcoming": result.upcoming_count,
                         "overdue": result.overdue_count,
+                        "error": result.error,
+                    }
+                )
+
+    if "password-vacation" not in app.cli.commands:
+        import click
+
+        @app.cli.command("password-vacation")
+        @click.option(
+            "--dry-run",
+            is_flag=True,
+            help="Разобрать письма без SMTP и без пометки прочитанными.",
+        )
+        def password_vacation_cmd(dry_run: bool) -> None:
+            """Проверить, истечёт ли пароль за отпуск по письмам кадров."""
+            with app.app_context():
+                result = run_vacation_checks(
+                    send_emails=not dry_run,
+                    mode="dry-run" if dry_run else "cli",
+                )
+                print(
+                    {
+                        "exit_code": result.exit_code,
+                        "messages": result.messages,
+                        "employees": result.employees,
+                        "risks": result.risks,
+                        "notified": result.notified,
+                        "unmatched": result.unmatched,
                         "error": result.error,
                     }
                 )
@@ -374,6 +408,7 @@ def start_password_report_scheduler(app) -> BackgroundScheduler:
 
     scheduler = BackgroundScheduler(timezone="UTC")
     password_cron_state = {"cron": "", "enabled": False, "func": None}
+    vacation_cron_state = {"cron": "", "enabled": False, "func": None}
 
     def password_expiry_job() -> None:
         with app.app_context():
@@ -394,16 +429,37 @@ def start_password_report_scheduler(app) -> BackgroundScheduler:
             finally:
                 db.session.remove()
 
+    def vacation_job() -> None:
+        with app.app_context():
+            try:
+                settings = get_vacation_check_settings()
+                if not settings.enabled:
+                    logger.info("Отпуска: расписание выключено, пропуск")
+                    return
+                result = run_vacation_checks(send_emails=True, mode="scheduled")
+                logger.info(
+                    "Отпуска: scheduled exit=%s messages=%s risks=%s",
+                    result.exit_code,
+                    result.messages,
+                    result.risks,
+                )
+            except Exception:
+                logger.exception("Отпуска: сбой плановой проверки")
+            finally:
+                db.session.remove()
+
     def refresh_job() -> None:
         with app.app_context():
             try:
                 _apply_password_expiry_schedule(scheduler, password_cron_state)
+                _apply_vacation_schedule(scheduler, vacation_cron_state)
             except Exception:
                 logger.exception("Пароли AD: не удалось обновить расписание")
             finally:
                 db.session.remove()
 
     password_cron_state["func"] = password_expiry_job
+    vacation_cron_state["func"] = vacation_job
     scheduler.add_job(
         refresh_job,
         "interval",
@@ -415,6 +471,7 @@ def start_password_report_scheduler(app) -> BackgroundScheduler:
     )
     with app.app_context():
         _apply_password_expiry_schedule(scheduler, password_cron_state, force=True)
+        _apply_vacation_schedule(scheduler, vacation_cron_state, force=True)
     scheduler.start()
     app.extensions[PASSWORD_REPORT_EXT_KEY] = scheduler
     logger.info("Планировщик отчётов о паролях AD запущен")
@@ -596,6 +653,26 @@ def _apply_password_expiry_schedule(
         enabled=bool(settings.schedule_enabled),
         default_cron=DEFAULT_PASSWORD_SCHEDULE_CRON,
         label="Пароли AD",
+        force=force,
+    )
+
+
+def _apply_vacation_schedule(
+    scheduler: BackgroundScheduler,
+    state: dict,
+    *,
+    force: bool = False,
+) -> None:
+    """Включить/выключить cron проверки пароля перед отпуском."""
+    settings = get_vacation_check_settings()
+    _apply_cron_job(
+        scheduler,
+        state,
+        job_id=PASSWORD_VACATION_JOB_ID,
+        cron=settings.schedule_cron or DEFAULT_VACATION_CRON,
+        enabled=bool(settings.enabled),
+        default_cron=DEFAULT_VACATION_CRON,
+        label="Отпуска",
         force=force,
     )
 

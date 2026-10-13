@@ -7,7 +7,12 @@ from app.models.device import Device, DeviceAddress, DeviceHistory, DeviceStatus
 from app.models.hardware import DeviceHardwareHistory, HardwarePollRun
 from app.models.login_service import LoginService
 from app.models.notification import Notification, NotificationKind
-from app.models.password_expiry import PasswordExpiryRun, PasswordNotification
+from app.models.password_expiry import (
+    PasswordExpiryRun,
+    PasswordNotification,
+    VacationNotice,
+    VacationPasswordCheck,
+)
 from app.models.poll_run import NetworkPollRun
 from app.models.script import RunAs, RunStatus, RunType, Script, ScriptRun
 from app.models.sector import Sector, SectorAccess, SectorRange
@@ -49,5 +54,7 @@ __all__ = [
     "SessionType",
     "User",
     "UserLdapGroup",
+    "VacationNotice",
+    "VacationPasswordCheck",
     "seed_action_kinds",
 ]
