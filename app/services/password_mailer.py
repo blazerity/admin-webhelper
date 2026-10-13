@@ -56,6 +56,35 @@ class PasswordMailer:
     def render_admin_report(self, context: dict[str, object]) -> str:
         return render_template("email/admin_report.html", **context)
 
+    def render_vacation_user(
+        self,
+        *,
+        full_name: str,
+        username: str,
+        days_left: int | None,
+        expiry_date: str,
+        vacation_start: str,
+        vacation_end: str,
+        must_change: bool,
+        already_expired: bool,
+        instructions_url: str,
+    ) -> str:
+        return render_template(
+            "email/vacation_user_notification.html",
+            full_name=full_name,
+            username=username,
+            days_left=days_left,
+            expiry_date=expiry_date,
+            vacation_start=vacation_start,
+            vacation_end=vacation_end,
+            must_change=must_change,
+            already_expired=already_expired,
+            instructions_url=instructions_url,
+        )
+
+    def render_vacation_admin(self, context: dict[str, object]) -> str:
+        return render_template("email/vacation_admin_report.html", **context)
+
     def send_html(self, recipients: list[str], subject: str, html_body: str) -> None:
         if not recipients:
             raise PasswordMailerError("Список получателей пуст")

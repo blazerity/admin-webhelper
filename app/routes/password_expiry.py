@@ -27,8 +27,16 @@ from app.services.password_expiry_settings import (
     get_ldap_bind_settings,
     get_password_expiry_settings,
     get_smtp_settings,
+    get_vacation_check_settings,
     set_ldap_bind_settings,
     set_password_expiry_settings,
+    set_vacation_check_settings,
+)
+from app.services.vacation_imap import VacationImapError, test_imap_connection
+from app.services.vacation_password_service import (
+    VacationRunInProgressError,
+    load_recent_vacation_checks,
+    run_vacation_checks,
 )
 from app.services.report_toggle_service import (
     apply_report_toggle,
@@ -86,6 +94,8 @@ def dashboard():
         ldap=ldap,
         scheduler=password_reports_status(),
         can_toggle=bool(getattr(current_user, "is_admin", False)),
+        vacation=get_vacation_check_settings(),
+        vacation_checks=load_recent_vacation_checks(),
     )
 
 
@@ -148,6 +158,25 @@ def settings_page():
     )
 
 
+def _save_vacation_settings():
+    try:
+        set_vacation_check_settings(
+            schedule_cron=request.form.get("vacation_cron", ""),
+            vacation_days=int(request.form.get("vacation_days") or 0),
+            imap_host=request.form.get("imap_host", ""),
+            imap_port=request.form.get("imap_port", ""),
+            imap_use_ssl=request.form.get("imap_use_ssl") == "1",
+            imap_user=request.form.get("imap_user", ""),
+            imap_password=request.form.get("imap_password"),
+            imap_folder=request.form.get("imap_folder", ""),
+        )
+    except (ValueError, TypeError) as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("password_expiry.report_settings"))
+    flash("Настройки проверки перед отпуском сохранены.", "success")
+    return redirect(url_for("password_expiry.report_settings"))
+
+
 def _save_report_settings():
     try:
         set_password_expiry_settings(
@@ -175,6 +204,16 @@ def report_settings():
         kind = (request.form.get("form") or "").strip()
         if kind == "module":
             return _save_report_settings()
+        if kind == "vacation":
+            return _save_vacation_settings()
+        if kind == "test_imap":
+            try:
+                message = test_imap_connection(get_vacation_check_settings())
+            except VacationImapError as exc:
+                flash(str(exc), "danger")
+            else:
+                flash(message, "success")
+            return redirect(url_for("password_expiry.report_settings"))
         flash("Неизвестная форма.", "danger")
         return redirect(url_for("password_expiry.report_settings"))
 
@@ -182,6 +221,7 @@ def report_settings():
         "password_expiry/report_settings.html",
         settings=get_password_expiry_settings(),
         ldap=get_ldap_bind_settings(),
+        vacation=get_vacation_check_settings(),
     )
 
 
@@ -212,6 +252,54 @@ def run_now():
         )
     else:
         flash(result.error or f"Прогон завершился с кодом {result.exit_code}", "danger")
+    return redirect(url_for("password_expiry.dashboard"))
+
+
+@bp.route("/vacation-toggle", methods=["POST"])
+@admin_required
+def toggle_vacation():
+    """Тумблер cron проверки отпусков. Служба bawh-password-reports общая с отчётом."""
+    enabled = request.form.get("vacation_enabled") == "1"
+    set_vacation_check_settings(enabled=enabled)
+    if enabled:
+        flash(
+            "Проверка паролей перед отпуском включена. "
+            "Нужна запущенная служба bawh-password-reports.",
+            "success",
+        )
+    else:
+        flash("Проверка паролей перед отпуском выключена.", "success")
+    return redirect(url_for("password_expiry.dashboard"))
+
+
+@bp.route("/vacation-run", methods=["POST"])
+@admin_required
+def run_vacation_now():
+    dry_run = request.form.get("dry_run") == "1"
+    try:
+        result = run_vacation_checks(
+            send_emails=not dry_run,
+            mode="dry-run" if dry_run else "web",
+        )
+    except VacationRunInProgressError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("password_expiry.dashboard"))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Отпуска: сбой ручного прогона")
+        flash(f"Ошибка проверки отпусков: {exc}", "danger")
+        return redirect(url_for("password_expiry.dashboard"))
+
+    if result.exit_code == 0:
+        label = "Тестовая проверка отпусков" if dry_run else "Проверка отпусков"
+        text = (
+            f"{label}: писем {result.messages}, сотрудников {result.employees}, "
+            f"пароль не доживёт у {result.risks}, писем сотрудникам {result.notified}."
+        )
+        if result.error:
+            text = f"{text} {result.error}"
+        flash(text, "success" if not result.error else "warning")
+    else:
+        flash(result.error or f"Проверка отпусков завершилась с кодом {result.exit_code}", "danger")
     return redirect(url_for("password_expiry.dashboard"))
 
 

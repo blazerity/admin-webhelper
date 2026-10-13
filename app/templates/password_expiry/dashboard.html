@@ -154,6 +154,105 @@
 </div>
 {% endif %}
 
+<div class="panel content-card mb-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+    <div>
+      <h2 class="h5 mb-1">Пароль перед отпуском</h2>
+      <p class="text-muted mb-0">
+        Письма отдела кадров читаются из служебного ящика.
+        Отпуск считается {{ vacation.vacation_days }} календарных дней с даты в письме:
+        если пароль истечёт до дня выхода, сотрудник получит одно письмо.
+      </p>
+      <p class="small text-muted mb-0 mt-2">
+        {% if vacation.enabled %}
+          Расписание включено (<code>{{ vacation.schedule_cron }}</code>).
+        {% else %}
+          Расписание выключено.
+        {% endif %}
+        IMAP:
+        {% if vacation.imap_configured %}
+          {{ vacation.imap_host }} / {{ vacation.imap_folder }}
+        {% else %}
+          не настроен
+        {% endif %}.
+        Служба <code>bawh-password-reports</code> общая с отчётом выше.
+      </p>
+    </div>
+    {% if is_admin %}
+    <form method="post" action="{{ url_for('password_expiry.toggle_vacation') }}" class="report-service-toggle-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="vacation_enabled" value="{{ '0' if vacation.enabled else '1' }}">
+      <div class="form-check form-switch">
+        <input
+          class="form-check-input"
+          type="checkbox"
+          role="switch"
+          id="pwd_vacation_enabled"
+          {% if vacation.enabled %}checked{% endif %}
+          onchange="this.form.submit()"
+        >
+        <label class="form-check-label" for="pwd_vacation_enabled">
+          {% if vacation.enabled %}Вкл.{% else %}Выкл.{% endif %}
+        </label>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+  {% if is_admin %}
+  <div class="d-flex gap-2 flex-wrap mt-3">
+    <form method="post" action="{{ url_for('password_expiry.run_vacation_now') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-primary" type="submit">Проверить почту</button>
+    </form>
+    <form method="post" action="{{ url_for('password_expiry.run_vacation_now') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="dry_run" value="1">
+      <button class="btn btn-outline-primary" type="submit">Тест без писем</button>
+    </form>
+    <a class="btn btn-outline-secondary" href="{{ url_for('password_expiry.report_settings') }}">Ящик и срок отпуска</a>
+  </div>
+  {% endif %}
+  <div class="table-responsive mt-3">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Сотрудник</th>
+          <th>Логин</th>
+          <th>Отпуск с</th>
+          <th>Пароль до</th>
+          <th>Итог</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in vacation_checks %}
+        <tr>
+          <td>{{ row.full_name or row.employee_name }}</td>
+          <td>{% if row.username %}<code>{{ row.username }}</code>{% else %}—{% endif %}</td>
+          <td>{{ row.vacation_start.strftime('%d.%m.%Y') }}</td>
+          <td>{% if row.expiry_date %}{{ row.expiry_date.strftime('%d.%m.%Y') }}{% else %}—{% endif %}</td>
+          <td>
+            {% if row.match_status == 'not_found' %}
+              Не найден в AD
+            {% elif row.match_status == 'ambiguous' %}
+              Несколько совпадений
+            {% elif row.expires_during_vacation %}
+              Истечёт за отпуск{% if row.user_notified %} · письмо ушло{% endif %}
+            {% else %}
+              Доживёт до выхода
+            {% endif %}
+            {% if row.note %}<div class="small text-muted">{{ row.note }}</div>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="text-muted">Проверок по письмам кадров ещё не было.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="panel content-card">
   <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
     <h2 class="h5 mb-0">Список</h2>

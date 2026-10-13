@@ -3,6 +3,7 @@
 Сервер LDAP (host/base/domain) по-прежнему из Flask config / .env — общий с входом.
 Учётка bind для чтения каталога, SMTP и пороги модуля — в app_settings (пароли Fernet).
 Если UI-поля пусты, берётся fallback из .env (SMTP_*, LDAP_BIND_*).
+Ящик IMAP писем об отпуске, срок отпуска и его cron — тоже в app_settings, без .env.
 """
 
 from __future__ import annotations
@@ -37,10 +38,24 @@ PWD_SMTP_FROM = "pwd_smtp_from"
 PWD_SMTP_USER = "pwd_smtp_user"
 PWD_SMTP_PASSWORD = "pwd_smtp_password"
 
+PWD_VACATION_ENABLED = "pwd_vacation_enabled"
+PWD_VACATION_CRON = "pwd_vacation_schedule_cron"
+PWD_VACATION_DAYS = "pwd_vacation_days"
+PWD_IMAP_HOST = "pwd_imap_host"
+PWD_IMAP_PORT = "pwd_imap_port"
+PWD_IMAP_USE_SSL = "pwd_imap_use_ssl"
+PWD_IMAP_USER = "pwd_imap_user"
+PWD_IMAP_PASSWORD = "pwd_imap_password"
+PWD_IMAP_FOLDER = "pwd_imap_folder"
+
 DEFAULT_MAX_AGE_DAYS = 180
 DEFAULT_FIRST_WARNING_DAYS = 5
 DEFAULT_DAILY_WARNING_THRESHOLD = 3
 DEFAULT_SCHEDULE_CRON = "0 8 * * *"
+DEFAULT_VACATION_CRON = "30 8 * * *"
+DEFAULT_VACATION_DAYS = 14
+DEFAULT_IMAP_PORT = 993
+DEFAULT_IMAP_FOLDER = "INBOX"
 
 
 @dataclass(frozen=True)
@@ -99,6 +114,26 @@ class SmtpSettings:
     @property
     def configured(self) -> bool:
         return bool(self.host and self.from_address)
+
+
+@dataclass(frozen=True)
+class VacationCheckSettings:
+    """IMAP служебного ящика кадров и срок отпуска для проверки пароля."""
+
+    enabled: bool
+    schedule_cron: str
+    vacation_days: int
+    imap_host: str
+    imap_port: int
+    imap_use_ssl: bool
+    imap_user: str
+    imap_password: str
+    imap_folder: str
+    has_imap_password: bool
+
+    @property
+    def imap_configured(self) -> bool:
+        return bool(self.imap_host and self.imap_user and self.imap_password)
 
 
 def _get_raw(key: str) -> str | None:
@@ -319,6 +354,93 @@ def get_password_expiry_settings() -> PasswordExpirySettings:
         pause_user_mail_until=_parse_optional_date(_get_raw(PWD_PAUSE_USER_MAIL_UNTIL)),
         admin_recipients=_split_list(_get_raw(PWD_ADMIN_RECIPIENTS) or ""),
     )
+
+
+def get_vacation_check_settings() -> VacationCheckSettings:
+    """Настройки проверки пароля перед отпуском. IMAP только из UI."""
+    enabled_raw = (_get_raw(PWD_VACATION_ENABLED) or "0").strip().lower()
+    cron = (_get_raw(PWD_VACATION_CRON) or "").strip() or DEFAULT_VACATION_CRON
+    days = _int_setting(PWD_VACATION_DAYS, DEFAULT_VACATION_DAYS, minimum=1)
+    host = (_get_raw(PWD_IMAP_HOST) or "").strip()
+    user = (_get_raw(PWD_IMAP_USER) or "").strip()
+    folder = (_get_raw(PWD_IMAP_FOLDER) or "").strip() or DEFAULT_IMAP_FOLDER
+    port_raw = (_get_raw(PWD_IMAP_PORT) or "").strip()
+    if port_raw:
+        try:
+            port = int(port_raw)
+        except ValueError:
+            port = DEFAULT_IMAP_PORT
+    else:
+        port = DEFAULT_IMAP_PORT
+    ssl_raw = _get_raw(PWD_IMAP_USE_SSL)
+    if ssl_raw is None or not str(ssl_raw).strip():
+        use_ssl = True
+    else:
+        use_ssl = as_truthy(ssl_raw, default=True)
+    password = _decrypt_setting(PWD_IMAP_PASSWORD)
+    return VacationCheckSettings(
+        enabled=as_truthy(enabled_raw, default=False),
+        schedule_cron=cron,
+        vacation_days=days,
+        imap_host=host,
+        imap_port=port,
+        imap_use_ssl=use_ssl,
+        imap_user=user,
+        imap_password=password,
+        imap_folder=folder,
+        has_imap_password=bool(password),
+    )
+
+
+def set_vacation_check_settings(
+    *,
+    enabled: bool | None = None,
+    schedule_cron: str | None = None,
+    vacation_days: int | None = None,
+    imap_host: str | None = None,
+    imap_port: int | str | None = None,
+    imap_use_ssl: bool | None = None,
+    imap_user: str | None = None,
+    imap_password: str | None = None,
+    imap_folder: str | None = None,
+) -> VacationCheckSettings:
+    """Сохранить проверку отпусков. Пустой пароль IMAP оставляет прежний шифротекст."""
+    if enabled is not None:
+        _set_raw(PWD_VACATION_ENABLED, "1" if enabled else "0")
+    if schedule_cron is not None:
+        cron = schedule_cron.strip() or DEFAULT_VACATION_CRON
+        _validate_cron(cron)
+        _set_raw(PWD_VACATION_CRON, cron)
+    if vacation_days is not None:
+        value = int(vacation_days)
+        if value < 1 or value > 366:
+            raise ValueError("Срок отпуска должен быть от 1 до 366 дней")
+        _set_raw(PWD_VACATION_DAYS, str(value))
+    if imap_host is not None:
+        _set_raw(PWD_IMAP_HOST, imap_host.strip())
+    if imap_user is not None:
+        _set_raw(PWD_IMAP_USER, imap_user.strip())
+    if imap_folder is not None:
+        folder = imap_folder.strip() or DEFAULT_IMAP_FOLDER
+        _set_raw(PWD_IMAP_FOLDER, folder)
+    if imap_port is not None:
+        text = str(imap_port).strip()
+        if text:
+            try:
+                value = int(text)
+            except ValueError as exc:
+                raise ValueError("IMAP-порт должен быть числом") from exc
+            if value < 1 or value > 65535:
+                raise ValueError("IMAP-порт должен быть в диапазоне 1–65535")
+            _set_raw(PWD_IMAP_PORT, str(value))
+        else:
+            _set_raw(PWD_IMAP_PORT, "")
+    if imap_use_ssl is not None:
+        _set_raw(PWD_IMAP_USE_SSL, "1" if imap_use_ssl else "0")
+    if imap_password is not None and imap_password != "":
+        _store_secret(PWD_IMAP_PASSWORD, imap_password)
+    db.session.commit()
+    return get_vacation_check_settings()
 
 
 def is_user_mail_paused(today: date | None = None) -> bool:
