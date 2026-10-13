@@ -177,7 +177,13 @@
     {% if can_run_diagnostics or can_connect_vnc %}
     <div class="panel content-card mt-3" id="device-quick-net">
       <h2 class="panel-title mb-1">Проверка с сервера</h2>
-      <p class="panel-hint mb-3">Ping и трассировка пишут журнал запуска. Иконка справа открывает стол по VNC.</p>
+      <p class="panel-hint mb-3">
+        {% if can_connect_vnc %}
+        Ping и трассировка пишут журнал запуска. Иконка справа открывает стол по VNC.
+        {% else %}
+        Ping и трассировка пишут журнал запуска.
+        {% endif %}
+      </p>
       <div class="device-quick-actions">
         {% if can_run_diagnostics %}
         <form method="post" action="{{ url_for('diagnostics.ping_device', device_id=device.id) }}">
