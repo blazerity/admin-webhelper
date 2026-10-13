@@ -1,10 +1,11 @@
 """Проверка, истечёт ли пароль AD за время отпуска.
 
-Письма кадров читаются из служебного IMAP-ящика. Срок отпуска в письме
-нет — берётся настройка модуля (по умолчанию 14 календарных дней).
-Расчёт срока пароля тот же, что у планового отчёта: pwdLastSet + max_pwd_age.
-Письмо сотруднику уходит один раз на пару «логин + дата начала» и не
-попадает в цикл upcoming/overdue.
+Письма кадров читаются из служебного IMAP-ящика. В работу берётся тема
+«Приближается отпуск сотрудников с ДД.ММ.ГГГГ». Сотрудник ищется в AD по CN:
+фамилия и имя, без отчества. Срок отпуска в письме нет — берётся настройка
+модуля (по умолчанию 14 календарных дней). Расчёт срока пароля тот же, что
+у планового отчёта: pwdLastSet + max_pwd_age. Письмо сотруднику уходит один
+раз на пару «логин + дата начала» и не попадает в цикл upcoming/overdue.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from app.services.password_ad_client import (
     AdUser,
     PasswordAdError,
     compute_days_left,
-    fetch_password_users,
+    find_users_by_short_name,
 )
 from app.services.password_expiry_settings import (
     get_password_expiry_settings,
@@ -40,7 +41,8 @@ from app.services.vacation_imap import (
 )
 from app.services.vacation_notice_parser import (
     VacationBlock,
-    match_employee,
+    directory_short_name,
+    is_vacation_subject,
     parse_vacation_notice,
 )
 from app.utils import utcnow
@@ -171,41 +173,37 @@ def _run_unlocked(
             return None, VacationRunResult(exit_code=1, error=str(exc))
 
     if not inbox:
-        logger.info("Отпуска: непрочитанных писем нет")
+        logger.info("Отпуска: писем с темой об отпуске нет")
         return client, VacationRunResult(exit_code=0)
 
-    try:
-        directory = fetch_password_users(
-            settings,
-            today=today,
-            include_without_mail=True,
-            include_never_expires=True,
-        )
-    except PasswordAdError as exc:
-        logger.exception("Отпуска: ошибка каталога")
-        _try_alert(mailer, settings.admin_recipients, str(exc), send_emails=send_emails)
-        return client, VacationRunResult(exit_code=1, messages=len(inbox), error=str(exc))
-
-    by_username = {user.username.lower(): user for user in directory}
-    result = VacationRunResult(exit_code=0, messages=len(inbox))
+    result = VacationRunResult(exit_code=0, messages=0)
     for message in inbox:
+        if not is_vacation_subject(message.subject):
+            logger.info("Отпуска: пропуск «%s» — тема не про приближающийся отпуск", message.subject)
+            continue
         if send_emails and _already_processed(message.message_key):
             if client is not None:
                 mark_seen(client, message.uid)
             continue
-        rows, notice_error = _evaluate_message(
-            message,
-            directory=directory,
-            by_username=by_username,
-            vacation_days=vacation.vacation_days,
-            max_pwd_age_days=settings.max_pwd_age_days,
-            today=today,
-            paused=paused,
-            send_emails=send_emails,
-            mailer=mailer,
-            instructions_url=settings.instructions_url,
-            admin_recipients=settings.admin_recipients,
-        )
+        result.messages += 1
+        try:
+            rows, notice_error = _evaluate_message(
+                message,
+                settings=settings,
+                vacation_days=vacation.vacation_days,
+                today=today,
+                paused=paused,
+                send_emails=send_emails,
+                mailer=mailer,
+                instructions_url=settings.instructions_url,
+                admin_recipients=settings.admin_recipients,
+            )
+        except PasswordAdError as exc:
+            logger.exception("Отпуска: ошибка каталога")
+            _try_alert(mailer, settings.admin_recipients, str(exc), send_emails=send_emails)
+            result.exit_code = 1
+            result.error = str(exc)
+            return client, result
         result.rows.extend(rows)
         result.employees += len(rows)
         result.risks += sum(1 for row in rows if row.expires_during_vacation)
@@ -234,10 +232,8 @@ def _run_unlocked(
 def _evaluate_message(
     message: InboxMessage,
     *,
-    directory: list[AdUser],
-    by_username: dict[str, AdUser],
+    settings,
     vacation_days: int,
-    max_pwd_age_days: int,
     today: date,
     paused: bool,
     send_emails: bool,
@@ -258,24 +254,30 @@ def _evaluate_message(
         )
         return [], error
 
-    rows: list[VacationCheckRow] = []
+    resolved: list[tuple[str, VacationBlock, str, list[AdUser]]] = []
     for block in blocks:
         for name in block.names:
-            rows.append(
-                _check_person(
-                    name,
-                    block=block,
-                    directory=directory,
-                    by_username=by_username,
-                    vacation_days=vacation_days,
-                    max_pwd_age_days=max_pwd_age_days,
-                    today=today,
-                    paused=paused,
-                    send_emails=send_emails,
-                    mailer=mailer,
-                    instructions_url=instructions_url,
-                )
+            short_name = directory_short_name(name)
+            found = find_users_by_short_name(short_name, settings, today=today) if short_name else []
+            resolved.append((name, block, short_name, found))
+
+    rows: list[VacationCheckRow] = []
+    for name, block, short_name, found in resolved:
+        rows.append(
+            _check_person(
+                name,
+                block=block,
+                short_name=short_name,
+                found=found,
+                max_pwd_age_days=settings.max_pwd_age_days,
+                vacation_days=vacation_days,
+                today=today,
+                paused=paused,
+                send_emails=send_emails,
+                mailer=mailer,
+                instructions_url=instructions_url,
             )
+        )
     _send_admin_digest(
         mailer,
         admin_recipients,
@@ -291,30 +293,30 @@ def _check_person(
     name: str,
     *,
     block: VacationBlock,
-    directory: list[AdUser],
-    by_username: dict[str, AdUser],
-    vacation_days: int,
+    short_name: str,
+    found: list[AdUser],
     max_pwd_age_days: int,
+    vacation_days: int,
     today: date,
     paused: bool,
     send_emails: bool,
     mailer: PasswordMailer,
     instructions_url: str,
 ) -> VacationCheckRow:
-    matched = match_employee(name, directory)
-    user = by_username.get(matched.username.lower()) if matched.username else None
-    if matched.status != "matched" or user is None:
-        note = ""
-        if matched.status == "ambiguous":
-            note = "Несколько учёток: " + ", ".join(matched.candidates)
-        elif matched.status == "not_found":
-            note = "В каталоге модуля паролей не найден"
+    if len(found) != 1:
+        if len(found) > 1:
+            logins = ", ".join(user.username for user in found)
+            note = f"Несколько учёток с CN «{short_name}»: {logins}"
+            status = "ambiguous"
+        else:
+            note = f"В AD нет учётки с CN «{short_name}»" if short_name else "Пустое имя"
+            status = "not_found"
         return VacationCheckRow(
             employee_name=name,
             username="",
             email="",
             full_name="",
-            match_status=matched.status,
+            match_status=status,
             days_left=None,
             expiry_date=None,
             vacation_start=block.start,
@@ -323,6 +325,7 @@ def _check_person(
             user_notified=False,
             note=note,
         )
+    user = found[0]
 
     expires, days_left, expiry = password_expires_during_vacation(
         pwd_last_set=user.pwd_last_set,

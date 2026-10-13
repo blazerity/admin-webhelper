@@ -1,12 +1,14 @@
 """Разбор писем отдела кадров о предстоящем отпуске.
 
-Ожидаемый фрагмент (текст или HTML):
+В работу берётся только тема «Приближается отпуск сотрудников с ДД.ММ.ГГГГ».
+В теле — один или несколько человек, полное ФИО построчно:
 
     С 26.10.2026 планируется отпуск следующих сотрудников:
-    Пользователь 1
+    Посадских Евгений Александрович
+    Родоманов Виктор Викторович
 
+В AD записаны фамилия и имя (CN), без отчества: из письма берутся первые два слова.
 Срок отпуска в письме не указан — его задают настройки модуля.
-Несколько блоков «С ДД.ММ.ГГГГ…» в одном письме разбираются по отдельности.
 """
 
 from __future__ import annotations
@@ -15,9 +17,13 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from html.parser import HTMLParser
-from typing import Protocol
 
 
+_SUBJECT_RE = re.compile(
+    r"приближается\s+отпуск\s+сотрудников\s+с\s+\(?\s*"
+    r"(\d{1,2})[./](\d{1,2})[./](\d{4})",
+    re.IGNORECASE,
+)
 _DATE_RE = re.compile(
     r"с\s+(\d{1,2})[./](\d{1,2})[./](\d{4})\s+планируется\s+отпуск",
     re.IGNORECASE,
@@ -49,21 +55,6 @@ class VacationBlock:
 
     start: date
     names: list[str]
-
-
-class NamedPerson(Protocol):
-    username: str
-    full_name: str
-
-
-@dataclass(frozen=True)
-class NameMatch:
-    """Результат сопоставления строки письма с каталогом."""
-
-    status: str  # matched | ambiguous | not_found
-    username: str = ""
-    full_name: str = ""
-    candidates: tuple[str, ...] = ()
 
 
 class _HTMLText(HTMLParser):
@@ -99,8 +90,25 @@ def html_to_text(html: str) -> str:
     return parser.text()
 
 
+def is_vacation_subject(subject: str) -> bool:
+    """Тема кадрового письма: «Приближается отпуск сотрудников с ДД.ММ.ГГГГ»."""
+    return _SUBJECT_RE.search(subject or "") is not None
+
+
+def directory_short_name(full_name: str) -> str:
+    """Полное ФИО из письма → фамилия и имя для CN.
+
+    Отчество и всё, что после имени, в каталоге не хранится и в поиск не входит.
+    «Посадских Евгений Александрович» → «Посадских Евгений».
+    """
+    tokens = [token for token in re.split(r"\s+", (full_name or "").strip()) if token]
+    if len(tokens) >= 3:
+        tokens = tokens[:2]
+    return " ".join(tokens)
+
+
 def normalize_person_name(value: str) -> str:
-    """Схлопнуть пробелы и ё/е, чтобы «Иванов  Иван» совпал с displayName."""
+    """Схлопнуть пробелы и ё/е для сравнения CN с фамилией и именем."""
     text = (value or "").replace("ё", "е").replace("Ё", "Е")
     text = text.casefold()
     text = text.replace("\xa0", " ")
@@ -151,73 +159,6 @@ def parse_vacation_notice(text: str) -> list[VacationBlock]:
 
     flush()
     return [block for block in blocks if block.names]
-
-
-def match_employee(name: str, people: list[NamedPerson]) -> NameMatch:
-    """Сопоставить строку письма с учёткой AD.
-
-    Сначала точное ФИО и логин, затем ФИО с начала карточки:
-    «Иванов Иван» → «Иванов Иван Петрович», «Иванов И.И.» → инициалы.
-    Несколько кандидатов не склеиваются в одну учётку.
-    """
-    key = normalize_person_name(name)
-    if not key:
-        return NameMatch(status="not_found")
-
-    exact_full = [person for person in people if normalize_person_name(person.full_name) == key]
-    if len(exact_full) == 1:
-        return _matched(exact_full[0])
-    if len(exact_full) > 1:
-        return _ambiguous(exact_full)
-
-    exact_login = [person for person in people if normalize_person_name(person.username) == key]
-    if len(exact_login) == 1:
-        return _matched(exact_login[0])
-    if len(exact_login) > 1:
-        return _ambiguous(exact_login)
-
-    aligned = [person for person in people if _tokens_align(key, normalize_person_name(person.full_name))]
-    if len(aligned) == 1:
-        return _matched(aligned[0])
-    if len(aligned) > 1:
-        return _ambiguous(aligned)
-    return NameMatch(status="not_found")
-
-
-def _matched(person: NamedPerson) -> NameMatch:
-    return NameMatch(
-        status="matched",
-        username=person.username,
-        full_name=person.full_name,
-        candidates=(person.username,),
-    )
-
-
-def _ambiguous(people: list[NamedPerson]) -> NameMatch:
-    names = tuple(dict.fromkeys(person.username for person in people if person.username))
-    return NameMatch(status="ambiguous", candidates=names)
-
-
-def _tokens_align(notice: str, full_name: str) -> bool:
-    """Слова письма совпадают с началом ФИО. Лишние слова в карточке допустимы."""
-    notice_tokens = [token for token in notice.split() if token]
-    name_tokens = [token for token in full_name.split() if token]
-    if not notice_tokens or len(notice_tokens) > len(name_tokens):
-        return False
-    for index, token in enumerate(notice_tokens):
-        if not _token_fits(token, name_tokens[index]):
-            return False
-    return True
-
-
-def _token_fits(notice_token: str, name_token: str) -> bool:
-    bare = notice_token.rstrip(".")
-    if not bare:
-        return False
-    initial = notice_token.endswith(".") or len(bare) == 1
-    if initial:
-        return name_token.startswith(bare)
-    return notice_token == name_token
 
 
 def _clean_line(line: str) -> str:

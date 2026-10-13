@@ -7,6 +7,7 @@ Host/base/domain — из .env (общие с входом). Bind-учётка �
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
@@ -14,6 +15,7 @@ from typing import Any, Literal
 from flask import current_app
 from ldap3 import BASE, NONE, SUBTREE, Connection, Server
 from ldap3.core.exceptions import LDAPException
+from ldap3.utils.conv import escape_filter_chars
 
 from app.services import ldap_service
 from app.services.password_expiry_settings import (
@@ -182,8 +184,7 @@ def fetch_password_users(
     """Выгрузить активных пользователей и рассчитать срок пароля.
 
     Плановый отчёт пропускает учётки без email и с «пароль не истекает».
-    Проверка перед отпуском включает их: без почты нельзя написать
-    сотруднику, но риск всё равно виден в сводке; never-expires — не риск.
+    Флаги include_* оставляют такие учётки в выборке.
     """
     settings = settings or get_password_expiry_settings()
     if not settings.search_base:
@@ -276,6 +277,126 @@ def fetch_password_users(
         return users
     finally:
         ldap_service.unbind(connection)
+
+
+def find_users_by_short_name(
+    short_name: str,
+    settings: PasswordExpirySettings | None = None,
+    today: date | None = None,
+) -> list[AdUser]:
+    """Найти активные учётки, у которых CN — фамилия и имя из письма.
+
+    Письмо приносит полное ФИО, в каталоге в CN лежит только ФИ.
+    Сравнение без регистра и без различия ё/е. displayName в поиск не входит:
+    имя сотрудника в этом домене задают в CN.
+    Пустой CN, отключённые учётки и исключённые OU не возвращаются.
+    Учётки без почты и с «пароль не истекает» остаются: их видно в сводке.
+    """
+    from app.services.vacation_notice_parser import normalize_person_name
+
+    settings = settings or get_password_expiry_settings()
+    wanted = normalize_person_name(short_name)
+    if not wanted:
+        return []
+    if not settings.search_base:
+        raise PasswordAdError(
+            "Не задан search_base: укажите LDAP_BASE_DN в .env или override в настройках модуля"
+        )
+
+    connection = _open_service_connection()
+    try:
+        try:
+            entries = connection.extend.standard.paged_search(
+                search_base=settings.search_base,
+                search_filter=_cn_filter(short_name),
+                search_scope=SUBTREE,
+                attributes=LDAP_ATTRIBUTES,
+                paged_size=50,
+                generator=False,
+            )
+        except LDAPException as exc:
+            raise PasswordAdError(f"Ошибка LDAP-поиска по CN: {exc}") from exc
+
+        users: list[AdUser] = []
+        seen: set[str] = set()
+        for entry in entries:
+            if entry.get("type") not in (None, "searchResEntry"):
+                continue
+            attrs = entry.get("attributes") or {}
+            dn = str(entry.get("dn") or "")
+            if _is_excluded(dn, settings.excluded_ou):
+                continue
+            cn = str(_first_value(attrs.get("cn"), "") or "").strip()
+            if normalize_person_name(cn) != wanted:
+                continue
+            user = _user_from_attributes(attrs, dn, settings, today)
+            if user is None or user.username.lower() in seen:
+                continue
+            seen.add(user.username.lower())
+            users.append(user)
+        return users
+    finally:
+        ldap_service.unbind(connection)
+
+
+def _cn_filter(short_name: str) -> str:
+    """Точное равенство CN. Второй вариант — та же строка с ё, заменённой на е."""
+    text = re.sub(r"\s+", " ", (short_name or "").strip())
+    variants = [text]
+    folded = text.replace("ё", "е").replace("Ё", "Е")
+    if folded and folded != text:
+        variants.append(folded)
+    clauses = "".join(f"(cn={escape_filter_chars(value)})" for value in variants if value)
+    if len(variants) > 1:
+        name_clause = f"(|{clauses})"
+    else:
+        name_clause = clauses
+    return (
+        "(&(objectCategory=person)(objectClass=user)"
+        f"(!(userAccountControl:1.2.840.113556.1.4.803:={UAC_ACCOUNTDISABLE}))"
+        f"{name_clause})"
+    )
+
+
+def _user_from_attributes(
+    attrs: dict,
+    dn: str,
+    settings: PasswordExpirySettings,
+    today: date | None,
+) -> AdUser | None:
+    username = str(_first_value(attrs.get("sAMAccountName"), "") or "").strip()
+    if not username:
+        return None
+    uac = int(_first_value(attrs.get("userAccountControl"), 0) or 0)
+    never_expires = bool(uac & UAC_PASSWORD_NEVER_EXPIRES)
+    mail = str(_first_value(attrs.get("mail"), "") or "").strip()
+    raw_pwd = _first_value(attrs.get("pwdLastSet"), 0)
+    pwd_dt = filetime_to_datetime(raw_pwd)
+    if never_expires:
+        days_left, expiry = None, None
+        status: UserStatus = "ok"
+    else:
+        days_left, expiry = compute_days_left(pwd_dt, settings.max_pwd_age_days, today=today)
+        status = classify_user(
+            days_left,
+            settings.first_warning_days,
+            must_change=pwd_dt is None,
+        )
+    cn = str(_first_value(attrs.get("cn"), "") or "").strip()
+    full_name = str(_first_value(attrs.get("displayName")) or cn or username)
+    return AdUser(
+        username=username,
+        email=mail,
+        full_name=full_name,
+        distinguished_name=dn,
+        user_account_control=uac,
+        pwd_last_set=pwd_dt,
+        pwd_last_set_snapshot=snapshot_pwd_last_set(raw_pwd),
+        days_left=days_left,
+        expiry_date=expiry,
+        status=status,
+        password_never_expires=never_expires,
+    )
 
 
 def verify_password_directory_access(

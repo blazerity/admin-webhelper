@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.10.0)
+# Архитектура bAWH (актуально для v1.10.1)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.10.0` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.10.1` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -84,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.10.0)
+  VERSION                      # semver (1.10.1)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -326,7 +326,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_expiry_settings.py` | SMTP общий (UI: Настройки → Почта (SMTP)), bind LDAP (UI: Настройки → LDAP), пороги (UI: Настройки → Отчёт о паролях); fallback на `.env` |
 | `password_notification_tracker.py` | дедуп писем |
 | `password_report_builder.py` | отчёт для админа |
-| `vacation_notice_parser.py` | разбор письма кадров: дата «С ДД.ММ.ГГГГ» и ФИО |
+| `vacation_notice_parser.py` | тема «Приближается отпуск…», дата «С ДД.ММ.ГГГГ», ФИО → ФИ |
 | `vacation_imap.py` | IMAP служебного ящика, непрочитанные, флаг \\Seen |
 | `vacation_password_service.py` | сверка срока пароля с отпуском (по умолчанию 14 дней) |
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure своей службы |
@@ -609,7 +609,9 @@ Scheduler cron / CLI / UI → `run_password_expiry` → LDAP fetch → classify 
 SMTP → `password_expiry_runs` + `password_notifications`.
 
 Тот же воркер `bawh-password-reports`, отдельный cron → `run_vacation_checks` →
-IMAP непрочитанных писем кадров → разбор «С ДД.ММ.ГГГГ» и ФИО → тот же расчёт
+IMAP непрочитанных писем с темой «Приближается отпуск сотрудников с ДД.ММ.ГГГГ» →
+разбор «С ДД.ММ.ГГГГ» и списка ФИО → поиск каждой учётки в AD по CN
+(фамилия и имя, отчество отбрасывается) → тот же расчёт
 `pwdLastSet + max_pwd_age` → пароль истекает за отпуск, если дата истечения
 раньше дня выхода (срок отпуска из настроек, по умолчанию 14 календарных дней).
 Письмо сотруднику один раз на «логин + дата начала»; сводка — на получателей

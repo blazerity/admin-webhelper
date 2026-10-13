@@ -18,11 +18,12 @@ from email.utils import parsedate_to_datetime
 from hashlib import sha256
 
 from app.services.password_expiry_settings import VacationCheckSettings
-from app.services.vacation_notice_parser import html_to_text
+from app.services.vacation_notice_parser import html_to_text, is_vacation_subject
 
 logger = logging.getLogger(__name__)
 
 _MAX_MESSAGES = 50
+_MAX_HEADER_SCAN = 300
 
 
 class VacationImapError(RuntimeError):
@@ -60,10 +61,15 @@ def fetch_unseen(
         status, data = client.uid("SEARCH", "UNSEEN")
         if status != "OK":
             raise VacationImapError("IMAP не вернул список непрочитанных писем")
-        uids = [item for item in (data[0] or b"").split() if item][:_MAX_MESSAGES]
+        uids = [item for item in (data[0] or b"").split() if item][:_MAX_HEADER_SCAN]
         messages: list[InboxMessage] = []
         for uid in uids:
-            messages.append(_fetch_uid(client, uid.decode("ascii", errors="replace")))
+            text_uid = uid.decode("ascii", errors="replace")
+            if not is_vacation_subject(_peek_subject(client, text_uid)):
+                continue
+            messages.append(_fetch_uid(client, text_uid))
+            if len(messages) >= _MAX_MESSAGES:
+                break
         return client, messages
     except VacationImapError:
         _logout(client)
@@ -157,6 +163,25 @@ def _connect(settings: VacationCheckSettings) -> imaplib.IMAP4:
         raise VacationImapError(
             f"Не удалось войти в IMAP {settings.imap_host}:{settings.imap_port}: {exc}"
         ) from exc
+
+
+def _peek_subject(client: imaplib.IMAP4, uid: str) -> str:
+    """Тема без флага \\Seen: чужие письма в ящике остаются непрочитанными."""
+    try:
+        status, data = client.uid("FETCH", uid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
+    except (imaplib.IMAP4.error, OSError) as exc:
+        logger.warning("IMAP: не удалось прочитать тему UID %s: %s", uid, exc)
+        return ""
+    if status != "OK" or not data:
+        return ""
+    raw = b""
+    for item in data:
+        if isinstance(item, tuple) and len(item) > 1 and isinstance(item[1], (bytes, bytearray)):
+            raw += bytes(item[1])
+    if not raw:
+        return ""
+    header = email.message_from_bytes(raw)
+    return _decode_header(header.get("Subject"))
 
 
 def _fetch_uid(client: imaplib.IMAP4, uid: str) -> InboxMessage:
