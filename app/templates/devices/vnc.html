@@ -14,7 +14,7 @@
 
 {% if not gateway_enabled %}
 <div class="flash-inline text-warning mb-3">
-  Шлюз <code>bawh-vnc</code> выключен в Параметрах — соединение, скорее всего, не откроется.
+  Возможность подключения по VNC выключена в Настройках — соединение, скорее всего, не откроется.
 </div>
 {% endif %}
 
@@ -30,7 +30,7 @@
           type="password"
           value="{{ vnc_password or '' }}"
           maxlength="8"
-          placeholder="{{ 'сохранён в Параметрах' if has_vnc_password else 'тот же, что в Параметрах → VNC, до 8 символов' }}"
+          placeholder="{{ 'сохранён в Настройках' if has_vnc_password else 'тот же, что в Настройках → VNC, до 8 символов' }}"
           autocomplete="off"
         >
       </div>

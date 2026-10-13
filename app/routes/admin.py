@@ -331,13 +331,18 @@ def settings(section: str | None = None):
         if kind == "vnc":
             want_enabled = request.form.get("vnc_gateway_enabled") == "1"
             try:
-                set_vnc_settings(
-                    gateway_enabled=want_enabled,
-                    port=request.form.get("vnc_port", ""),
-                    password=request.form.get("vnc_password"),
-                )
-                if request.form.get("vnc_password_clear") == "1":
-                    clear_vnc_password()
+                # Порт/пароль сохраняем только когда возможность включена;
+                # при выключении оставляем прежние значения в БД.
+                if want_enabled:
+                    set_vnc_settings(
+                        gateway_enabled=True,
+                        port=request.form.get("vnc_port", ""),
+                        password=request.form.get("vnc_password"),
+                    )
+                    if request.form.get("vnc_password_clear") == "1":
+                        clear_vnc_password()
+                else:
+                    set_vnc_settings(gateway_enabled=False)
             except (ValueError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
                 return redirect(_settings_redirect("general", anchor="vnc"))
@@ -345,15 +350,16 @@ def settings(section: str | None = None):
                 if want_enabled:
                     ensure = ensure_unit_running(VNC_UNIT)
                     flash(
-                        f"VNC-шлюз включён (порт агента {request.form.get('vnc_port') or '5900'}). "
+                        f"Возможность подключения по VNC включена "
+                        f"(порт агента {request.form.get('vnc_port') or '5900'}). "
                         f"{ensure.message}",
                         "success",
                     )
                 else:
                     stopped = stop_unit(VNC_UNIT)
                     flash(
-                        f"VNC-шлюз выключен. Подключение из браузера не будет работать. "
-                        f"{stopped.message}",
+                        f"Возможность подключения по VNC выключена. "
+                        f"Кнопки подключения скрыты. {stopped.message}",
                         "success",
                     )
             except SystemdError as exc:

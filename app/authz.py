@@ -89,8 +89,12 @@ def user_can_run_diagnostics(user) -> bool:
 
 
 def user_can_connect_vnc(user) -> bool:
-    """Веб-VNC: те же роли, что диагностика (не чистый viewer)."""
-    return user_can_run_diagnostics(user)
+    """Веб-VNC: роли как у диагностики и включён тумблер в Настройках → VNC."""
+    if not user_can_run_diagnostics(user):
+        return False
+    from app.services.vnc_settings import is_vnc_enabled
+
+    return is_vnc_enabled()
 
 
 def filter_accessible_devices(user, device_ids) -> list[Device]:
