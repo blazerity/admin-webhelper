@@ -399,10 +399,11 @@
       <p class="text-warning mt-3 mb-0">Агент bAD не зарегистрирован.</p>
       {% endif %}
       <p class="text-muted small mt-3 mb-0">
-        device_id — это MachineGuid этой Windows-машины
-        (HKLM\SOFTWARE\Microsoft\Cryptography). bAWH читает его через WMI
-        только в момент опроса и сразу отправляет в lookup. На карточку
-        и в базу он не записывается. Здесь остаётся bad_id из ответа bAD.
+        device_id читается в момент опроса и в базу не пишется.
+        Сначала это поле из конфига агента, без ключа агента.
+        Если файл не открылся — MachineGuid из реестра. По сети оба
+        источника доступны учётке администратора. На карточке остаётся
+        bad_id из ответа bAD.
       </p>
       {% if device.hardware_poll_note %}
       <div class="mt-3">
