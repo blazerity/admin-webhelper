@@ -19,10 +19,11 @@
   (шифротекст в app_settings), иначе DISCOVERY_* в .env. Без неё
   возвращаем пустой инвентарь; идентичность без серийника — только
   заглушка по текущему IP, не по PTR-имени. MAC — только из ARP.
-* Служба badagent и MachineGuid (lookup_badagent) — для связи с bAD.
-  Если службы нет, реестр не читаем. Файл config.json агента не открываем.
-  Процессор, память, диски и версию Windows опрос железа больше не берёт
-  по WMI: их приносит lookup bAD.
+* Служба badagent и device_id (lookup_badagent) — для связи с bAD.
+  Если службы нет, реестр и конфиг не читаем. Из config.json агента
+  берём только поле device_id и сразу отбрасываем остальное: рядом лежит
+  ключ агента. Процессор, память, диски и версию Windows опрос железа
+  больше не берёт по WMI: их приносит lookup bAD.
 * Железо по WMI (lookup_wmi_hardware) — прежний разбор CPU / ОЗУ / дисков / ОС.
   Планировщик и кнопка опроса железа его не вызывают.
 
@@ -37,6 +38,8 @@ shell=True нет: иначе «10.0.0.5; whoami» стало бы второй 
 
 from __future__ import annotations
 
+import io
+import json
 import logging
 import os
 import re
@@ -78,6 +81,8 @@ _HKLM = 0x80000002
 _WINNT_CURRENT_VERSION = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
 _MACHINE_GUID_KEY = r"SOFTWARE\Microsoft\Cryptography"
 _BAD_AGENT_SERVICE = "badagent"
+_AGENT_CONFIG_TAIL = r"blazerity\bAD\config.json"
+_MAX_AGENT_CONFIG_BYTES = 65_536
 _REMOVABLE_DISK_IFACES = {"USB", "1394"}
 
 # Заглушки BIOS/OEM, которые нельзя считать service tag.
@@ -128,9 +133,13 @@ class BadAgentProbe:
     """
 
     service_present: bool = False
+    # Идентификатор для lookup. В базу не пишется. Это device_id из конфига
+    # агента либо, если файл не открылся, MachineGuid из реестра.
     machine_guid: str | None = None
     wmi_failed: bool = False
-    # Короткая причина сбоя WMI. Без текста исключения и без учётки.
+    # config | registry | пусто.
+    id_source: str = ""
+    # Короткая причина без текста исключения, учётки и ключа агента.
     detail: str = ""
 
 
@@ -243,10 +252,13 @@ def lookup_badagent(
     ip: str,
     creds: DiscoveryCredentials | None = None,
 ) -> BadAgentProbe:
-    """Проверить службу badagent и, если она есть, прочитать MachineGuid.
+    """Проверить службу badagent и, если она есть, прочитать device_id.
 
-    Регистр не меняем. ``%ProgramData%\\blazerity\\bAD\\config.json`` не читаем:
-    там ключ агента. Без службы реестр не открываем и WMI железа не вызываем.
+    Сначала поле device_id из ``%ProgramData%\\blazerity\\bAD\\config.json``:
+    на сервере bAD записан именно он. Остальное содержимое файла, включая
+    ключ агента, отбрасывается и в журнал не попадает. Если файл не открылся,
+    запасной источник — MachineGuid в реестре. Без службы ни реестр, ни файл
+    не открываем.
     """
     ip = assert_public_ipv4(ip)
     if creds is None:
@@ -430,7 +442,7 @@ def _wmi_hardware(ip: str, creds: DiscoveryCredentials) -> WmiHardware:
 
 
 def _read_badagent(ip: str, creds: DiscoveryCredentials) -> BadAgentProbe:
-    """Один DCOM: только Win32_Service и, при успехе, MachineGuid."""
+    """Один DCOM: служба badagent, затем device_id. Железо не читаем."""
     try:
         import impacket.dcerpc.v5.dcom.wmi  # noqa: F401
     except ImportError:
@@ -441,15 +453,180 @@ def _read_badagent(ip: str, creds: DiscoveryCredentials) -> BadAgentProbe:
     try:
         if not _wmi_service_present(services, _BAD_AGENT_SERVICE):
             return BadAgentProbe(service_present=False)
+        program_data = _query_program_data(services)
+        config_id, config_note = _read_config_device_id(ip, creds, program_data)
+        if config_id:
+            return BadAgentProbe(
+                service_present=True,
+                machine_guid=config_id,
+                id_source="config",
+            )
+        guid = _read_machine_guid(dcom)
+        if guid:
+            return BadAgentProbe(
+                service_present=True,
+                machine_guid=guid,
+                id_source="registry",
+                detail=config_note,
+            )
         return BadAgentProbe(
             service_present=True,
-            machine_guid=_read_machine_guid(dcom),
+            detail=(
+                "MachineGuid в реестре пустой или закрыт для этой учётки: "
+                "удалённо его читает только администратор. "
+                + config_note
+            ),
         )
     except Exception as exc:
         logger.debug("badagent: %s — %s", ip, type(exc).__name__)
         return BadAgentProbe(wmi_failed=True, detail="запрос службы упал")
     finally:
         _wmi_close(dcom, services)
+
+
+def _query_program_data(services) -> str:
+    """Системный ProgramData. Пусто — дальше берём C:\\ProgramData."""
+    enum_obj = None
+    try:
+        enum_obj = services.ExecQuery(
+            "SELECT VariableValue FROM Win32_Environment "
+            "WHERE Name = 'ProgramData' AND SystemVariable = True"
+        )
+        for props in _wmi_enum_properties(enum_obj):
+            text = _wmi_prop_text(props, "VariableValue")
+            if text:
+                return text
+    except Exception as exc:
+        logger.debug("ProgramData: %s", type(exc).__name__)
+    finally:
+        _wmi_release(enum_obj)
+    return ""
+
+
+def _read_config_device_id(
+    ip: str,
+    creds: DiscoveryCredentials,
+    program_data: str,
+) -> tuple[str | None, str]:
+    """Прочитать только device_id. Тело файла в журнал и в возврат не входит."""
+    share, relative = _agent_config_location(program_data)
+    try:
+        raw = _smb_read_file(ip, creds, share, relative)
+    except Exception as exc:
+        logger.debug("badagent config: %s — %s", ip, type(exc).__name__)
+        return None, (
+            "Конфиг агента не открылся. Его тоже читает только администратор, "
+            f"по пути \\\\{share}\\{relative}."
+        )
+    if raw is None:
+        return None, (
+            "Конфиг агента слишком большой, целиком его не разбирали."
+        )
+    device_id = device_id_from_config_bytes(raw)
+    del raw
+    if not device_id:
+        return None, "Конфиг агента открылся, поля device_id в нём нет."
+    return device_id, ""
+
+
+def _agent_config_location(program_data: str) -> tuple[str, str]:
+    """(шара, путь внутри шары) для config.json. Чужой ``..`` не принимаем."""
+    text = (program_data or r"C:\ProgramData").strip().replace("/", "\\").rstrip("\\")
+    share = "C$"
+    folder = "ProgramData"
+    if len(text) >= 3 and text[1] == ":" and text[0].isalpha():
+        share = text[0].upper() + "$"
+        folder = text[3:].lstrip("\\") or "ProgramData"
+    parts = [part for part in folder.split("\\") if part and part != "."]
+    if any(part == ".." for part in parts):
+        share, parts = "C$", ["ProgramData"]
+    relative = "\\".join([*parts, _AGENT_CONFIG_TAIL])
+    return share, relative
+
+
+def device_id_from_config_bytes(raw: bytes) -> str | None:
+    """Достать device_id и забыть остальной JSON, включая api_key."""
+    if not raw or len(raw) > _MAX_AGENT_CONFIG_BYTES:
+        return None
+    text = _decode_config_text(raw)
+    if text is None:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    finally:
+        del text
+    if not isinstance(parsed, dict):
+        return None
+    value = parsed.get("device_id")
+    parsed.clear()
+    if not isinstance(value, str):
+        return None
+    return _clean_device_id(value)
+
+
+def _decode_config_text(raw: bytes) -> str | None:
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            return raw.decode("utf-16")
+        except UnicodeError:
+            return None
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeError:
+        return None
+
+
+def _clean_device_id(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if not text or len(text) > 128:
+        return None
+    if any(ord(ch) < 32 for ch in text):
+        return None
+    lowered = text.lower()
+    if lowered.startswith(("bad_ak_", "bad_in_", "bad_ps_", "bearer ")):
+        return None
+    return text
+
+
+def _smb_read_file(
+    ip: str,
+    creds: DiscoveryCredentials,
+    share: str,
+    relative: str,
+) -> bytes | None:
+    """Прочитать файл по SMB. None — файл больше допустимого размера."""
+    from impacket.smbconnection import SMBConnection
+
+    conn = SMBConnection(ip, ip, sess_port=445, timeout=5)
+    try:
+        conn.login(creds.username, creds.password, creds.domain or "")
+        sink = _LimitedSink(_MAX_AGENT_CONFIG_BYTES)
+        conn.getFile(share, relative, sink.write)
+        if sink.overflow:
+            return None
+        return sink.getvalue()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+class _LimitedSink(io.BytesIO):
+    """Останавливает чтение, если конфиг раздули."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__()
+        self.limit = limit
+        self.overflow = False
+
+    def write(self, data) -> int:  # noqa: ANN001
+        if self.overflow or self.tell() + len(data) > self.limit:
+            self.overflow = True
+            return len(data)
+        return super().write(data)
 
 
 def _wmi_service_present(services, name: str) -> bool:

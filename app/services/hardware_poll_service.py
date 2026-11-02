@@ -6,8 +6,9 @@
 из WMI больше не читаем — их приносит lookup.
 
 На машине той же учёткой, что ходила в WMI, проверяем службу badagent.
-Службы нет — новый снимок не пишем. Служба есть — читаем MachineGuid
-и POST /v1/integrations/lookup. На карточку кладём bad_id из ответа.
+Службы нет — новый снимок не пишем. Служба есть — берём device_id из
+конфига агента (только это поле) либо из MachineGuid и вызываем
+POST /v1/integrations/lookup. На карточку кладём bad_id из ответа.
 Серийник снимка bAD остаётся паспортом: чужой ПК на том же IP снимок не получает.
 
 Пока связь с bAD не «подключено», проход не стартует и старый WMI-опрос
@@ -555,12 +556,12 @@ def _poll_targets(
         if bad_id:
             notes[owner.id] = (
                 f"Lookup bAD ответил. На карточку записан {bad_id}. "
-                "MachineGuid прочитан с машины и в базу не сохранён."
+                "device_id с машины в базу не сохранён."
             )
         else:
             notes[owner.id] = (
                 "Lookup bAD ответил, снимок записан. bad_id в ответе не было. "
-                "MachineGuid в базу не сохраняется."
+                "device_id в базу не сохраняется."
             )
         changed = bad_changed
         if snapshot is not None and not snapshot.is_empty:
@@ -670,20 +671,21 @@ def _probe_one(
                 ),
             )
         if not agent.machine_guid:
+            why = agent.detail or "device_id не прочитан"
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
                 online=True,
-                error="MachineGuid пустой",
+                error="device_id не прочитан",
                 note=(
-                    "Ping есть. Служба badagent есть. MachineGuid в "
-                    "HKLM\\SOFTWARE\\Microsoft\\Cryptography пустой. "
-                    "Lookup не вызывали. Это значение в карточку не пишется."
+                    "Ping есть. Служба badagent есть. "
+                    f"{why} Lookup не вызывали. device_id в карточку не пишется."
                 ),
             )
         looked = lookup_with_credentials(
             bad_credentials[0], bad_credentials[1], agent.machine_guid
         )
+        found = _identity_phrase(agent)
         if looked.error == "revoked" or looked.status == 401:
             return _Probe(
                 device_id=target.device_id,
@@ -692,7 +694,7 @@ def _probe_one(
                 revoked=True,
                 error="ключ интеграции не активен",
                 note=(
-                    "Ping есть. Служба badagent есть, MachineGuid прочитан. "
+                    f"Ping есть. Служба badagent есть, {found}. "
                     "Lookup bAD ответил 401: ключ интеграции не принят."
                 ),
             )
@@ -711,9 +713,9 @@ def _probe_one(
                 online=True,
                 unregistered=True,
                 note=(
-                    "Ping есть. Служба badagent есть, MachineGuid прочитан. "
+                    f"Ping есть. Служба badagent есть, {found}. "
                     "Lookup bAD ответил 404: этой машины в bAD нет. "
-                    "MachineGuid в карточку не записан."
+                    "device_id в карточку не записан."
                 ),
             )
         if looked.status != 200 or not isinstance(looked.data, dict):
@@ -724,7 +726,7 @@ def _probe_one(
                 online=True,
                 error=f"lookup bAD: {status}",
                 note=(
-                    "Ping есть. Служба badagent есть, MachineGuid прочитан. "
+                    f"Ping есть. Служба badagent есть, {found}. "
                     f"Lookup bAD: {status}. Снимок не записан."
                 ),
             )
@@ -736,7 +738,7 @@ def _probe_one(
                 online=True,
                 error="в ответе lookup нет карточки",
                 note=(
-                    "Ping есть. Служба badagent есть, MachineGuid прочитан. "
+                    f"Ping есть. Служба badagent есть, {found}. "
                     "Lookup bAD ответил 200, но без bad_id и без железа."
                 ),
             )
@@ -758,6 +760,16 @@ def _probe_one(
             error="сбой опроса",
             note=f"Сбой опроса ({type(exc).__name__}). Снимок не записан.",
         )
+
+
+def _identity_phrase(agent: discovery_service.BadAgentProbe) -> str:
+    """Откуда взяли device_id, без самого значения."""
+    if agent.id_source == "config":
+        return "device_id взят из конфига агента"
+    if agent.id_source == "registry":
+        extra = f" {agent.detail}" if agent.detail else ""
+        return "device_id взят из реестра MachineGuid." + extra
+    return "device_id прочитан"
 
 
 def _save_poll_notes(notes: dict[int, str], when) -> None:

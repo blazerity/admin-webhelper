@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.11)
+# Архитектура bAWH (актуально для v1.11.1)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.11` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.11.1` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -84,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.11)
+  VERSION                      # semver (1.11.1)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -277,7 +277,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
 | `device_kind.py` | тип карты: имена AD (`BN***` = ноутбук, `n…`/`w…`/…), WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
-| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user для опроса сети. Для bAD — `lookup_badagent`: служба `badagent` и, только если она есть, MachineGuid (реестр не меняется, `config.json` агента не читается). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опрос сети или `DISCOVERY_*` |
+| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user для опроса сети. Для bAD — `lookup_badagent`: служба `badagent` и, только если она есть, `device_id` из конфига агента (только это поле; ключ агента отбрасывается) либо MachineGuid. Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опрос сети или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
 | `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + служба badagent + lookup bAD. Снимок на `devices` только если серийник снимка bAD совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs`. Пока связь не «подключено», проход не стартует и WMI железа не подменяет lookup |
 | `hardware_poll_settings.py` | cron / schedule_enabled в `app_settings` (default `0 12 * * *`, включено) |
@@ -637,11 +637,12 @@ Scheduler cron (полдень) / CLI `hardware-poll` / UI Настройки �
 
 Если подключено: ping известных Windows-целей → та же учётка, что для WMI,
 проверяет службу `badagent`. Службы нет — новый снимок не пишется.
-Служба есть — читается `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`
-(реестр не меняется; `%ProgramData%\blazerity\bAD\config.json` не читается) →
-`POST /v1/integrations/lookup` с ключом интеграции → на карточку `bad_id`
+Служба есть — `device_id` берётся из `%ProgramData%\blazerity\bAD\config.json`
+(в код попадает только это поле, `api_key` отбрасывается). Файл не открылся —
+читается `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`. Реестр не меняется.
+Дальше `POST /v1/integrations/lookup` с ключом интеграции → на карточку `bad_id`
 из ответа и поля процессора, памяти, диска, версии ОС.
-MachineGuid в базу не пишется. Итог попытки, включая отказ, остаётся
+`device_id` в базу не пишется. Итог попытки, включая отказ, остаётся
 в `devices.hardware_poll_note` и виден на вкладке «Оборудование».
 Серийник снимка bAD — паспорт, как у `resolve_hardware_owner`: чужой ПК
 на том же IP снимок не получает. `device_id` на карточку не пишется.
@@ -776,7 +777,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | ICMP / traceroute | OS `ping` / `traceroute` | `ping_service` |
 | TCP fingerprint | короткий connect 445/135/8728/8291/9100/515/554 | `fingerprint_service` |
 | SNMPv1 sysDescr | UDP/161 community `public`, без pysnmp | `fingerprint_service` |
-| Windows WMI | impacket | `discovery_service` (инвентарь сети; для железа — только служба badagent и MachineGuid) |
+| Windows WMI | impacket | `discovery_service` (инвентарь сети; для железа — служба badagent и device_id) |
 | bAD | HTTP `/v1/integrations/requests` и `/v1/integrations/lookup` | `bad_integration`, `bad_hardware` |
 | Windows remote | pypsexec (SMB/ADMIN$) | `psexec_service` |
 | Git HTTPS | update check / pull | `update_service` |
