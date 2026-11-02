@@ -497,11 +497,20 @@ def _decode_config_text(raw: bytes) -> str | None:
         return None
 
 
-def _clean_device_id(value: str | None) -> str | None:
+def _clean_lookup_id(value: str | None) -> str | None:
+    """Идентификатор для lookup: не пустой, без управляющих символов, не длиннее 128."""
     text = (value or "").strip()
     if not text or len(text) > 128:
         return None
     if any(ord(ch) < 32 for ch in text):
+        return None
+    return text
+
+
+def _clean_device_id(value: str | None) -> str | None:
+    """То же, что реестровый id, плюс отказ от значений, похожих на секреты bAD."""
+    text = _clean_lookup_id(value)
+    if text is None:
         return None
     lowered = text.lower()
     if lowered.startswith(("bad_ak_", "bad_in_", "bad_ps_", "bearer ")):
@@ -571,12 +580,8 @@ def _read_machine_guid(dcom) -> str | None:
 
 
 def _clean_machine_guid(value: str | None) -> str | None:
-    text = (value or "").strip()
-    if not text or len(text) > 128:
-        return None
-    if any(ord(ch) < 32 for ch in text):
-        return None
-    return text
+    """MachineGuid не отсекает префиксы ключей: в реестре их нет."""
+    return _clean_lookup_id(value)
 
 
 def _wmi_open(ip: str, creds: DiscoveryCredentials):

@@ -5,25 +5,21 @@
 """
 
 import logging
-import time
 
-from app import create_app
+from app.process_main import run_scheduler_process
 from app.services.scheduler_service import start_scheduler
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    app = create_app()
-    scheduler = start_scheduler(app)
-    logger.info("Процесс опроса запущен. Веб-сервер в этом процессе не стартует.")
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Остановка планировщика, дожидаемся текущего прохода.")
-        # wait=True: дать текущему пингу записать историю.
-        scheduler.shutdown(wait=True)
+    # wait=True внутри цикла: дать текущему пингу записать историю.
+    run_scheduler_process(
+        start_scheduler,
+        started="Процесс опроса запущен. Веб-сервер в этом процессе не стартует.",
+        stopping="Остановка планировщика, дожидаемся текущего прохода.",
+        log=logger,
+    )
 
 
 if __name__ == "__main__":

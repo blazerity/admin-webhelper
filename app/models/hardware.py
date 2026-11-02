@@ -1,4 +1,4 @@
-"""Опрос конфигурации железа Windows: прогоны и история снимков."""
+"""Опрос конфигурации железа Windows: прогоны кнопки и история снимков."""
 
 from __future__ import annotations
 
@@ -7,7 +7,10 @@ from app.utils import utcnow
 
 
 class HardwarePollRun(db.Model):
-    """Итог одного прохода опроса железа (не путать с ICMP network_poll_runs)."""
+    """Итог одного прохода опроса железа с карточки (не путать с ICMP network_poll_runs).
+
+    Строка нужна как замок «прогон уже идёт». Отдельной страницы журнала нет.
+    """
 
     __tablename__ = "hardware_poll_runs"
 

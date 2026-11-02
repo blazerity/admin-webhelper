@@ -291,21 +291,6 @@ def run_core_service_restart(
     )
 
 
-def restart_command(
-    systemctl: str,
-    sudo_user: str = "",
-    *,
-    with_password: bool = False,
-) -> list[str]:
-    """Команда перезапуска служб (совместимость с update_service)."""
-    return _build_privileged_command(
-        systemctl,
-        ["restart", *RESTART_UNITS],
-        sudo_user=sudo_user,
-        with_password=with_password,
-    )
-
-
 def restart_units_hint() -> str:
     return "sudo systemctl restart " + " ".join(RESTART_UNITS)
 

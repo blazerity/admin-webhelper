@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -26,16 +25,18 @@ from app.extensions import db
 from app.models import Device, DeviceHardwareHistory, DeviceStatus, HardwarePollRun
 from app.services import discovery_service
 from app.services.device_kind import KIND_DESKTOP, KIND_NOTEBOOK, KIND_SERVER, KIND_VDS
+from app.services.device_sweep import DeviceSweepTarget, map_pool
 from app.services.hardware_info import HardwareSnapshot
 from app.services.ping_service import ping_host
-from app.utils import as_utc, utcnow
+from app.services.run_journal import close_stale_runs, unfinished_run
+from app.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
 _WINDOWS_KINDS = {KIND_NOTEBOOK, KIND_DESKTOP, KIND_VDS, KIND_SERVER}
 _SWEEP_WORKERS = 8
 _STALE_POLL_AFTER = timedelta(hours=2)
-_RECENT_RUNS_LIMIT = 20
+_STALE_RUN_MESSAGE = "прерван: прогон завис"
 _run_lock = threading.Lock()
 _MAX_STORED_CHANGES = 200
 
@@ -95,14 +96,6 @@ class HardwarePollResult:
             "error": self.error,
             "changes": len(self.changes),
         }
-
-
-@dataclass(frozen=True)
-class _Target:
-    device_id: int
-    ip: str
-    hostname: str | None
-    serial_number: str | None
 
 
 @dataclass
@@ -205,32 +198,6 @@ def apply_hardware_snapshot(
     return changed or first
 
 
-def count_hardware_poll_runs() -> int:
-    """Число записей в hardware_poll_runs."""
-    return int(db.session.scalar(select(func.count()).select_from(HardwarePollRun)) or 0)
-
-
-def load_recent_hardware_poll_runs(
-    limit: int = _RECENT_RUNS_LIMIT,
-    *,
-    offset: int = 0,
-) -> list[HardwarePollRun]:
-    """Последние прогоны опроса железа, новые сверху.
-
-    offset — для пагинации на странице настроек (CSV по-прежнему берёт limit).
-    """
-    limit = max(1, min(200, int(limit)))
-    offset = max(0, int(offset or 0))
-    return list(
-        db.session.scalars(
-            select(HardwarePollRun)
-            .order_by(HardwarePollRun.id.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-    )
-
-
 def load_device_hardware_history(
     device_id: int, *, limit: int = 20, offset: int = 0
 ) -> list[DeviceHardwareHistory]:
@@ -291,8 +258,13 @@ def run_hardware_poll(
             )
 
         if not dry_run:
-            _close_stale_runs(started)
-            active = _active_run(started)
+            close_stale_runs(
+                HardwarePollRun,
+                started,
+                _STALE_POLL_AFTER,
+                message=_STALE_RUN_MESSAGE,
+            )
+            active = unfinished_run(HardwarePollRun, started, _STALE_POLL_AFTER)
             if active is not None:
                 raise HardwarePollInProgressError(
                     "Опрос железа уже выполняется (другой процесс)."
@@ -359,24 +331,6 @@ def poll_one_device(device: Device) -> HardwarePollResult:
     return run_hardware_poll(mode="manual", device_ids=(device.id,))
 
 
-def format_change_lines(result: HardwarePollResult) -> list[str]:
-    lines = []
-    for item in result.changes:
-        lines.append(
-            f"id={item.device_id} ip={item.ip} {item.hostname or '—'} "
-            f"cpu={item.cpu_name or '—'} ram={_gb(item.ram_gb)} "
-            f"disk={_gb(item.disk_gb)} os={item.os_label or '—'}"
-        )
-    omitted = result.changed - len(result.changes)
-    if omitted > 0:
-        lines.append(f"… и ещё {omitted}")
-    return lines
-
-
-def _gb(value: int | None) -> str:
-    return f"{value} ГБ" if value is not None else "—"
-
-
 def _poll_targets(
     result: HardwarePollResult,
     creds: discovery_service.DiscoveryCredentials,
@@ -397,7 +351,7 @@ def _poll_targets(
     now = utcnow()
     allow_remap = not device_ids
 
-    pending: list[tuple[_Target, HardwareSnapshot | None, str | None, str | None, str | None]] = []
+    pending: list[tuple[DeviceSweepTarget, HardwareSnapshot | None, str | None, str | None, str | None]] = []
     unregistered_ids: list[int] = []
     notes: dict[int, str] = {}
     for target in targets:
@@ -576,12 +530,12 @@ def _load_targets(
     *,
     limit: int | None,
     device_ids: list[int] | tuple[int, ...] | None,
-) -> list[_Target]:
+) -> list[DeviceSweepTarget]:
     stmt = select(Device).order_by(Device.id)
     if device_ids:
         stmt = stmt.where(Device.id.in_(list(device_ids)))
     rows = list(db.session.scalars(stmt))
-    targets: list[_Target] = []
+    targets: list[DeviceSweepTarget] = []
     for row in rows:
         ip = (row.ip or "").strip()
         if not ip:
@@ -589,7 +543,7 @@ def _load_targets(
         if not device_ids and not is_windows_hardware_target(row):
             continue
         targets.append(
-            _Target(
+            DeviceSweepTarget(
                 device_id=row.id,
                 ip=ip,
                 hostname=row.hostname,
@@ -602,25 +556,21 @@ def _load_targets(
 
 
 def _probe_targets(
-    targets: list[_Target],
+    targets: list[DeviceSweepTarget],
     creds: discovery_service.DiscoveryCredentials,
     bad_credentials: tuple[str, str],
 ) -> list[_Probe]:
-    probes: list[_Probe] = []
-    with ThreadPoolExecutor(max_workers=_SWEEP_WORKERS) as pool:
-        futures = [
-            pool.submit(_probe_one, target, creds, bad_credentials) for target in targets
-        ]
-        for future in futures:
-            try:
-                probes.append(future.result())
-            except Exception:
-                logger.exception("Рабочий поток опроса железа завершился с ошибкой")
-    return probes
+    return map_pool(
+        targets,
+        lambda target: _probe_one(target, creds, bad_credentials),
+        workers=_SWEEP_WORKERS,
+        failure="Рабочий поток опроса железа завершился с ошибкой",
+        log=logger,
+    )
 
 
 def _probe_one(
-    target: _Target,
+    target: DeviceSweepTarget,
     creds: discovery_service.DiscoveryCredentials,
     bad_credentials: tuple[str, str],
 ) -> _Probe:
@@ -800,33 +750,3 @@ def _assign_bad_id(owner: Device, bad_id: str) -> None:
     owner.bad_id = bad_id
     owner.bad_agent_status = None
 
-
-def _active_run(now) -> HardwarePollRun | None:
-    cutoff = as_utc(now) - _STALE_POLL_AFTER
-    return db.session.scalars(
-        select(HardwarePollRun)
-        .where(
-            HardwarePollRun.finished_at.is_(None),
-            HardwarePollRun.started_at >= cutoff,
-        )
-        .order_by(HardwarePollRun.id.desc())
-        .limit(1)
-    ).first()
-
-
-def _close_stale_runs(now) -> None:
-    cutoff = as_utc(now) - _STALE_POLL_AFTER
-    stale = list(
-        db.session.scalars(
-            select(HardwarePollRun).where(
-                HardwarePollRun.finished_at.is_(None),
-                HardwarePollRun.started_at < cutoff,
-            )
-        )
-    )
-    if not stale:
-        return
-    for run in stale:
-        run.finished_at = now
-        run.error = run.error or "прерван: прогон завис"
-    db.session.commit()

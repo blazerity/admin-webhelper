@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.12)
+# Архитектура bAWH (актуально для v1.12.1)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.12` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.12.1` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -55,11 +55,10 @@ HTTP / CLI / scheduler
 | --- | --- | --- |
 | Веб (prod) | `wsgi.py` → `create_app()` → Gunicorn `wsgi:app` | Только HTTP. Опрос здесь **запрещён**. |
 | Веб (dev) | `python wsgi.py` (:8000) или `flask --app wsgi run` | То же. |
-| Планировщик | `python -m app.scheduler_worker` | `create_app()` + `start_scheduler(app)`; опрос сети/железа. |
-| Отчёты паролей | `python -m app.password_report_worker` | `start_password_report_scheduler(app)`: cron отчёта и cron проверки отпусков. |
-| Отчёты о ПК | `python -m app.pc_report_worker` | `start_pc_report_scheduler(app)`. |
-| VNC-прокси | `python -m app.vnc_worker` | WebSocket→TCP, без Flask/БД; билет `SECRET_KEY`. |
-| Flask CLI | `flask --app wsgi …` | `poll`, `hardware-poll`, `archive-logs`, `password-expiry [--dry-run]`, `password-vacation [--dry-run]`, `sector-daily-report [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
+| Планировщик | `python -m app.scheduler_worker` | `run_scheduler_process(start_scheduler)`: опрос сети, заявка bAD, архив логов. Железо не по расписанию. |
+| Отчёты паролей | `python -m app.password_report_worker` | Тот же `run_scheduler_process`, старт `start_password_report_scheduler`: cron отчёта и cron проверки отпусков. |
+| VNC-прокси | `python -m app.vnc_worker` | WebSocket→TCP, без Flask/БД; билет `SECRET_KEY`. Свой цикл, не APScheduler. |
+| Flask CLI | `flask --app wsgi …` | `poll`, `archive-logs`, `password-expiry [--dry-run]`, `password-vacation [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
 | Docker | `Dockerfile` | Опциональный web-only образ; scheduler/отчёты — отдельно. |
 
 Фабрика: `app/__init__.py` → `create_app(config_name)`.
@@ -84,7 +83,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.12)
+  VERSION                      # semver (1.12.1)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -102,6 +101,8 @@ bAWH/                          # на сервере = /opt/bawh
     version.py
     run_display.py             # подписи статусов запусков для UI
     scheduler_worker.py
+    password_report_worker.py
+    process_main.py            # общий цикл ожидания APScheduler
     models/
     services/
     routes/
@@ -121,10 +122,11 @@ bAWH/                          # на сервере = /opt/bawh
 flowchart TB
   subgraph entry["Точки входа"]
     WSGI["wsgi.py<br/>Gunicorn"]
+    LOOP["process_main.run_scheduler_process"]
     SCHED["app.scheduler_worker<br/>bawh-scheduler"]
     PWD_W["app.password_report_worker<br/>bawh-password-reports"]
-    PC_W["app.pc_report_worker<br/>bawh-pc-reports"]
-    CLI["flask CLI<br/>poll · hardware-poll · archive-logs · password-expiry · sector-daily-report · refresh-hostnames · init-db"]
+    VNC["app.vnc_worker<br/>bawh-vnc"]
+    CLI["flask CLI<br/>poll · archive-logs · password-expiry · password-vacation · refresh-hostnames · init-db"]
   end
 
   subgraph app_core["app/"]
@@ -140,31 +142,34 @@ flowchart TB
     R_ACC["accounts · actions"]
     R_SEC["sectors"]
     R_SCR["scripts"]
-    R_ADM["admin · login_services"]
-    R_PWD["password_expiry · sector_daily_report"]
+    R_ADM["admin · login_services · vnc_agents"]
+    R_PWD["password_expiry"]
     R_NTF["notifications"]
   end
 
   subgraph services["services/"]
-    S_POLL["ping · discovery · fingerprint · hardware_poll · scheduler"]
+    S_POLL["ping · discovery · fingerprint · hardware_poll · scheduler · bad_integration · bad_hardware"]
+    S_SHARE["run_journal · device_sweep"]
     S_ACC["account · action · export · audit"]
     S_ID["ldap · credential · crypto · settings"]
     S_RUN["script · psexec · batch · command_presets"]
-    S_PWD["password_expiry* · password_ad · mailer<br/>sector_daily_report* · report_toggle"]
-    S_OTH["sector · login_status · network_summary<br/>notification · update · log_archive · net_utils · device_kind"]
+    S_PWD["password_expiry* · password_ad · mailer · vacation_* · report_toggle · systemd"]
+    S_OTH["sector · login_status · network_summary<br/>notification · update · log_archive · net_utils · device_kind · hostname_sweep"]
   end
 
   subgraph data["PostgreSQL / models/"]
     M_USER["users · user_ldap_groups · remote_credentials"]
-    M_NET["sectors · sector_ranges · sector_access<br/>devices · device_history · network_poll_runs<br/>hardware_poll_runs · device_hardware_history"]
+    M_NET["sectors · sector_ranges · sector_access<br/>devices · device_addresses · device_history<br/>network_poll_runs · hardware_poll_runs · device_hardware_history"]
     M_ACC["endpoint_accounts · device_account_history · action_kinds"]
     M_SCR["scripts · script_runs · app_settings · login_services"]
-    M_PWD["password_notifications · password_expiry_runs<br/>sector_daily_report_runs"]
+    M_PWD["password_notifications · password_expiry_runs<br/>vacation_notices · vacation_password_checks"]
     M_NTF["admin_audit_log · notifications"]
   end
 
   WSGI --> CREATE
-  SCHED --> CREATE
+  SCHED --> LOOP
+  PWD_W --> LOOP
+  LOOP --> CREATE
   CLI --> CREATE
   CREATE --> SCHEMA
   CREATE --> http
@@ -172,13 +177,61 @@ flowchart TB
   http --> services
   http --> AUTH
   SCHED --> S_POLL
-  SCHED --> S_PWD
+  PWD_W --> S_PWD
+  S_POLL --> S_SHARE
   services --> data
   services --> AUTH
   services --> UTILS
   S_POLL --> S_ACC
   SCHEMA --> data
 ```
+
+Кнопка «Опросить сейчас» на карточке идёт из `routes/devices.py` в `hardware_poll_service`, не из планировщика.
+
+### 4.1. Одинаковый смысл
+
+Код писали разные агенты. Ниже то, что уже сведено в одну функцию, и то, что выглядит похоже, но сливать нельзя.
+
+```mermaid
+flowchart LR
+  subgraph one["Одна функция"]
+    LOOP2["process_main.run_scheduler_process"]
+    JOURNAL["run_journal<br/>unfinished_run · close_stale_runs<br/>count_rows · load_recent_by_id"]
+    POOL["device_sweep.map_pool<br/>DeviceSweepTarget"]
+    CLEAN["_clean_lookup_id"]
+  end
+  SCHED2["scheduler_worker"] --> LOOP2
+  PWD2["password_report_worker"] --> LOOP2
+  NET["run_network_poll"] --> JOURNAL
+  HW["run_hardware_poll"] --> JOURNAL
+  POLLCSV["count_poll_runs · load_recent_poll_runs"] --> JOURNAL
+  NAME["hostname_sweep._probe_targets"] --> POOL
+  HW --> POOL
+  DEVID["_clean_device_id"] --> CLEAN
+  GUID["_clean_machine_guid"] --> CLEAN
+```
+
+| Свели | Куда | Что было дважды |
+| --- | --- | --- |
+| Цикл «создай app, спи, пока не Ctrl+C, shutdown(wait=True)» | `app/process_main.py` | `scheduler_worker.main` и `password_report_worker.main`. Тексты в лог остались разными. |
+| Незавершённый прогон и зависший прогон | `services/run_journal.py` | `_active_poll_run` / `_close_stale_poll_runs` и `_active_run` / `_close_stale_runs`. Текст ошибки у каждого журнала свой. |
+| «посчитать строки» и «последние по id» | те же `count_rows` / `load_recent_by_id` | журналы опроса сети. Список железа в настройках удалён вместе с вкладкой, функции списка прогонов железа тоже. |
+| Пул потоков по целям | `services/device_sweep.py` | одинаковый `ThreadPoolExecutor` в опросе железа и в `hostname_sweep`. |
+| Обрезка идентификатора lookup | `discovery_service._clean_lookup_id` | `_clean_device_id` и `_clean_machine_guid` повторяли strip / длину / управляющие символы. |
+| Перезапуск systemd | только `systemd_service.run_service_restart` | `update_service` держал однострочные копии `restart_command` и `run_service_restart`. Копии удалены. `restart_command` больше ниоткуда не вызывался — удалён. Подсказка оператору — `restart_units_hint`. |
+| Статус unit | `systemd_service.get_unit_status` | неиспользуемый `report_toggle_service.unit_status`. `password_reports_status` оставлен: это имя службы паролей для страницы отчёта. |
+
+| Похоже, но смысл разный — не сливать | Почему |
+| --- | --- |
+| `hostname_key` и `_normalize_hostname` | ключ сравнения — короткое имя в нижнем регистре без домена. Имя для карточки сохраняет регистр и домен. |
+| `_clean_device_id` и `_clean_machine_guid` | оба зовут `_clean_lookup_id`, но device_id ещё отвергает `bad_ak_` / `bad_in_` / `bad_ps_` / `bearer`. Иначе ключ агента из JSON мог бы уйти в lookup. |
+| `_load_targets` железа и имён | у железа лимит считается после фильтра Windows. У имён `LIMIT` в SQL стоит до отбрасывания пустого IP. Общий загрузчик поменял бы, кого опрашивают. |
+| `_Probe` железа, имён и ICMP | разные поля: снимок bAD, OS-имя, или ping/fingerprint. |
+| `format_change_lines` у `hostname_sweep` | строка CLI про смену имени. Бывший форматтер железа (CPU/ОЗУ) никто не вызывал после удаления CLI `hardware-poll` — удалён. |
+| `run_service_restart` и `run_core_service_restart` | полный список unit'ов и запасной restart только `bawh-scheduler` + `bawh-web` для старого sudoers. |
+| `PollInProgressError` и `HardwarePollInProgressError` | разные экраны и тексты. Общая проверка строки — в `run_journal`, исключения остаются своими. |
+| `password_reports_status` | тонкая обёртка над `get_unit_status(PASSWORD_REPORTS_UNIT)`, чтобы маршрут не знал имя unit. |
+| `vnc_worker` | не планировщик: asyncio, без Flask и без БД. |
 
 ---
 
@@ -201,6 +254,9 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 
 **Таблицы:** `create_all` создаёт только **недостающие** таблицы. Новая сущность =
 модель + экспорт в `models/__init__.py`; при деплое таблица появится на следующем старте.
+Удаление модели таблицу в Postgres не дропает. После 1.12 в базе могут остаться
+`sector_daily_report_runs` и старые строки `hardware_poll_runs` — кода, который
+их читает как отчёт, больше нет.
 
 **Колонки:** `ensure_schema` догоняет недостающие колонки через `ALTER TABLE … ADD COLUMN`
 (с `DEFAULT` из `server_default` / скалярного `default`, иначе NOT NULL без default
@@ -230,16 +286,15 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | --- | --- | --- | --- |
 | `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Операторы сайта после LDAP. Флаги: `is_admin`, `is_viewer`, `is_operator`, `is_password_viewer`. Группы — для `sector_access`. |
 | `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR) и ACL (subject = username или LDAP group CN). |
-| `Device`, `DeviceAddress`, `DeviceHistory` | `devices`, `device_addresses`, `device_history` | `device.py` | Машины + адреса интерфейсов + журнал опросов. Идентичность: **только** `serial_number` (WMI). `hostname` — отображение, не ключ. `devices.ip` — основной (последний онлайн); `device_addresses` — все виденные IP/MAC (Wi‑Fi + Ethernet). Без SN — заглушка на текущем IP. Снимок железа — отдельный WMI-опрос; при первом появлении карточки — сразу (`on_discover`). |
+| `Device`, `DeviceAddress`, `DeviceHistory` | `devices`, `device_addresses`, `device_history` | `device.py` | Машины + адреса интерфейсов + журнал опросов. Идентичность: **только** `serial_number` (WMI инвентаря сети). `hostname` — отображение, не ключ. `devices.ip` — основной (последний онлайн); `device_addresses` — все виденные IP/MAC (Wi‑Fi + Ethernet). Без SN — заглушка на текущем IP. Снимок железа (CPU/ОЗУ/диск/ОС, `bad_id`) пишет только кнопка на карточке через lookup bAD. `device_id` в таблицу не кладётся. |
 | `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов ICMP-опроса. |
-| `HardwarePollRun`, `DeviceHardwareHistory` | `hardware_poll_runs`, `device_hardware_history` | `hardware.py` | Журнал ежедневного опроса железа Windows и история смены CPU/ОЗУ/дисков/ОС. |
+| `HardwarePollRun`, `DeviceHardwareHistory` | `hardware_poll_runs`, `device_hardware_history` | `hardware.py` | Замок одного прогона кнопки «Опросить сейчас» и история смены CPU/ОЗУ/дисков/ОС. Страницы журнала прогонов нет. |
 | `EndpointAccount`, `DeviceAccountHistory` | `endpoint_accounts`, `device_account_history` | `account.py` | УЗ на конечных точках (**не** путать с `users`). |
 | `ActionKind` | `action_kinds` | `action.py` | Справочник типов (`ACTION_KIND_SEED` / `seed_action_kinds`). |
 | `Script`, `ScriptRun` | `scripts`, `script_runs` | `script.py` | Библиотека и журнал запусков. У скрипта: `run_as`, `is_published`. У run: `run_type`, `batch_id`, статус. |
 | `AppSetting`, `RemoteCredential` | `app_settings`, `remote_credentials` | `setting.py` | KV-настройки; per-user Fernet-шифротекст PsExec/пароля входа. |
 | `PasswordNotification`, `PasswordExpiryRun` | `password_notifications`, `password_expiry_runs` | `password_expiry.py` | Письма о сроке пароля + снимки прогонов. |
 | `VacationNotice`, `VacationPasswordCheck` | `vacation_notices`, `vacation_password_checks` | `password_expiry.py` | Письма кадров об отпуске и проверка, истечёт ли пароль за отпуск. |
-| `SectorDailyReportRun` | `sector_daily_report_runs` | `sector_daily_report.py` | Снимки ежедневного отчёта о ПК (ноутбуки/СБ, железо, кандидаты). |
 | `LoginService` | `login_services` | `login_service.py` | Сервисы для блока доступности на `/login`. |
 | `AdminAuditLog` | `admin_audit_log` | `audit.py` | Журнал админ-действий. |
 | `Notification` | `notifications` | `notification.py` | In-app колокольчик: `script_failed`. |
@@ -260,7 +315,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Запуски | `script_runs` | `script_service` | `/scripts/runs`, `/actions` |
 | Опросы | `device_history` | `ping_service` | вкладка polls |
 | Прогоны опроса | `network_poll_runs` | `ping_service.run_network_poll` | `/admin/settings` |
-| Прогоны железа | `hardware_poll_runs` | `hardware_poll_service.run_hardware_poll` | `/admin/settings` |
+| Прогоны железа | `hardware_poll_runs` | `hardware_poll_service.run_hardware_poll` | только замок «уже идёт»; UI журнал не читает |
 | Снимки железа | `devices` + `device_hardware_history` | `hardware_poll_service` | карточка, вкладка «Оборудование» |
 | Аудит админа | `admin_audit_log` | `audit_service` | `/admin/audit` |
 | Уведомления | `notifications` | `notification_service` (script_failed) | `/api/notifications` |
@@ -279,8 +334,9 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `device_kind.py` | тип карты: имена AD (`BN***` = ноутбук, `n…`/`w…`/…), WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
 | `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user для опроса сети. Для bAD — `lookup_badagent`: служба `badagent` и, только если она есть, `device_id` из конфига агента (только это поле; ключ агента отбрасывается) либо MachineGuid. Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опрос сети или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
-| `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + служба badagent + lookup bAD. Снимок на `devices` только если серийник снимка bAD совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs`. Пока связь не «подключено», проход не стартует и WMI железа не подменяет lookup |
-| `hardware_poll_settings.py` | cron / schedule_enabled в `app_settings` (default `0 12 * * *`, включено) |
+| `hardware_poll_service.py` | кнопка на карточке: ping + служба badagent + lookup bAD. Снимок на `devices` только если серийник снимка bAD совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs` через `run_journal`. Пока связь не «подключено», проход не стартует. WMI CPU/ОЗУ/дисков/ОС нет. Расписания и CLI нет |
+| `run_journal.py` | общий замок прогона: незавершённая строка, зависший прогон, count/limit по id |
+| `device_sweep.py` | `DeviceSweepTarget` и `map_pool` для прохода по уже известным карточкам |
 | `bad_integration.py` | адрес bAD, заявка, poll секрета, одноразовый `token`. Секреты — Fernet в `app_settings`. `BAD_ADMIN_TOKEN` не используется |
 | `bad_hardware.py` | карточка lookup → CPU / ОЗУ / диски / ОС и `bad_id`. `device_id` на карточку не кладётся |
 | `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки; чужой SN на том же IP — не пишет имя. CLI `refresh-hostnames`, кнопка в Настройки → Опрос сети |
@@ -332,13 +388,6 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `vacation_password_service.py` | сверка срока пароля с отпуском (по умолчанию 14 дней) |
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure своей службы |
 | `systemd_service.py` | `systemctl` start/enable/restart через sudo-учётку |
-
-### Отчёты о ПК (бывш. «Отчёт по секторам»)
-
-| Модуль | Роль |
-| --- | --- |
-| `sector_daily_report_service.py` | парк ноутбуков/СБ по секторам, диаграммы железа, кандидаты на замену, пробелы инвентаризации, CSV |
-| `sector_daily_report_settings.py` | cron / recipients / schedule_enabled в `app_settings` (ключи `sector_daily_*`) |
 
 ### Прочее
 
@@ -415,10 +464,8 @@ List, `export.csv`, detail (только видимые по ACL).
 | Method | Path | Примечание |
 | --- | --- | --- |
 | GET/POST | `/admin/settings` | UI-разделы: `?section=general\|polls\|vnc\|tls` (бывш. монолит «Параметры») |
-| GET | `/admin/poll-runs/export.csv` | |
-| POST | `/admin/poll-run` | |
-| GET | `/admin/hardware-poll-runs/export.csv` | |
-| POST | `/admin/hardware-poll-run` | |
+| GET | `/admin/poll-runs/export.csv` | журнал ICMP |
+| POST | `/admin/poll-run` | ручной опрос сети |
 | POST | `/admin/refresh-hostnames` | |
 | GET/POST | `/admin/duplicates` | Настройки → Удаление дублей |
 | GET/POST | `/admin/updates` | |
@@ -433,15 +480,6 @@ List, `export.csv`, detail (только видимые по ACL).
 | GET/POST | `/settings` | admin — bind LDAP |
 | GET/POST | `/report-settings` | admin — пороги, cron, ящик IMAP и срок отпуска |
 | POST | `/run`, `/pause`, `/notify` | admin |
-
-### Отчёт о ПК — prefix `/pc-reports` (legacy `/sector-daily-report` → 301)
-
-| Method | Path | Auth |
-| --- | --- | --- |
-| GET | `/` | admin — дашборд парка ПК + диаграммы + тумблер |
-| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-pc-reports` |
-| GET/POST | `/settings`, POST `/run` | admin |
-| GET | `/export.csv` | admin — CSV парка / кандидатов / пробелов |
 
 ### Login services — `login_services.py`
 
@@ -519,11 +557,10 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | Job | Триггер | Действие |
 | --- | --- | --- |
 | `poll-devices` | Interval из `app_settings` / `POLL_INTERVAL_SECONDS` | `run_network_poll` |
-| `hardware-poll` | cron из настроек (default `0 12 * * *`, локальный TZ) | `run_hardware_poll` (если включено и bAD в состоянии «подключено») |
 | `bad-integration-poll` | каждые ~30 с | `poll_pending_request` — статус заявки, пока нет ключа |
 | `archive-logs` | daily ~00:20 UTC | `log_archive_service` |
 
-Интервал опроса и cron железа подхватываются без перезапуска процесса.
+Интервал опроса сети подхватывается без перезапуска процесса. Железо этот процесс не собирает.
 
 ### Процесс `bawh-password-reports` — пароли AD
 
@@ -535,15 +572,6 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 Тумблер «Сервис отчётов» на UI модуля включает job и поднимает
 systemd-unit `bawh-password-reports` (sudo-учётка: Настройки → Общие).
 Выключение тумблера останавливает только эту службу — опрос сети не затрагивается.
-
-### Процесс `bawh-pc-reports` — отчёты о ПК
-
-| Job | Триггер | Действие |
-| --- | --- | --- |
-| `sector-daily-report` | cron из настроек модуля (default `0 7 * * *`) | `run_sector_daily_report` (если включено) |
-| `sector-daily-refresh` | каждые ~30 с | перечитать cron/тумблер из БД |
-
-Аналогично: тумблер → `bawh-pc-reports`. Отчёты **не** зависят от прогона опроса сети.
 
 ### Внутри веб-процесса
 
@@ -621,14 +649,6 @@ IMAP непрочитанных писем с темой «Приближает�
 админ-отчёта. Итог → `vacation_notices` + `vacation_password_checks`.
 Обработанное письмо помечается прочитанным.
 
-### D2. Отчёты о ПК
-
-Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`BN***` / `n…`) и СБ (`w…`)
-по секторам + агрегаты железа (ОЗУ/диск/ОС/CPU) + активность за прошедший
-локальный день → SMTP → `sector_daily_report_runs`. Дашборд `/pc-reports` строит
-живой снимок; Chart.js (vendor) рисует диаграммы. Дополнительно: кандидаты на
-замену, пробелы инвентаризации, экспорт CSV.
-
 ### D3. Опрос железа Windows
 
 Кнопка на карточке устройства вызывает `run_hardware_poll` только для этой машины.
@@ -647,11 +667,10 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`B
 Серийник снимка bAD — паспорт, как у `resolve_hardware_owner`: чужой ПК
 на том же IP снимок не получает. `device_id` на карточку не пишется.
 Нет устройства в bAD — на карточке «Агент bAD не зарегистрирован».
-История — только если CPU/ОЗУ/диски/ОС изменились. Итог — `hardware_poll_runs`
-(в UI: последние 5 + «Показать все»).
-Тот же паттерн — лента действий / аудит, история УЗ на карточке аккаунта,
-журналы на карточке устройства.
-ICMP-опрос сети **не** трогает эти поля.
+История — только если CPU/ОЗУ/диски/ОС изменились. Строка `hardware_poll_runs`
+держит замок прогона (`run_journal`); отдельного списка прогонов в настройках нет.
+Текст последней попытки — `devices.hardware_poll_note` на вкладке «Оборудование».
+ICMP-опрос сети эти поля не пишет и железо после обнаружения не запускает.
 
 ### E. Self-update
 
@@ -659,8 +678,11 @@ Admin UI → `update_service` (фоновый поток + `app.app_context()`).
 Ветка: `app_settings.update_git_branch` (список через `git ls-remote --heads`),
 иначе `GIT_BRANCH`. Пустой выбор старт не заполняет. Дальше:
 backup → git → pip → `flask init-db` → опциональный restart
-`bawh-web` + `bawh-scheduler` + при включённых тумблерах
-`bawh-password-reports` / `bawh-pc-reports` (sudo-учётка из Настройки → Общие / sudoers).
+`bawh-web` + `bawh-scheduler` + `bawh-password-reports` + `bawh-vnc`
+(`systemd_service.run_service_restart`; sudo-учётка из Настройки → Общие / sudoers).
+Старый sudoers, где разрешены только scheduler и web, получает запасной
+`run_core_service_restart`. Службы отчётов паролей и VNC после этого
+поднимаются, если их тумблер включён.
 Перед restart — `deploy/sync-systemd-units.sh` (unit-файлы + sudoers).
 Ошибка перезапуска не должна помечать уже выполненную замену кода как failed.
 
@@ -670,13 +692,13 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
 - **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё и пишет адрес в `device_addresses` (несколько интерфейсов: Ethernet + Wi‑Fi). На карточке в UI — **один актуальный IP на MAC** (по `last_seen`). Hostname и PTR **не** ключи слияния. Без SN можно переиспользовать только запись с тем же IP и пустым SN. Призрак без SN на старом IP после появления SN на новом (или совпадения WMI-hostname) **сливается** в карточку с SN (`device_identity_service.absorb_ghosts`). Один IP у разных SN — разные машины (история аренды), не дубль.
-- **Опрос железа при первом обнаружении:** после сетевого опроса новые Windows-карточки сразу проходят `hardware-poll` (`mode=on_discover`), не дожидаясь полуденного cron — чтобы SN/конфиг не «отставали» от смены IP на следующий день.
+- **Опрос железа:** только кнопка на карточке. Сетевой опрос новые карточки железом не дополняет.
 - **Дубли (UI):** Настройки → Удаление дублей. Уверенные — одинаковый SN; призраки — IP с SN + без SN; история IP — разные SN на одном адресе (без авто-галочек); предположительно — MAC/hostname без авто-удаления.
 - **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames` (чужой SN на том же IP имя не пишет).
 - **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI. Ноутбуки: `BN***` (`bn` + 3 или 5 цифр) и префикс `n…`; СБ — `w…`.
 - **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
 - **WMI UserName:** `None` в probe — WMI не вызывали/упал (текущую УЗ **не** трогаем); `""` — никто не залогинен.
-- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN, имена BN/n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. Числа приходят из снимка bAD: CPU, ОЗУ (`ram_bytes` → номинал планок), диски (`size_bytes`, без съёмных) в десятичных ГБ, ОС = caption + сборка / DisplayVersion. Снимок пишется только если серийник снимка bAD (запасной — короткое имя) совпадает с карточкой. Привязка к bAD — только `bad_id` из ответа lookup. Ключ интеграции не получает список устройств и ничего не меняет. `BAD_ADMIN_TOKEN` не используется.
+- **Опрос железа:** кнопка на карточке, не ICMP и не cron. Цели — Windows (SN, имена BN/n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. Числа приходят из снимка bAD: CPU, ОЗУ (`ram_bytes` → номинал планок), диски (`size_bytes`, без съёмных) в десятичных ГБ, ОС = caption + сборка / DisplayVersion. Снимок пишется только если серийник снимка bAD (запасной — короткое имя) совпадает с карточкой. Привязка к bAD — только `bad_id` из ответа lookup. Ключ интеграции не получает список устройств и ничего не меняет. `BAD_ADMIN_TOKEN` не используется.
 - **ILIKE:** только через `utils.ilike_pattern` (экранирование `%`/`_`).
 - **Время:** всегда timezone-aware UTC (`utils.utcnow` / `as_utc`); в шаблонах фильтр `dt`.
 - **Пустые адреса** в `devices` опрос не создаёт.
@@ -691,13 +713,13 @@ backup → git → pip → `flask init-db` → опциональный restart
 в [`docs/UI_GUIDEBOOK.md`](UI_GUIDEBOOK.md). Ниже — карта файлов.
 
 **Шаблоны** (`app/templates/`): каркас `base.html` (topbar: карта, пароли AD,
-отчёт о ПК, настройки). Сайдбар настроек (`layouts/settings.html`) — четыре блока:
+настройки). Сайдбар настроек (`layouts/settings.html`):
 Общие (туда же VNC и экран входа), Сектора, Скрипты, HTTPS, Почта (SMTP), LDAP;
-Опрос сети, Опросы железа, Отчёт о паролях; Действия и аудит, Обнаруженные УЗ,
-Удаление дублей; Обновления. Домены: `accounts/`, `actions/`,
+Опрос сети (там же адрес и тумблер bAD), Отчёт о паролях; Действия и аудит,
+Обнаруженные УЗ, Удаление дублей; Обновления. Домены: `accounts/`, `actions/`,
 `admin/` (`settings_general` / `settings_polls` / `settings_mail` / `settings_tls`, панель `_vnc_panel.html`),
 `auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
-`macros/`, `password_expiry/`, `scripts/`, `sector_daily_report/` (UI «Отчёт о ПК»), `sectors/`.
+`macros/`, `password_expiry/`, `scripts/`, `sectors/`.
 
 **Static:**
 
@@ -713,7 +735,6 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/js/notifications.js` | колокольчик |
 | `static/js/run_log.js` | поллинг лога запуска |
 | `static/js/login_status.js` | статус сервисов на `/login` |
-| `static/js/pc_reports.js` | диаграммы отчётов о ПК (Chart.js) |
 | `static/js/vnc_session.js` | подготовка агента + noVNC RFB на `/devices/<id>/vnc` |
 | `static/vendor/bootstrap/` | Bootstrap 5 offline (air-gap) |
 | `static/vendor/chart.js/` | Chart.js 4 UMD offline (air-gap) |
@@ -750,9 +771,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | `deploy/install-debian12.sh` | Установка одной командой → PG, venv, `flask init-db`, nginx, systemd |
 | `deploy/bawh-web.service` | Gunicorn `127.0.0.1:8000`, `EnvironmentFile=/opt/bawh/.env` |
-| `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` (опрос / железо / архив) |
+| `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` (опрос сети, заявка bAD, архив) |
 | `deploy/bawh-password-reports.service` | `python -m app.password_report_worker` |
-| `deploy/bawh-pc-reports.service` | `python -m app.pc_report_worker` |
 | `deploy/bawh-vnc.service` | `python -m app.vnc_worker` (127.0.0.1:6080) |
 | `deploy/sync-systemd-units.sh` | cp unit'ов + sudoers + `daemon-reload` |
 | `deploy/nginx-bawh.conf` | :80 → gunicorn + `/vnc/ws` → bawh-vnc |
@@ -792,11 +812,11 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
-| Опрос железа Windows | `hardware_poll_service` → служба badagent → `bad_integration.lookup_device` → `bad_hardware`; CLI `flask hardware-poll`; Настройки → Опросы железа. Снимок привязан к серийнику bAD, не к IP. Адрес bAD и тумблер — там же. Подтверждение заявки — панель bAD, Параметры → Интеграции |
+| Опрос железа Windows | карточка → `hardware_poll_service` → служба badagent → `bad_integration.lookup_device` → `bad_hardware`. Снимок привязан к серийнику bAD, не к IP. Адрес bAD и тумблер — Настройки → Опрос сети. Подтверждение заявки — панель bAD, Параметры → Интеграции |
 | Идентичность устройств | `ping_service._find_existing_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Дубли устройств | `device_dedup_service` (SN / призраки / история IP / suspected), GET/POST `/admin/duplicates` |
-| Идентичность / призраки | `device_identity_service` (`device_addresses`, `absorb_ghosts`), опрос сети + железо `on_discover` |
+| Идентичность / призраки | `device_identity_service` (`device_addresses`, `absorb_ghosts`) во время опроса сети |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
@@ -806,7 +826,6 @@ backup → git → pip → `flask init-db` → опциональный restart
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
 | Пароль перед отпуском | `vacation_password_service`, `vacation_notice_parser`, `vacation_imap`; настройки в «Отчёт о паролях» |
-| Отчёты о ПК | `sector_daily_report_service` + settings, `routes/sector_daily_report.py`, `static/js/pc_reports.js` |
 | Уведомления | `notification_service`, `routes/notifications.py` |
 | Настройки / опрос вручную | `routes/admin.py` (`section=general|polls|vnc|tls`), `settings_service` |
 | Аудит админа | `audit_service`, лента в Настройки → Действия и аудит (`/admin/audit` → редирект) |
