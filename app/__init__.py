@@ -93,6 +93,7 @@ def _register_blueprints(app: Flask) -> None:
     from app.routes.auth import bp as auth_bp
     from app.routes.devices import bp as devices_bp
     from app.routes.diagnostics import bp as diagnostics_bp
+    from app.routes.legacy import bp as legacy_bp
     from app.routes.login_services import bp as login_services_bp
     from app.routes.notifications import bp as notifications_bp
     from app.routes.scripts import bp as scripts_bp
@@ -113,6 +114,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(login_services_bp)
     app.register_blueprint(notifications_bp)
     app.register_blueprint(vnc_agents_bp)
+    app.register_blueprint(legacy_bp)
 
 
 def _register_error_handlers(app: Flask) -> None:

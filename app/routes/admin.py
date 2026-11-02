@@ -652,3 +652,21 @@ def updates():
 def audit_log():
     """Журнал аудита перенесён на страницу «Действия и аудит»."""
     return redirect(url_for("actions.list_actions") + "#audit")
+
+
+@bp.route("/settings/ldap", methods=["GET", "POST"])
+@admin_required
+def ldap_settings():
+    """LDAP модуля паролей. Живёт в /admin, рядом с остальными настройками."""
+    from app.routes.password_expiry import settings_page
+
+    return settings_page()
+
+
+@bp.route("/settings/passwords", methods=["GET", "POST"])
+@admin_required
+def password_report_settings():
+    """Пороги и отпуск модуля паролей. Операционный отчёт остаётся в /password-expiry."""
+    from app.routes.password_expiry import report_settings
+
+    return report_settings()

@@ -449,6 +449,7 @@ def detail(device_id: int):
     launches = []
     account_rows = []
     hardware_rows = []
+    device_batches = []
     has_more = False
     list_total = 0
     if tab == "polls":
@@ -484,6 +485,12 @@ def detail(device_id: int):
                 limit=preview_limit,
             )
             has_more = list_total > preview_limit
+        if user_can_run_scripts(current_user) or user_can_run_diagnostics(current_user):
+            device_batches, _batch_total = batch_service.list_batch_summaries(
+                current_user,
+                limit=preview_limit,
+                device_id=device.id,
+            )
     elif tab == "accounts" and device.shows_accounts:
         list_total = count_device_account_sightings(device.id)
         if show_all:
@@ -534,10 +541,13 @@ def detail(device_id: int):
         list_total=list_total,
         history=history,
         launches=launches,
+        device_batches=device_batches,
         account_rows=account_rows,
         hardware_rows=hardware_rows,
         command_presets=command_presets,
         scripts=scripts,
+        can_open_batches=user_can_run_scripts(current_user)
+        or user_can_run_diagnostics(current_user),
         can_run_diagnostics=user_can_run_diagnostics(current_user),
         can_connect_vnc=user_can_connect_vnc(current_user) and device.shows_commands,
     )

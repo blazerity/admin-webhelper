@@ -8,7 +8,7 @@ from app.services.action_service import list_action_kinds, list_system_actions
 from app.services.export_service import csv_attachment, export_actions_csv
 from app.utils import as_truthy, format_utc, normalize_page, parse_optional_int
 
-bp = Blueprint("actions", __name__, url_prefix="/actions")
+bp = Blueprint("actions", __name__, url_prefix="/admin/actions")
 
 _PREVIEW_LIMIT = 5
 _HISTORY_PER_PAGE = 20

@@ -14,18 +14,21 @@
         {% endif %}
         <a class="settings-nav-link{% if ep.startswith('sectors.') %} active{% endif %}" href="{{ url_for('sectors.list_sectors') }}">Сектора</a>
         {% if current_user.is_admin or current_user.is_operator %}
-        <a class="settings-nav-link{% if ep.startswith('scripts.') %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
+        <a class="settings-nav-link{% if ep.startswith('scripts.') and ep not in ['scripts.list_batches', 'scripts.batch_detail'] %} active{% endif %}" href="{{ url_for('scripts.list_scripts') }}">Скрипты</a>
+        {% endif %}
+        {% if current_user.is_admin or current_user.is_operator or not current_user.is_viewer %}
+        <a class="settings-nav-link{% if ep in ['scripts.list_batches', 'scripts.batch_detail'] %} active{% endif %}" href="{{ url_for('scripts.list_batches') }}">Пачки</a>
         {% endif %}
         {% if current_user.is_admin %}
         <a class="settings-nav-link{% if ep == 'admin.settings' and settings_section == 'tls' %} active{% endif %}" href="{{ url_for('admin.settings', section='tls') }}">HTTPS</a>
         <a class="settings-nav-link{% if ep == 'admin.settings' and settings_section == 'mail' %} active{% endif %}" href="{{ url_for('admin.settings', section='mail') }}">Почта (SMTP)</a>
-        <a class="settings-nav-link{% if ep == 'password_expiry.settings_page' %} active{% endif %}" href="{{ url_for('password_expiry.settings_page') }}">LDAP</a>
+        <a class="settings-nav-link{% if ep == 'admin.ldap_settings' %} active{% endif %}" href="{{ url_for('admin.ldap_settings') }}">LDAP</a>
         {% endif %}
       </div>
       {% if current_user.is_admin %}
       <div class="settings-nav-group">
         <a class="settings-nav-link{% if ep == 'admin.settings' and settings_section == 'polls' %} active{% endif %}" href="{{ url_for('admin.settings', section='polls') }}">Опрос сети</a>
-        <a class="settings-nav-link{% if ep == 'password_expiry.report_settings' %} active{% endif %}" href="{{ url_for('password_expiry.report_settings') }}">Отчёт о паролях</a>
+        <a class="settings-nav-link{% if ep == 'admin.password_report_settings' %} active{% endif %}" href="{{ url_for('admin.password_report_settings') }}">Отчёт о паролях</a>
       </div>
       {% endif %}
       <div class="settings-nav-group">

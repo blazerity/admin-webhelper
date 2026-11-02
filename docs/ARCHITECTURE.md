@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.12.1)
+# Архитектура bAWH (актуально для v2.0)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.12.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -83,7 +83,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.12.1)
+  VERSION                      # semver (2.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -142,7 +142,7 @@ flowchart TB
     R_ACC["accounts · actions"]
     R_SEC["sectors"]
     R_SCR["scripts"]
-    R_ADM["admin · login_services · vnc_agents"]
+    R_ADM["admin: settings · sectors · scripts · batches · accounts · actions"]
     R_PWD["password_expiry"]
     R_NTF["notifications"]
   end
@@ -187,6 +187,10 @@ flowchart TB
 ```
 
 Кнопка «Опросить сейчас» на карточке идёт из `routes/devices.py` в `hardware_poll_service`, не из планировщика.
+
+Настройки — один префикс `/admin`. Сектора, библиотека скриптов, пачки запусков, обнаруженные УЗ и лента действий живут там же, что Общие, HTTPS, почта и опрос сети. LDAP модуля паролей — `/admin/settings/ldap`, пороги отчёта — `/admin/settings/passwords`. Операционный отчёт остаётся `/password-expiry`. Старые `/scripts`, `/sectors`, `/accounts`, `/actions`, `/password-expiry/settings` и `/password-expiry/report-settings` отвечают **308** (`routes/legacy.py`), метод запроса сохраняется.
+
+Карточка устройства не повторяет одни и те же блоки на вкладках. Обзор — паспорт и одна строка железа. Полный снимок и кнопка bAD — вкладка «Оборудование». Ping, Tracert и «Проверить сейчас» — вкладка «Опросы». Пачки, в которых была эта машина, — вкладка «Команды» и список `/admin/scripts/batches`.
 
 ### 4.1. Одинаковый смысл
 
@@ -309,10 +313,11 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Сущность | Таблица | Пишет | Читает |
 | --- | --- | --- | --- |
 | Оператор сайта | `users` | `ldap_service` | auth, authz |
-| УЗ на ПК | `endpoint_accounts` | `account_service` | `/accounts`, карточка устройства |
-| Появление УЗ | `device_account_history` | `account_service` | `/actions`, вкладка accounts |
-| Типы действий | `action_kinds` | `ensure_schema` / seed | `/actions` |
-| Запуски | `script_runs` | `script_service` | `/scripts/runs`, `/actions` |
+| УЗ на ПК | `endpoint_accounts` | `account_service` | `/admin/accounts`, карточка устройства |
+| Появление УЗ | `device_account_history` | `account_service` | `/admin/actions`, вкладка accounts |
+| Типы действий | `action_kinds` | `ensure_schema` / seed | `/admin/actions` |
+| Запуски | `script_runs` | `script_service` | `/admin/scripts/runs`, `/admin/actions` |
+| Пачки | `script_runs.batch_id` | `batch_service.list_batch_summaries` | `/admin/scripts/batches` |
 | Опросы | `device_history` | `ping_service` | вкладка polls |
 | Прогоны опроса | `network_poll_runs` | `ping_service.run_network_poll` | `/admin/settings` |
 | Прогоны железа | `hardware_poll_runs` | `hardware_poll_service.run_hardware_poll` | только замок «уже идёт»; UI журнал не читает |
@@ -370,7 +375,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `vnc_settings.py` | порт агента, общий пароль Fernet, тумблер шлюза |
 | `tls_pem.py` / `tls_settings.py` / `tls_service.py` | PEM из Настройки → HTTPS, файлы в `certs/`, `apply-nginx-tls.sh` |
 | `script_service.py` | CRUD/тело скриптов; enqueue на ThreadPoolExecutor в веб-процессе |
-| `batch_service.py` | bulk ping/script + статус batch |
+| `batch_service.py` | bulk ping/script, статус одной пачки и список `list_batch_summaries` |
 | `command_presets.py` | статические пресеты команд |
 
 ### Пароли AD
@@ -423,7 +428,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
 | GET | `/api/command-presets` | Пресеты (**admin**) |
-| GET | `/devices/<id>` | Карточка: вкладки по типу — overview (+ accounts у ноут/СБ/прочее; commands/hardware у ноут/СБ/сервер/прочее; polls у всех; SN только ноут/СБ). Кнопка «Рабочий стол» у admin/operator на Windows-подобных |
+| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа, иконка VNC. Учётные записи — история. Команды — запуск и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
 | GET | `/devices/<id>/vnc` | Экспериментальный noVNC: билет 90 с, цель только `Device.ip` + порт 5900–5999 |
 | POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD (**admin**). Без связи «подключено» WMI железа не вызывается |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
@@ -437,9 +442,9 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | POST | `/devices/<id>/tracert` | diagnostics |
 | POST | `/devices/<id>/command` | **admin** |
 
-### Sectors — prefix `/sectors`
+### Sectors — prefix `/admin/sectors`
 
-CRUD: list, new, create, detail, edit, update, delete (mutating — `admin_required`).
+CRUD: list, new, create, detail, edit, update, delete (mutating — `admin_required`). Старый `/sectors/…` → 308.
 
 ### Search — `search.py`
 
@@ -447,23 +452,28 @@ CRUD: list, new, create, detail, edit, update, delete (mutating — `admin_requi
 
 Поиск на карте — клиентский фильтр (`static/js/map.js`), отдельных JSON-endpoint нет.
 
-### Scripts — prefix `/scripts`
+### Scripts — prefix `/admin/scripts`
 
-CRUD (admin); list/run (operator + `is_published`); `/runs/<id>`, `/status`, cancel, close-session; `/batches/<batch_id>`.
+CRUD (admin); list/run (operator + `is_published`); `/runs/<id>`, `/status`, cancel, close-session.
+`GET /batches` — история пачек (`list_batch_summaries`: новые сверху, `?open=1` только живые, `?device=` фильтр карточки).
+`GET /batches/<batch_id>` — прогресс одной пачки. Несколько машин из формы скрипта открывают пачку, а не первый журнал.
+Старый `/scripts/…` → 308.
 
-### Accounts — prefix `/accounts`
+### Accounts — prefix `/admin/accounts`
 
-List, `export.csv`, detail (только видимые по ACL).
+List, `export.csv`, detail (только видимые по ACL). Старый `/accounts/…` → 308.
 
-### Actions — prefix `/actions`
+### Actions — prefix `/admin/actions`
 
-Лента + `export.csv`.
+Лента + `export.csv`. Старый `/actions/…` → 308.
 
 ### Admin — prefix `/admin` (всё `admin_required`)
 
 | Method | Path | Примечание |
 | --- | --- | --- |
-| GET/POST | `/admin/settings` | UI-разделы: `?section=general\|polls\|vnc\|tls` (бывш. монолит «Параметры») |
+| GET/POST | `/admin/settings/<section>` | `general`, `polls`, `mail`, `tls`. Пустой section — общие |
+| GET/POST | `/admin/settings/ldap` | bind модуля паролей (бывший `/password-expiry/settings`) |
+| GET/POST | `/admin/settings/passwords` | пороги, cron, IMAP отпуска (бывший `/password-expiry/report-settings`) |
 | GET | `/admin/poll-runs/export.csv` | журнал ICMP |
 | POST | `/admin/poll-run` | ручной опрос сети |
 | POST | `/admin/refresh-hostnames` | |
@@ -578,7 +588,7 @@ systemd-unit `bawh-password-reports` (sudo-учётка: Настройки → 
 | Механизм | Где | Зачем |
 | --- | --- | --- |
 | `ThreadPoolExecutor` | `ping_service` | параллельный ICMP+discovery; запись в БД — в главном потоке |
-| `ThreadPoolExecutor` | `script_service.enqueue_run` | фоновый PsExec/ping/tracert; UI поллит `/scripts/runs/<id>/status` (~1.5 с, `run_log.js`) |
+| `ThreadPoolExecutor` | `script_service.enqueue_run` | фоновый PsExec/ping/tracert; UI поллит `/admin/scripts/runs/<id>/status` (~1.5 с, `run_log.js`) |
 | `threading.Thread` | `update_service.begin_update` / `begin_rollback` | фон, чтобы Gunicorn не упёрся в таймаут; поток с `app.app_context()` — sudo-учётка из Настройки → Общие / `UPDATE_SUDO_USER` |
 
 **Нет** WebSocket / SSE / Celery / общей очереди сообщений.
@@ -822,7 +832,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
 | Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session` / `vnc_prepare`, сид удаления `tightvnc_install_script`, раздача MSI `routes/vnc_agents.py` + `vnc-agents/`, [`VNC.md`](VNC.md) |
 | HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Настройки → HTTPS |
-| Bulk с карты | `batch_service`, `routes/devices.py` bulk API, `static/js/batch.js` |
+| Пачки запусков | `batch_service.list_batch_summaries`, `/admin/scripts/batches`, карточка → Команды. Прогресс одной пачки — `batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
 | Пароль перед отпуском | `vacation_password_service`, `vacation_notice_parser`, `vacation_imap`; настройки в «Отчёт о паролях» |
@@ -864,7 +874,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `vnc-agents/*.msi`, `vnc-agents/*.exe` | установщик TightVNC, который админ кладёт на сервер |
 | `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
 | `tests/` | локальные unittest, в поставку не входят |
-| `scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики |
+| `/scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики в корне. `app/templates/scripts/` в git |
 | `debug_*`, `diagnose_*`, `diag_*`, `*_manual.py`, `smoke_*.py`, `harness_*.py`, `scratch_*.py` | диагностика и ручные прогоны |
 
 Установщик (`deploy/install-debian12.sh`) и self-update (`update_service._SKIP_DIRS`)
