@@ -633,7 +633,7 @@ def vnc_ticket(device_id: int):
 @bp.post("/devices/<int:device_id>/hardware-poll")
 @admin_required
 def poll_device_hardware(device_id: int):
-    """Разовый WMI-опрос железа этой машины (admin)."""
+    """Разовый опрос железа этой машины через bAD (admin)."""
     device = get_visible_device_or_404(device_id)
     if not device.shows_hardware:
         abort(404)
@@ -664,10 +664,14 @@ def poll_device_hardware(device_id: int):
             f"· ОЗУ {ram} · диски {disk}.",
             "success",
         )
+    elif result.unregistered:
+        flash("Агент bAD на этой машине не зарегистрирован.", "warning")
+    elif result.no_agent:
+        flash("Служба badagent не найдена — новый снимок железа не записан.", "warning")
     elif result.offline:
         flash("Устройство не ответило на ping — железо не читали.", "warning")
     elif result.no_wmi:
-        flash("WMI не отдал конфигурацию железа.", "warning")
+        flash("bAD не отдал конфигурацию железа.", "warning")
     else:
         flash(
             "Опрос железа: проверено {scanned}, ошибок {errors}.".format(**result.as_dict()),

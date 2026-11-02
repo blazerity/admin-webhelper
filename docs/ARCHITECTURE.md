@@ -191,9 +191,8 @@ def ensure_schema() -> None:
     # 1) если в metadata есть таблицы, которых нет в БД → db.create_all()
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
     # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
-    # 4) ветка обновлений beta, если ещё не выбирали (data_fix.update_branch_beta_v167)
-    # 5) скрипт TightVNC (удаление) в библиотеке (data_fix.seed_tightvnc_script_v176)
-    # 6) если action_kinds пуст → seed_action_kinds() + commit
+    # 4) скрипт TightVNC (удаление) в библиотеке (data_fix.seed_tightvnc_script_v176)
+    # 5) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
 Вызывается при каждом старте `create_app` (web и scheduler).  
@@ -278,10 +277,12 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
 | `device_kind.py` | тип карты: имена AD (`BN***` = ноутбук, `n…`/`w…`/…), WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
-| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user **и** отдельный `lookup_wmi_hardware` (CPU / RAM / диски / Caption ОС + DisplayVersion из реестра **и** serial/hostname, кто ответил). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опрос сети или `DISCOVERY_*` |
+| `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user для опроса сети. Для bAD — `lookup_badagent`: служба `badagent` и, только если она есть, MachineGuid (реестр не меняется, `config.json` агента не читается). Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опрос сети или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
-| `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + WMI, снимок на `devices` только если SN зонда совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs` |
+| `hardware_poll_service.py` | ежедневный опрос железа Windows: ping + служба badagent + lookup bAD. Снимок на `devices` только если серийник снимка bAD совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs`. Пока связь не «подключено», проход не стартует и WMI железа не подменяет lookup |
 | `hardware_poll_settings.py` | cron / schedule_enabled в `app_settings` (default `0 12 * * *`, включено) |
+| `bad_integration.py` | адрес bAD, заявка, poll секрета, одноразовый `token`. Секреты — Fernet в `app_settings`. `BAD_ADMIN_TOKEN` не используется |
+| `bad_hardware.py` | карточка lookup → CPU / ОЗУ / диски / ОС и `bad_id`. `device_id` на карточку не кладётся |
 | `hostname_sweep_service.py` | разовый проход по уже известным `devices`: ping + WMI-имя → UPDATE hostname. Не сливает строки; чужой SN на том же IP — не пишет имя. CLI `refresh-hostnames`, кнопка в Настройки → Опрос сети |
 | `scheduler_service.py` | APScheduler jobs + Flask CLI |
 | `network_summary_service.py` | сводка карты + health планировщика |
@@ -375,7 +376,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/api/command-presets` | Пресеты (**admin**) |
 | GET | `/devices/<id>` | Карточка: вкладки по типу — overview (+ accounts у ноут/СБ/прочее; commands/hardware у ноут/СБ/сервер/прочее; polls у всех; SN только ноут/СБ). Кнопка «Рабочий стол» у admin/operator на Windows-подобных |
 | GET | `/devices/<id>/vnc` | Экспериментальный noVNC: билет 90 с, цель только `Device.ip` + порт 5900–5999 |
-| POST | `/devices/<id>/hardware-poll` | Разовый WMI-опрос железа (**admin**) |
+| POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD (**admin**). Без связи «подключено» WMI железа не вызывается |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
 ### Diagnostics — `diagnostics.py`
@@ -501,6 +502,7 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | Пароли PsExec / пароль входа | Fernet ciphertext в `remote_credentials` |
 | Учётка WMI discovery | `.env` `DISCOVERY_*` или Настройки → Опрос сети (`settings_service`) |
 | Пароль VNC (общий) | Fernet в `app_settings` (`vnc_password_encrypted`) |
+| Ключ интеграции bAD (`bad_in_…`) и секрет заявки (`bad_ps_…`) | Fernet в `app_settings`. На странице и в логах не показываются |
 | TLS ключ/сертификат | файлы `/opt/bawh/certs/` (не БД) |
 
 Порядок учётки PsExec (`get_remote_admin_credentials(user_id)`):
@@ -517,7 +519,8 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | Job | Триггер | Действие |
 | --- | --- | --- |
 | `poll-devices` | Interval из `app_settings` / `POLL_INTERVAL_SECONDS` | `run_network_poll` |
-| `hardware-poll` | cron из настроек (default `0 12 * * *`, локальный TZ) | `run_hardware_poll` (если включено) |
+| `hardware-poll` | cron из настроек (default `0 12 * * *`, локальный TZ) | `run_hardware_poll` (если включено и bAD в состоянии «подключено») |
+| `bad-integration-poll` | каждые ~30 с | `poll_pending_request` — статус заявки, пока нет ключа |
 | `archive-logs` | daily ~00:20 UTC | `log_archive_service` |
 
 Интервал опроса и cron железа подхватываются без перезапуска процесса.
@@ -629,11 +632,19 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`B
 ### D3. Опрос железа Windows
 
 Scheduler cron (полдень) / CLI `hardware-poll` / UI Настройки → Опросы железа или карточка →
-`run_hardware_poll` → ping известных Windows-целей (серийник WMI, имена BN/n/w/v/сервер,
-fingerprint windows) → `lookup_wmi_hardware` (железо **и** serial/hostname) →
-снимок на карточку с тем же SN; если на IP отвечает другой известный SN —
-полный прогон пишет ему, разовый с карточки — skip. История — только если
-CPU/ОЗУ/диски/ОС изменились. Итог прогона — `hardware_poll_runs`
+`run_hardware_poll`. Пока связь с bAD не «подключено», проход не начинается
+и старый WMI-опрос процессора/ОЗУ/дисков/ОС не подменяет lookup.
+
+Если подключено: ping известных Windows-целей → та же учётка, что для WMI,
+проверяет службу `badagent`. Службы нет — новый снимок не пишется.
+Служба есть — читается `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`
+(реестр не меняется; `%ProgramData%\blazerity\bAD\config.json` не читается) →
+`POST /v1/integrations/lookup` с ключом интеграции → на карточку `bad_id`
+из ответа и поля процессора, памяти, диска, версии ОС.
+Серийник снимка bAD — паспорт, как у `resolve_hardware_owner`: чужой ПК
+на том же IP снимок не получает. `device_id` на карточку не пишется.
+Нет устройства в bAD — на карточке «Агент bAD не зарегистрирован».
+История — только если CPU/ОЗУ/диски/ОС изменились. Итог — `hardware_poll_runs`
 (в UI: последние 5 + «Показать все»).
 Тот же паттерн — лента действий / аудит, история УЗ на карточке аккаунта,
 журналы на карточке устройства.
@@ -643,8 +654,7 @@ ICMP-опрос сети **не** трогает эти поля.
 
 Admin UI → `update_service` (фоновый поток + `app.app_context()`).
 Ветка: `app_settings.update_git_branch` (список через `git ls-remote --heads`),
-иначе `GIT_BRANCH`. Хотфикс 1.6.7 при первом старте ставит `beta`, если
-ключ ещё пустой. Дальше:
+иначе `GIT_BRANCH`. Пустой выбор старт не заполняет. Дальше:
 backup → git → pip → `flask init-db` → опциональный restart
 `bawh-web` + `bawh-scheduler` + при включённых тумблерах
 `bawh-password-reports` / `bawh-pc-reports` (sudo-учётка из Настройки → Общие / sudoers).
@@ -663,7 +673,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 - **Тип устройства:** свои имена AD важнее WMI-серийника; серийник = Windows; иначе TCP/SNMP-отпечаток; иначе PTR/OUI. Ноутбуки: `BN***` (`bn` + 3 или 5 цифр) и префикс `n…`; СБ — `w…`.
 - **Fingerprint:** только серые онлайн-адреса (нет AD-имени и нет WMI-серийника). Пустой зонд не затирает прошлый отпечаток.
 - **WMI UserName:** `None` в probe — WMI не вызывали/упал (текущую УЗ **не** трогаем); `""` — никто не залогинен.
-- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN с WMI, имена BN/n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. CPU = `Win32_Processor.Name`, ОЗУ = сумма `Win32_PhysicalMemory.Capacity` (запасной — `TotalPhysicalMemory`) в ГиБ с привязкой к номиналу планок, диски = сумма `Win32_DiskDrive.Size` без USB в десятичных ГБ (этикетка 1000³, номинал 256/512/…) (запасной — локальные тома), ОС = Caption + DisplayVersion (реестр StdRegProv) / сборка. Снимок пишется только если WMI-серийник (запасной — короткое имя ОС) совпадает с карточкой: иначе это чужой ПК на переиспользованном VPN/DHCP-адресе.
+- **Опрос железа:** отдельный job, не ICMP. Цели — Windows (SN, имена BN/n/w/v/ktn/spb/kgl, fingerprint `windows`). Камеры/МФУ/роутеры не зонд. Числа приходят из снимка bAD: CPU, ОЗУ (`ram_bytes` → номинал планок), диски (`size_bytes`, без съёмных) в десятичных ГБ, ОС = caption + сборка / DisplayVersion. Снимок пишется только если серийник снимка bAD (запасной — короткое имя) совпадает с карточкой. Привязка к bAD — только `bad_id` из ответа lookup. Ключ интеграции не получает список устройств и ничего не меняет. `BAD_ADMIN_TOKEN` не используется.
 - **ILIKE:** только через `utils.ilike_pattern` (экранирование `%`/`_`).
 - **Время:** всегда timezone-aware UTC (`utils.utcnow` / `as_utc`); в шаблонах фильтр `dt`.
 - **Пустые адреса** в `devices` опрос не создаёт.
@@ -764,7 +774,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | ICMP / traceroute | OS `ping` / `traceroute` | `ping_service` |
 | TCP fingerprint | короткий connect 445/135/8728/8291/9100/515/554 | `fingerprint_service` |
 | SNMPv1 sysDescr | UDP/161 community `public`, без pysnmp | `fingerprint_service` |
-| Windows WMI | impacket | `discovery_service` |
+| Windows WMI | impacket | `discovery_service` (инвентарь сети; для железа — только служба badagent и MachineGuid) |
+| bAD | HTTP `/v1/integrations/requests` и `/v1/integrations/lookup` | `bad_integration`, `bad_hardware` |
 | Windows remote | pypsexec (SMB/ADMIN$) | `psexec_service` |
 | Git HTTPS | update check / pull | `update_service` |
 | systemd | restart после update | `update_service`, sudoers |
@@ -778,7 +789,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
-| Опрос железа Windows | `hardware_poll_service` → `discovery_service.lookup_wmi_hardware` → `hardware_info`; CLI `flask hardware-poll`; Настройки → Опросы железа и вкладка «Оборудование». Снимок привязан к SN, не к IP. |
+| Опрос железа Windows | `hardware_poll_service` → служба badagent → `bad_integration.lookup_device` → `bad_hardware`; CLI `flask hardware-poll`; Настройки → Опросы железа. Снимок привязан к серийнику bAD, не к IP. Адрес bAD и тумблер — там же. Подтверждение заявки — панель bAD, Параметры → Интеграции |
 | Идентичность устройств | `ping_service._find_existing_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Дубли устройств | `device_dedup_service` (SN / призраки / история IP / suspected), GET/POST `/admin/duplicates` |

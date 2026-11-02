@@ -220,6 +220,9 @@
         </div>
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">К оборудованию</a>
       </div>
+      {% if device.bad_agent_status == 'unregistered' %}
+      <p class="text-warning mb-2">Агент bAD не зарегистрирован.</p>
+      {% endif %}
       {% if device.hardware_checked_at %}
       <dl class="device-object-meta device-hardware-meta">
         <div>
@@ -246,10 +249,16 @@
           <dt>Снято</dt>
           <dd>{{ device.hardware_checked_at|dt }}</dd>
         </div>
+        {% if device.bad_id %}
+        <div>
+          <dt>bAD</dt>
+          <dd class="font-monospace">{{ device.bad_id }}</dd>
+        </div>
+        {% endif %}
       </dl>
       {% else %}
       <p class="text-muted mb-0">
-        Ещё не опрашивали. Плановый сбор — около полудня (WMI).
+        Ещё не опрашивали. Плановый сбор — около полудня, из bAD.
         {% if current_user.is_admin %}
         Опрос одной машины — на вкладке
         <a href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>.
@@ -380,6 +389,9 @@
         </form>
         {% endif %}
       </div>
+      {% if device.bad_agent_status == 'unregistered' %}
+      <p class="text-warning mt-3 mb-0">Агент bAD не зарегистрирован.</p>
+      {% endif %}
       {% if device.hardware_checked_at %}
       <dl class="device-object-meta device-hardware-meta mt-3">
         <div>
@@ -414,9 +426,15 @@
           <dt>Снято</dt>
           <dd>{{ device.hardware_checked_at|dt }}</dd>
         </div>
+        {% if device.bad_id %}
+        <div>
+          <dt>bAD</dt>
+          <dd class="font-monospace">{{ device.bad_id }}</dd>
+        </div>
+        {% endif %}
       </dl>
       {% if device.os_caption %}
-      <p class="text-muted small mb-0 mt-2">WMI Caption: <span class="font-monospace">{{ device.os_caption }}</span></p>
+      <p class="text-muted small mb-0 mt-2">Caption: <span class="font-monospace">{{ device.os_caption }}</span></p>
       {% endif %}
       {% else %}
       <p class="text-muted mb-0 mt-3">
@@ -424,7 +442,7 @@
         {% if current_user.is_admin %}
         Нажмите «Опросить сейчас» или дождитесь планового сбора около полудня.
         {% else %}
-        Плановый сбор — около полудня (WMI).
+        Плановый сбор — около полудня, из bAD.
         {% endif %}
       </p>
       {% endif %}

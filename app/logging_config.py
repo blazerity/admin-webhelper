@@ -15,9 +15,17 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from logging.handlers import TimedRotatingFileHandler
 
 from flask import Flask
+
+# Ключи bAD и агента: bad_in_ / bad_ps_ / bad_ak_ + urlsafe-хвост.
+_SECRET_RE = re.compile(r"(bad_(?:in|ps|ak)_)[A-Za-z0-9_\-]{8,}", re.IGNORECASE)
+_BEARER_RE = re.compile(r"(?i)(Bearer\s+)\S+")
+_JSON_SECRET_RE = re.compile(
+    r'(?i)("(?:poll_secret|token|api_key|authorization|password)"\s*:\s*")[^"]*"'
+)
 
 # Сторонние логгеры на INFO заливают файл каждые несколько минут
 # (APScheduler) или на каждый HTTP-запрос (werkzeug в flask run).
@@ -33,6 +41,33 @@ _QUIET_LOGGERS = (
 )
 
 
+def redact_secrets(text: str) -> str:
+    """Убрать ключи bAD и похожие токены из строки, которую могут записать в лог."""
+    if not text:
+        return text
+    cleaned = _SECRET_RE.sub(r"\1[скрыто]", text)
+    cleaned = _BEARER_RE.sub(r"\1[скрыто]", cleaned)
+    cleaned = _JSON_SECRET_RE.sub(r'\1[скрыто]"', cleaned)
+    return cleaned
+
+
+class SecretRedactFilter(logging.Filter):
+    """Последний рубеж: секрет не должен остаться в сообщении обработчика."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            message = str(record.msg)
+        cleaned = redact_secrets(message)
+        if cleaned != message:
+            record.msg = cleaned
+            record.args = ()
+        if record.exc_text:
+            record.exc_text = redact_secrets(record.exc_text)
+        return True
+
+
 def configure_logging(app: Flask) -> None:
     level_name = str(app.config.get("LOG_LEVEL", "INFO")).upper()
     level = getattr(logging, level_name, logging.INFO)
@@ -44,6 +79,8 @@ def configure_logging(app: Flask) -> None:
 
     root = logging.getLogger()
     root.setLevel(level)
+    if not any(isinstance(item, SecretRedactFilter) for item in root.filters):
+        root.addFilter(SecretRedactFilter())
 
     # При повторном create_app() в тестах не вешаем обработчики пачкой.
     if not any(

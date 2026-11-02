@@ -14,8 +14,16 @@ from flask import Blueprint, Response, flash, redirect, render_template, request
 from flask_login import current_user
 
 from app.authz import admin_required
+from app.extensions import db
 from app.services import audit_service
 from app.services.hardware_poll_service import count_hardware_poll_runs, load_recent_hardware_poll_runs
+from app.services.bad_integration import (
+    BadIntegrationError,
+    integration_view,
+    poll_pending_request,
+    save_integration,
+)
+from app.services.crypto_service import CryptoError, CryptoNotConfigured
 from app.services.hardware_poll_settings import get_hardware_poll_settings, set_hardware_poll_settings
 from app.services.password_expiry_settings import get_smtp_settings
 from app.services.report_toggle_service import apply_report_toggle, pc_reports_status
@@ -125,6 +133,25 @@ def _hardware_history_context() -> dict:
 def settings_page():
     if request.method == "POST":
         kind = (request.form.get("form") or "module").strip() or "module"
+        if kind == "bad_integration":
+            try:
+                saved = save_integration(
+                    base_url=request.form.get("bad_base_url", ""),
+                    enabled=request.form.get("bad_enabled") == "1",
+                )
+            except (BadIntegrationError, CryptoNotConfigured, CryptoError) as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("sector_daily_report.settings_page") + "#bad-integration")
+            audit_service.log(
+                current_user,
+                "update",
+                "admin_settings",
+                "bad_integration",
+                detail=f"enabled={int(saved.enabled)} status={saved.status}",
+            )
+            flash(f"Связь с bAD: {saved.status_label}.", "success")
+            return redirect(url_for("sector_daily_report.settings_page") + "#bad-integration")
+
         if kind == "hardware_poll":
             want_enabled = request.form.get("hardware_poll_enabled") == "1"
             try:
@@ -165,10 +192,18 @@ def settings_page():
                 flash(str(exc), "warning")
         return redirect(url_for("sector_daily_report.settings_page"))
 
+    if request.method == "GET":
+        try:
+            poll_pending_request()
+        except Exception:
+            logger.exception("bAD: не удалось обновить статус заявки")
+            db.session.rollback()
+
     return render_template(
         "sector_daily_report/settings.html",
         settings=get_sector_daily_report_settings(),
         hardware_poll_settings=get_hardware_poll_settings(),
+        bad_integration=integration_view(),
         **_hardware_history_context(),
     )
 
