@@ -122,6 +122,8 @@ class _Probe:
     unregistered: bool = False
     revoked: bool = False
     error: str | None = None
+    # Текст для карточки. Без MachineGuid, ключей и текста исключения.
+    note: str = ""
 
 
 def is_windows_hardware_target(device: Device) -> bool:
@@ -401,12 +403,16 @@ def _poll_targets(
 
     pending: list[tuple[_Target, HardwareSnapshot | None, str | None, str | None, str | None]] = []
     unregistered_ids: list[int] = []
+    notes: dict[int, str] = {}
     for target in targets:
         result.scanned += 1
         probe = by_id.get(target.device_id)
         if probe is None:
             result.errors += 1
+            notes[target.device_id] = "Опрос этой машины не завершился."
             continue
+        if probe.note:
+            notes[target.device_id] = probe.note
         if probe.error:
             result.errors += 1
             continue
@@ -433,7 +439,8 @@ def _poll_targets(
         _mark_unregistered(unregistered_ids)
 
     if not pending:
-        if unregistered_ids and not result.dry_run:
+        if not result.dry_run and (unregistered_ids or notes):
+            _save_poll_notes(notes, now)
             db.session.commit()
         return
 
@@ -474,6 +481,10 @@ def _poll_targets(
         if owner is None:
             result.skipped += 1
             result.mismatched += 1
+            notes[probed.id] = (
+                "Lookup bAD ответил, но серийник снимка не совпал с этой карточкой. "
+                "Снимок не записан."
+            )
             logger.info(
                 "Опрос железа: %s отвечает другой машине (serial=%s hostname=%s), "
                 "снимок не пишем на id=%s serial=%s",
@@ -487,6 +498,9 @@ def _poll_targets(
         if owner.id != probed.id:
             result.mismatched += 1
             devices[owner.id] = owner
+            notes[probed.id] = (
+                "Серийник снимка принадлежит другой карточке. Снимок записан туда."
+            )
         live_serial_norm = discovery_service.normalize_serial(live_serial)
         change = HardwareChange(
             device_id=owner.id,
@@ -538,6 +552,16 @@ def _poll_targets(
         bad_changed = bool(bad_id) and owner.bad_id != bad_id
         if bad_id:
             _assign_bad_id(owner, bad_id)
+        if bad_id:
+            notes[owner.id] = (
+                f"Lookup bAD ответил. На карточку записан {bad_id}. "
+                "MachineGuid прочитан с машины и в базу не сохранён."
+            )
+        else:
+            notes[owner.id] = (
+                "Lookup bAD ответил, снимок записан. bad_id в ответе не было. "
+                "MachineGuid в базу не сохраняется."
+            )
         changed = bad_changed
         if snapshot is not None and not snapshot.is_empty:
             changed = apply_hardware_snapshot(owner, snapshot, collected_at=now) or changed
@@ -548,6 +572,7 @@ def _poll_targets(
                 result.changes.append(change)
 
     if not result.dry_run:
+        _save_poll_notes(notes, now)
         db.session.commit()
 
 
@@ -613,14 +638,25 @@ def _probe_one(
     try:
         ping = ping_host(target.ip)
         if ping.status != DeviceStatus.ONLINE:
-            return _Probe(device_id=target.device_id, ip=target.ip, online=False)
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=False,
+                note="Нет ответа на ping. Службу badagent и lookup не вызывали.",
+            )
         agent = discovery_service.lookup_badagent(target.ip, creds=creds)
         if agent.wmi_failed:
+            why = agent.detail or "WMI не открылся"
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
                 online=True,
                 error="службу badagent не прочитали",
+                note=(
+                    f"Ping есть. Удалённый WMI не открылся ({why}). "
+                    "Службу badagent не проверили. Нужна учётка из «Опрос сети» "
+                    "и доступ к RPC (порт 135)."
+                ),
             )
         if not agent.service_present:
             return _Probe(
@@ -628,6 +664,10 @@ def _probe_one(
                 ip=target.ip,
                 online=True,
                 no_agent=True,
+                note=(
+                    "Ping есть. Служба badagent не установлена. "
+                    "Lookup в bAD не вызывали, новый снимок не записан."
+                ),
             )
         if not agent.machine_guid:
             return _Probe(
@@ -635,6 +675,11 @@ def _probe_one(
                 ip=target.ip,
                 online=True,
                 error="MachineGuid пустой",
+                note=(
+                    "Ping есть. Служба badagent есть. MachineGuid в "
+                    "HKLM\\SOFTWARE\\Microsoft\\Cryptography пустой. "
+                    "Lookup не вызывали. Это значение в карточку не пишется."
+                ),
             )
         looked = lookup_with_credentials(
             bad_credentials[0], bad_credentials[1], agent.machine_guid
@@ -646,6 +691,10 @@ def _probe_one(
                 online=True,
                 revoked=True,
                 error="ключ интеграции не активен",
+                note=(
+                    "Ping есть. Служба badagent есть, MachineGuid прочитан. "
+                    "Lookup bAD ответил 401: ключ интеграции не принят."
+                ),
             )
         if looked.error == "not_connected":
             return _Probe(
@@ -653,6 +702,7 @@ def _probe_one(
                 ip=target.ip,
                 online=True,
                 error="ключ интеграции не активен",
+                note="Ключ интеграции уже не активен. Lookup не выполнен.",
             )
         if looked.status == 404:
             return _Probe(
@@ -660,13 +710,23 @@ def _probe_one(
                 ip=target.ip,
                 online=True,
                 unregistered=True,
+                note=(
+                    "Ping есть. Служба badagent есть, MachineGuid прочитан. "
+                    "Lookup bAD ответил 404: этой машины в bAD нет. "
+                    "MachineGuid в карточку не записан."
+                ),
             )
         if looked.status != 200 or not isinstance(looked.data, dict):
+            status = looked.status or "нет ответа"
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
                 online=True,
-                error=f"lookup bAD: {looked.status or 'нет ответа'}",
+                error=f"lookup bAD: {status}",
+                note=(
+                    "Ping есть. Служба badagent есть, MachineGuid прочитан. "
+                    f"Lookup bAD: {status}. Снимок не записан."
+                ),
             )
         card = card_from_lookup(looked.data)
         if not card.bad_id and (card.snapshot is None or card.snapshot.is_empty):
@@ -675,6 +735,10 @@ def _probe_one(
                 ip=target.ip,
                 online=True,
                 error="в ответе lookup нет карточки",
+                note=(
+                    "Ping есть. Служба badagent есть, MachineGuid прочитан. "
+                    "Lookup bAD ответил 200, но без bad_id и без железа."
+                ),
             )
         return _Probe(
             device_id=target.device_id,
@@ -692,7 +756,21 @@ def _probe_one(
             ip=target.ip,
             online=False,
             error="сбой опроса",
+            note=f"Сбой опроса ({type(exc).__name__}). Снимок не записан.",
         )
+
+
+def _save_poll_notes(notes: dict[int, str], when) -> None:
+    """Последняя попытка на карточке. Значение MachineGuid сюда не попадает."""
+    if not notes:
+        return
+    rows = list(db.session.scalars(select(Device).where(Device.id.in_(list(notes)))))
+    for device in rows:
+        text = " ".join((notes.get(device.id) or "").split())
+        if not text:
+            continue
+        device.hardware_poll_at = when
+        device.hardware_poll_note = text[:500]
 
 
 def _mark_unregistered(device_ids: list[int]) -> None:

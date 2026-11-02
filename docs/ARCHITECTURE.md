@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.10.1)
+# Архитектура bAWH (актуально для v1.11)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.10.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.11` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -84,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.10.1)
+  VERSION                      # semver (1.11)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -641,6 +641,8 @@ Scheduler cron (полдень) / CLI `hardware-poll` / UI Настройки �
 (реестр не меняется; `%ProgramData%\blazerity\bAD\config.json` не читается) →
 `POST /v1/integrations/lookup` с ключом интеграции → на карточку `bad_id`
 из ответа и поля процессора, памяти, диска, версии ОС.
+MachineGuid в базу не пишется. Итог попытки, включая отказ, остаётся
+в `devices.hardware_poll_note` и виден на вкладке «Оборудование».
 Серийник снимка bAD — паспорт, как у `resolve_hardware_owner`: чужой ПК
 на том же IP снимок не получает. `device_id` на карточку не пишется.
 Нет устройства в bAD — на карточке «Агент bAD не зарегистрирован».

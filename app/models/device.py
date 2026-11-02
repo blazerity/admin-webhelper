@@ -76,6 +76,9 @@ class Device(TimestampMixin, db.Model):
     os_display_version = db.Column(db.String(32), nullable=True)
     os_build = db.Column(db.String(32), nullable=True)
     hardware_checked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Последняя попытка опроса, в том числе неудачная. MachineGuid сюда не пишем.
+    hardware_poll_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    hardware_poll_note = db.Column(db.String(500), nullable=True)
     # Код карточки bAD (BAD-…). MachineGuid сюда не пишем.
     bad_id = db.Column(db.String(32), nullable=True, index=True)
     # unregistered — служба badagent есть, lookup ответил «устройства нет».

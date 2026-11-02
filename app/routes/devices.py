@@ -650,19 +650,22 @@ def poll_device_hardware(device_id: int):
         return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
 
     db.session.refresh(device)
-    if result.mismatched:
-        flash(
-            "На этом IP сейчас другая машина (другой серийный номер или имя). "
-            "Снимок железа не записан, чтобы не смешать конфигурации.",
-            "warning",
-        )
-    elif result.collected:
+    note = (device.hardware_poll_note or "").strip()
+    if result.collected and not result.mismatched:
         ram = f"{device.ram_gb} ГБ" if device.ram_gb is not None else "—"
         disk = f"{device.disk_gb} ГБ" if device.disk_gb is not None else "—"
         flash(
             f"Железо обновлено: {device.os_label or '—'} · {device.cpu_name or '—'} "
             f"· ОЗУ {ram} · диски {disk}.",
             "success",
+        )
+    elif note:
+        flash(note, "warning")
+    elif result.mismatched:
+        flash(
+            "На этом IP сейчас другая машина (другой серийный номер или имя). "
+            "Снимок железа не записан, чтобы не смешать конфигурации.",
+            "warning",
         )
     elif result.unregistered:
         flash("Агент bAD на этой машине не зарегистрирован.", "warning")
