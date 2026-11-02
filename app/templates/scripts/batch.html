@@ -1,8 +1,7 @@
-{% extends "base.html" %}
+{% extends "layouts/settings.html" %}
 {% from "macros/status.html" import device_entity_link %}
 {% block title %}Пачка {{ batch_id }}{% endblock %}
-{% block main_class %}app-main-wide{% endblock %}
-{% block content %}
+{% block settings_content %}
 {% set done = success + failed + cancelled %}
 <div
   id="batch-progress"
@@ -12,8 +11,9 @@
 >
   <div class="page-header">
     <div>
-      <p class="mb-1">
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('devices.map') }}">К карте сети</a>
+      <p class="mb-1 d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('scripts.list_batches') }}">К пачкам</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('devices.map') }}">К карте</a>
       </p>
       <h1 class="page-title">Пачка запусков</h1>
       <p class="page-subtitle">

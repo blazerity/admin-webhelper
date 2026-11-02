@@ -6,9 +6,12 @@
     <h1 class="page-title">Скрипты</h1>
     <p class="page-subtitle">Удалённый запуск команд</p>
   </div>
-  {% if can_manage_scripts|default(false) %}
-  <a class="btn btn-primary" href="{{ url_for('scripts.new_script') }}">Новый скрипт</a>
-  {% endif %}
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('scripts.list_batches') }}">Пачки</a>
+    {% if can_manage_scripts|default(false) %}
+    <a class="btn btn-primary" href="{{ url_for('scripts.new_script') }}">Новый скрипт</a>
+    {% endif %}
+  </div>
 </div>
 <div class="panel content-card p-0 overflow-hidden">
   <div class="table-responsive">

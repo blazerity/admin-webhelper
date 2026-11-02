@@ -77,7 +77,7 @@
       <td class="font-monospace">${escapeHtml(run.ip || "—")}</td>
       <td>${escapeHtml(runTypeLabel(run.run_type))}</td>
       <td><span class="batch-run-status" data-status=""></span></td>
-      <td class="text-end"><a class="btn btn-sm btn-ghost" href="${escapeHtml(run.url || `/scripts/runs/${run.id}`)}">Открыть</a></td>
+      <td class="text-end"><a class="btn btn-sm btn-ghost" href="${escapeHtml(run.url || `/admin/scripts/runs/${run.id}`)}">Открыть</a></td>
     `;
     const deviceCell = row.querySelector("[data-role=device-cell]");
     if (deviceCell) {

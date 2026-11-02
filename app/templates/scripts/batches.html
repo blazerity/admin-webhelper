@@ -1,0 +1,57 @@
+{% extends "layouts/settings.html" %}
+{% from "macros/pagination.html" import page_nav %}
+{% block title %}Пачки{% endblock %}
+{% block settings_content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Пачки</h1>
+    <p class="page-subtitle">
+      {% if device %}Запуски, в которых было устройство {{ device.hostname or device.ip }}
+      {% elif only_open %}Сейчас выполняются
+      {% else %}Групповой ping и скрипты. Открытую пачку можно вернуться и досмотреть{% endif %}
+    </p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    {% if only_open %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('scripts.list_batches', device=device.id if device else none) }}">Все</a>
+    {% else %}
+    <a class="btn btn-outline-primary" href="{{ url_for('scripts.list_batches', open=1, device=device.id if device else none) }}">Только выполняющиеся</a>
+    {% endif %}
+  </div>
+</div>
+<div class="panel content-card p-0 overflow-hidden">
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Начало</th>
+          <th>Что запускали</th>
+          <th>Компьютеров</th>
+          <th>Итог</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for batch in batches %}
+        <tr>
+          <td class="text-nowrap">{{ batch.started_at|dt }}</td>
+          <td>
+            <a href="{{ url_for('scripts.batch_detail', batch_id=batch.batch_id) }}">{{ batch.title }}</a>
+          </td>
+          <td>{{ batch.total }}</td>
+          <td>
+            {% if batch.finished %}
+            готово, успешно {{ batch.success }}{% if batch.failed %}, ошибок {{ batch.failed }}{% endif %}
+            {% else %}
+            выполняется: очередь {{ batch.pending }}, в работе {{ batch.running }}
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="text-muted">Пачек пока нет.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ page_nav('scripts.list_batches', page, per_page, total, {'open': '1' if only_open else '', 'device': device.id if device else ''}) }}
+</div>
+{% endblock %}

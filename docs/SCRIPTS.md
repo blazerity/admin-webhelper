@@ -236,7 +236,8 @@ echo Старт & gpupdate.exe /force & echo Код %ERRORLEVEL%
 | Запуск PS/cmd, префикс, temp-файл | `app/services/psexec_service.py` (`run_remote_script`, `wrap_powershell_script`) |
 | 0 = success | `app/services/script_service.py` (`_perform`) |
 | Таймаут | `app/config.py` → `SCRIPT_TIMEOUT_SECONDS` |
-| Живой журнал в UI | `app/static/js/run_log.js`, `templates/scripts/run.html` |
+| Живой журнал в UI | `app/static/js/run_log.js`, `templates/scripts/run.html`. Адрес `/admin/scripts/runs/<id>` |
+| Пачки | `app/services/batch_service.py` (`list_batch_summaries`), `templates/scripts/batches.html`, `/admin/scripts/batches` |
 | Пресеты карточки (не библиотека) | `app/services/command_presets.py` |
 | Слои и authz | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 

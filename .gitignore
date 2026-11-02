@@ -24,7 +24,7 @@ build/
 .scratch/
 
 # Локальные черновики и одноразовые скрипты — не в git
-scripts/
+/scripts/
 tools/
 tmp/
 temp/

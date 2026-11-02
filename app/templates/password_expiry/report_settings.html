@@ -6,7 +6,7 @@
     <h1 class="page-title">Отчёт о паролях</h1>
     <p class="page-subtitle">
       Пороги, поиск в каталоге и получатели админ-отчёта.
-      Подключение к каталогу — в <a href="{{ url_for('password_expiry.settings_page') }}">LDAP</a>.
+      Подключение к каталогу — в <a href="{{ url_for('admin.ldap_settings') }}">LDAP</a>.
       Почта — в <a href="{{ url_for('admin.settings', section='mail') }}">Настройки → Почта (SMTP)</a>.
       Включение расписания — на <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
     </p>

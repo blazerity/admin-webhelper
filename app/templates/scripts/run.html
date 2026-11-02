@@ -8,9 +8,13 @@
 {% else %}
 <div class="page-header">
   <div>
-    {% if run.device %}
-    <p class="mb-1">{{ device_entity_link(run.device.id, '← К компьютеру') }}</p>
-    {% endif %}
+    <p class="mb-1 d-flex flex-wrap gap-3">
+      {% if run.device %}{{ device_entity_link(run.device.id, '← К компьютеру') }}{% endif %}
+      {% if run.batch_id %}
+      <a href="{{ url_for('scripts.batch_detail', batch_id=run.batch_id) }}">Вся пачка</a>
+      {% endif %}
+      <a href="{{ url_for('scripts.list_batches') }}">История пачек</a>
+    </p>
     <h1 class="page-title">{{ pc_name }} — {{ started_label }}</h1>
     <p class="page-subtitle">{{ run_type_label }}{% if run.script %} · {{ run.script.name }}{% endif %}</p>
   </div>
@@ -136,19 +140,6 @@
   {% endif %}
 </div>
 
-{% if batch_runs|default([]) %}
-<div class="panel content-card mt-3">
-  <h2 class="h5 mb-2">Другие компьютеры этой пачки</h2>
-  <ul class="mb-0">
-    {% for other in batch_runs %}
-    <li>
-      <a href="{{ url_for('scripts.run_detail', run_id=other.id) }}">{{ other.device.hostname or other.device.ip if other.device else 'компьютер' }}</a>
-      — {{ other.device.ip if other.device else '—' }}, {{ other.status }}
-    </li>
-    {% endfor %}
-  </ul>
-</div>
-{% endif %}
 {% endif %}
 {% endblock %}
 {% block scripts %}

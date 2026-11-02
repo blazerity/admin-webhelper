@@ -17,7 +17,7 @@
   </div>
   {% if is_admin %}
   <div class="d-flex gap-2 flex-wrap">
-    <a class="btn btn-outline-secondary" href="{{ url_for('password_expiry.report_settings') }}">Настройки модуля</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.password_report_settings') }}">Настройки модуля</a>
   </div>
   {% endif %}
 </div>
@@ -211,7 +211,7 @@
       <input type="hidden" name="dry_run" value="1">
       <button class="btn btn-outline-primary" type="submit">Тест без писем</button>
     </form>
-    <a class="btn btn-outline-secondary" href="{{ url_for('password_expiry.report_settings') }}">Ящик и срок отпуска</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.password_report_settings') }}">Ящик и срок отпуска</a>
   </div>
   {% endif %}
   <div class="table-responsive mt-3">

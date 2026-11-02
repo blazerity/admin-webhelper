@@ -16,6 +16,7 @@ from app.authz import (
     get_visible_device_or_404,
     get_visible_script_run_or_404,
     get_visible_sector_or_404,
+    user_can_run_diagnostics,
     user_can_run_script,
     user_can_run_scripts,
     user_can_see_script_run,
@@ -32,7 +33,7 @@ from app.services import audit_service, batch_service, script_service
 from app.services.credential_service import get_stored_credential
 from app.utils import parse_optional_int
 
-bp = Blueprint("scripts", __name__, url_prefix="/scripts")
+bp = Blueprint("scripts", __name__, url_prefix="/admin/scripts")
 
 _SESSION_HINTS = {
     "busy": "Кнопка «Завершить сессию» станет активной, когда команда закончится.",
@@ -278,7 +279,42 @@ def run_script(script_id: int):
     except script_service.ScriptError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("scripts.edit_script", script_id=script.id))
+    if len(runs) > 1 and runs[0].batch_id:
+        return redirect(url_for("scripts.batch_detail", batch_id=runs[0].batch_id))
     return redirect(url_for("scripts.run_detail", run_id=runs[0].id))
+
+
+@bp.get("/batches")
+@login_required
+def list_batches():
+    """История пачек: сюда возвращаются с карты, из скрипта и с карточки."""
+    if not (
+        user_can_run_scripts(current_user) or user_can_run_diagnostics(current_user)
+    ):
+        abort(403)
+    device_id = parse_optional_int(request.args.get("device"))
+    only_open = request.args.get("open") == "1"
+    page = max(1, parse_optional_int(request.args.get("page")) or 1)
+    per_page = 40
+    device = None
+    if device_id is not None:
+        device = get_visible_device_or_404(device_id)
+    batches, total = batch_service.list_batch_summaries(
+        current_user,
+        limit=per_page,
+        offset=(page - 1) * per_page,
+        device_id=device.id if device is not None else None,
+        only_open=only_open,
+    )
+    return render_template(
+        "scripts/batches.html",
+        batches=batches,
+        total=total,
+        page=page,
+        per_page=per_page,
+        only_open=only_open,
+        device=device,
+    )
 
 
 @bp.get("/batches/<batch_id>")
@@ -307,23 +343,11 @@ def batch_detail(batch_id: str):
 @login_required
 def run_detail(run_id: int):
     run = get_visible_script_run_or_404(run_id)
-    batch_runs = []
-    if run.batch_id:
-        siblings = (
-            ScriptRun.query.filter(
-                ScriptRun.batch_id == run.batch_id,
-                ScriptRun.id != run.id,
-            )
-            .order_by(ScriptRun.id)
-            .all()
-        )
-        batch_runs = [item for item in siblings if user_can_see_script_run(current_user, item)]
     finished = run.status in RunStatus.FINISHED
     state = script_service.run_session_state(run.id, finished)
     return render_template(
         "scripts/run.html",
         run=run,
-        batch_runs=batch_runs,
         status_label=run_status_label(run.status),
         run_type_label=run_type_label(run.run_type),
         session_open=state == "open",

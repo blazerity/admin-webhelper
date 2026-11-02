@@ -13,7 +13,7 @@ from app.services.account_service import (
 from app.services.export_service import csv_attachment, export_accounts_csv
 from app.utils import as_truthy, format_utc, normalize_page, parse_optional_int
 
-bp = Blueprint("accounts", __name__, url_prefix="/accounts")
+bp = Blueprint("accounts", __name__, url_prefix="/admin/accounts")
 
 _PREVIEW_LIMIT = 5
 _HISTORY_PER_PAGE = 20

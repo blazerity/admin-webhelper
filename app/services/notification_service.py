@@ -117,7 +117,9 @@ def notify_script_failed(run: ScriptRun) -> Notification | None:
     if script is None or script.created_by_id is None:
         return None
     # Не дублировать: одно уведомление на script_run.
-    link = f"/scripts/runs/{int(run.id)}"
+    from app.services.batch_service import run_page_path
+
+    link = run_page_path(run.id)
     exists = db.session.scalar(
         select(Notification.id)
         .where(Notification.user_id == script.created_by_id)

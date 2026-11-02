@@ -1,13 +1,13 @@
 """CRUD секторов.
 
 Эндпоинты:
-- list_sectors   GET  /sectors/
-- new_sector     GET  /sectors/new
-- create_sector  POST /sectors/
-- detail         GET  /sectors/<sector_id>
-- edit_sector    GET  /sectors/<sector_id>/edit
-- update_sector  POST /sectors/<sector_id>
-- delete_sector  POST /sectors/<sector_id>/delete
+- list_sectors   GET  /admin/sectors/
+- new_sector     GET  /admin/sectors/new
+- create_sector  POST /admin/sectors/
+- detail         GET  /admin/sectors/<sector_id>
+- edit_sector    GET  /admin/sectors/<sector_id>/edit
+- update_sector  POST /admin/sectors/<sector_id>
+- delete_sector  POST /admin/sectors/<sector_id>/delete
 
 Кто что видит, решает app.authz. Здесь только форма и ответы.
 Создание и правка доступны администратору. Чужой или несуществующий
@@ -29,7 +29,7 @@ from app.services.sector_service import SectorError
 from app.services.sector_service import delete_sector as remove_sector
 from app.services.sector_service import save_sector
 
-bp = Blueprint("sectors", __name__, url_prefix="/sectors")
+bp = Blueprint("sectors", __name__, url_prefix="/admin/sectors")
 
 
 @bp.get("/")

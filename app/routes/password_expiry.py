@@ -119,7 +119,6 @@ def toggle_schedule():
     return redirect(url_for("password_expiry.dashboard"))
 
 
-@bp.route("/settings", methods=["GET", "POST"])
 @admin_required
 def settings_page():
     if request.method == "POST":
@@ -135,9 +134,9 @@ def settings_page():
                 )
             except ValueError as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("password_expiry.settings_page"))
+                return redirect(url_for("admin.ldap_settings"))
             flash("Учётка LDAP для модуля сохранена.", "success")
-            return redirect(url_for("password_expiry.settings_page"))
+            return redirect(url_for("admin.ldap_settings"))
 
         if kind == "test_ldap":
             try:
@@ -146,10 +145,10 @@ def settings_page():
                 flash(str(exc), "danger")
             else:
                 flash(message, "success")
-            return redirect(url_for("password_expiry.settings_page"))
+            return redirect(url_for("admin.ldap_settings"))
 
         flash("Неизвестная форма.", "danger")
-        return redirect(url_for("password_expiry.settings_page"))
+        return redirect(url_for("admin.ldap_settings"))
 
     ldap = get_ldap_bind_settings()
     return render_template(
@@ -172,9 +171,9 @@ def _save_vacation_settings():
         )
     except (ValueError, TypeError) as exc:
         flash(str(exc), "danger")
-        return redirect(url_for("password_expiry.report_settings"))
+        return redirect(url_for("admin.password_report_settings"))
     flash("Настройки проверки перед отпуском сохранены.", "success")
-    return redirect(url_for("password_expiry.report_settings"))
+    return redirect(url_for("admin.password_report_settings"))
 
 
 def _save_report_settings():
@@ -191,12 +190,11 @@ def _save_report_settings():
         )
     except (ValueError, TypeError) as exc:
         flash(str(exc), "danger")
-        return redirect(url_for("password_expiry.report_settings"))
+        return redirect(url_for("admin.password_report_settings"))
     flash("Настройки отчёта о паролях сохранены.", "success")
-    return redirect(url_for("password_expiry.report_settings"))
+    return redirect(url_for("admin.password_report_settings"))
 
 
-@bp.route("/report-settings", methods=["GET", "POST"])
 @admin_required
 def report_settings():
     """Пороги, cron и получатели модуля паролей (без LDAP и SMTP)."""
@@ -213,9 +211,9 @@ def report_settings():
                 flash(str(exc), "danger")
             else:
                 flash(message, "success")
-            return redirect(url_for("password_expiry.report_settings"))
+            return redirect(url_for("admin.password_report_settings"))
         flash("Неизвестная форма.", "danger")
-        return redirect(url_for("password_expiry.report_settings"))
+        return redirect(url_for("admin.password_report_settings"))
 
     return render_template(
         "password_expiry/report_settings.html",
