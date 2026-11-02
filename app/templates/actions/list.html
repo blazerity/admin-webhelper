@@ -118,7 +118,6 @@
   {% endif %}
 </div>
 
-{% if current_user.is_admin %}
 <div class="panel content-card p-0 overflow-hidden" id="audit">
   <div class="px-3 pt-3 pb-2">
     <h2 class="panel-title">Журнал аудита</h2>
@@ -161,7 +160,6 @@
   </p>
   {% endif %}
 </div>
-{% endif %}
 {% endblock %}
 {% block scripts %}
 {% if show_all %}

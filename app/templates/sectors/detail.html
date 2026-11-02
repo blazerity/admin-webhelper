@@ -9,9 +9,7 @@
     <h1 class="page-title">{{ sector.name }}</h1>
     <p class="page-subtitle">{{ sector.description or 'CIDR и устройства сектора' }}</p>
   </div>
-  {% if current_user.is_admin %}
   <a class="btn btn-outline-primary" href="{{ url_for('sectors.edit_sector', sector_id=sector.id) }}">Изменить</a>
-  {% endif %}
 </div>
 <div class="panel content-card mb-3">
   <p class="small text-muted mb-0">Диапазоны: {% for item in sector.ranges %}<code>{{ item.cidr }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>

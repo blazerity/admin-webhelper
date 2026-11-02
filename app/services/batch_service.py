@@ -1,7 +1,7 @@
 """Пачки запусков: bulk ping/script и агрегация статуса по batch_id.
 
 Маршруты только вызывают эти хелперы — без прямого ping/PsExec.
-Видимость runs фильтруется через sector ACL / author (authz).
+Вошедший видит все запуски пачки.
 """
 
 from __future__ import annotations
@@ -9,10 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.authz import accessible_sector_ids
 from app.extensions import db
 from app.models import Device, RunStatus, Script, ScriptRun
 from app.run_display import run_launch_label, run_type_label
@@ -45,26 +44,7 @@ def list_visible_batch_runs(user, batch_id: str) -> list[ScriptRun]:
         .order_by(ScriptRun.id)
         .all()
     )
-    if not rows:
-        return []
-    if getattr(user, "is_admin", False):
-        return rows
-
-    # Один ACL-запрос секторов на пачку (вместо N× в user_can_access_device).
-    sector_ids = accessible_sector_ids(user)
-    visible: list[ScriptRun] = []
-    for run in rows:
-        if run.user_id is not None and run.user_id == getattr(user, "id", None):
-            visible.append(run)
-            continue
-        device = run.device
-        if (
-            device is not None
-            and device.sector_id is not None
-            and device.sector_id in sector_ids
-        ):
-            visible.append(run)
-    return visible
+    return rows
 
 
 def batch_status_payload(user, batch_id: str) -> dict | None:
@@ -123,16 +103,6 @@ class BatchSummary:
     finished: bool
 
 
-def _visible_clause(user):
-    if getattr(user, "is_admin", False):
-        return None
-    sector_ids = list(accessible_sector_ids(user))
-    author = ScriptRun.user_id == getattr(user, "id", None)
-    if not sector_ids:
-        return author
-    return or_(author, ScriptRun.device.has(Device.sector_id.in_(sector_ids)))
-
-
 def list_batch_summaries(
     user,
     *,
@@ -150,10 +120,7 @@ def list_batch_summaries(
         return [], 0
     limit = max(1, min(100, int(limit)))
     offset = max(0, int(offset or 0))
-    visible = _visible_clause(user)
     filters = [ScriptRun.batch_id.is_not(None)]
-    if visible is not None:
-        filters.append(visible)
     if device_id is not None:
         filters.append(ScriptRun.device_id == device_id)
     if only_open:

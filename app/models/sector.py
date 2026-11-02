@@ -1,4 +1,7 @@
-"""Сектор — логическая группа устройств (диапазоны и права — отдельные строки)."""
+"""Сектор — логическая группа устройств (диапазоны — отдельные строки).
+
+Таблица sector_access остаётся в схеме и больше не ограничивает видимость.
+"""
 
 from app.extensions import db
 from app.models.base import TimestampMixin
@@ -51,7 +54,7 @@ class SectorRange(db.Model):
 
 
 class SectorAccess(db.Model):
-    """Кому виден сектор: subject_type 'user'|'group', subject_name — username или CN."""
+    """Старые строки доступа. На вход и видимость не влияют."""
 
     __tablename__ = "sector_access"
     __table_args__ = (

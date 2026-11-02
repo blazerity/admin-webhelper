@@ -15,7 +15,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.authz import accessible_sector_ids
 from app.extensions import db
 from app.models import Device, DeviceAccountHistory, EndpointAccount, SessionType
 from app.utils import as_utc, ilike_pattern, utcnow
@@ -212,7 +211,7 @@ def list_visible_accounts(
     per_page: int = 50,
     limit: int | None = None,
 ) -> dict:
-    """УЗ на доступных устройствах. ``{items, total, page, per_page}``.
+    """УЗ на устройствах. ``{items, total, page, per_page}``.
 
     ``limit`` — совместимость (page=1, per_page=limit).
     """
@@ -224,17 +223,9 @@ def list_visible_accounts(
     page, per_page = normalize_page(page, per_page)
 
     empty = {"items": [], "total": 0, "page": page, "per_page": per_page}
+    if user is None or not getattr(user, "is_authenticated", False):
+        return empty
     stmt = select(EndpointAccount)
-    if not user.is_admin:
-        sector_ids = accessible_sector_ids(user)
-        if not sector_ids:
-            return empty
-        stmt = (
-            stmt.join(DeviceAccountHistory, DeviceAccountHistory.account_id == EndpointAccount.id)
-            .join(Device, Device.id == DeviceAccountHistory.device_id)
-            .where(Device.sector_id.in_(sector_ids))
-            .distinct()
-        )
     if text:
         pattern = ilike_pattern(text)
         stmt = stmt.where(
@@ -267,41 +258,20 @@ def get_visible_account_or_404(user, account_id: int) -> EndpointAccount:
     from flask import abort
 
     account = db.session.get(EndpointAccount, account_id)
-    if account is None:
+    if account is None or user is None or not getattr(user, "is_authenticated", False):
         abort(404)
-    if user.is_admin:
-        return account
-    sector_ids = accessible_sector_ids(user)
-    if not sector_ids:
-        abort(403)
-    seen = db.session.scalar(
-        select(DeviceAccountHistory.id)
-        .join(Device, Device.id == DeviceAccountHistory.device_id)
-        .where(
-            DeviceAccountHistory.account_id == account.id,
-            Device.sector_id.in_(sector_ids),
-        )
-        .limit(1)
-    )
-    if seen is None:
-        abort(403)
     return account
 
 
 def count_account_device_sightings(account: EndpointAccount, user) -> int:
-    """Сколько появлений УЗ видно пользователю (для превью 5 + «Показать все»)."""
+    """Сколько появлений УЗ записано (для превью 5 + «Показать все»)."""
+    if user is None or not getattr(user, "is_authenticated", False):
+        return 0
     stmt = (
         select(func.count())
         .select_from(DeviceAccountHistory)
         .where(DeviceAccountHistory.account_id == account.id)
     )
-    if not user.is_admin:
-        sector_ids = accessible_sector_ids(user)
-        if not sector_ids:
-            return 0
-        stmt = stmt.join(Device, Device.id == DeviceAccountHistory.device_id).where(
-            Device.sector_id.in_(sector_ids)
-        )
     return int(db.session.scalar(stmt) or 0)
 
 
@@ -312,9 +282,11 @@ def account_device_sightings(
     limit: int = 50,
     offset: int = 0,
 ) -> list[DeviceAccountHistory]:
-    """История появлений УЗ на устройствах, видимых пользователю."""
+    """История появлений УЗ на устройствах."""
     limit = max(1, min(200, int(limit)))
     offset = max(0, int(offset or 0))
+    if user is None or not getattr(user, "is_authenticated", False):
+        return []
     stmt = (
         select(DeviceAccountHistory)
         .options(
@@ -323,29 +295,19 @@ def account_device_sightings(
         .where(DeviceAccountHistory.account_id == account.id)
         .order_by(DeviceAccountHistory.seen_at.desc(), DeviceAccountHistory.id.desc())
     )
-    if not user.is_admin:
-        sector_ids = accessible_sector_ids(user)
-        if not sector_ids:
-            return []
-        stmt = stmt.join(Device, Device.id == DeviceAccountHistory.device_id).where(
-            Device.sector_id.in_(sector_ids)
-        )
     return list(db.session.scalars(stmt.offset(offset).limit(limit)).all())
 
 
 def account_current_devices(account: EndpointAccount, user) -> list[Device]:
     """Устройства, где эта УЗ сейчас current_account."""
+    if user is None or not getattr(user, "is_authenticated", False):
+        return []
     stmt = (
         select(Device)
         .options(selectinload(Device.sector))
         .where(Device.current_account_id == account.id)
         .order_by(Device.hostname, Device.ip)
     )
-    if not user.is_admin:
-        sector_ids = accessible_sector_ids(user)
-        if not sector_ids:
-            return []
-        stmt = stmt.where(Device.sector_id.in_(sector_ids))
     return list(db.session.scalars(stmt).all())
 
 

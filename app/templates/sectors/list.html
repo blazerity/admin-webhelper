@@ -4,25 +4,23 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Сектора</h1>
-    <p class="page-subtitle">Диапазоны сети и доступ сотрудников</p>
+    <p class="page-subtitle">Диапазоны сети</p>
   </div>
-  {% if current_user.is_admin %}
   <a class="btn btn-primary" href="{{ url_for('sectors.new_sector') }}">Новый сектор</a>
-  {% endif %}
 </div>
 <div class="panel content-card p-0 overflow-hidden">
   <div class="table-responsive">
     <table class="table">
-      <thead><tr><th>Название</th><th class="text-end">Диап.</th>{% if current_user.is_admin %}<th class="text-end">Действия</th>{% endif %}</tr></thead>
+      <thead><tr><th>Название</th><th class="text-end">Диап.</th><th class="text-end">Действия</th></tr></thead>
       <tbody>
       {% for sector in sectors %}
         <tr>
           <td class="text-break"><a href="{{ url_for('sectors.detail', sector_id=sector.id) }}">{{ sector.name }}</a></td>
           <td class="text-end text-nowrap">{{ sector.ranges|length }}</td>
-          {% if current_user.is_admin %}<td class="text-end text-nowrap"><a href="{{ url_for('sectors.edit_sector', sector_id=sector.id) }}">Изменить</a></td>{% endif %}
+          <td class="text-end text-nowrap"><a href="{{ url_for('sectors.edit_sector', sector_id=sector.id) }}">Изменить</a></td>
         </tr>
       {% else %}
-        <tr><td colspan="{{ 3 if current_user.is_admin else 2 }}" class="text-muted">Секторов нет.</td></tr>
+        <tr><td colspan="3" class="text-muted">Секторов нет.</td></tr>
       {% endfor %}
       </tbody>
     </table>

@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v2.0)
+# Архитектура bAWH (актуально для v2.1)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.0` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.1` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -42,7 +42,7 @@ HTTP / CLI / scheduler
 | Сервисы | `app/services/` | Вся логика: опрос, LDAP, WMI, PsExec, УЗ, экспорт. Вызываются из веба, планировщика и CLI. |
 | Модели | `app/models/` | Таблицы SQLAlchemy. Без HTML и сетевых вызовов. |
 | Схема БД | `app/schema.py` | `ensure_schema()`: `create_all` для недостающих таблиц + seed `action_kinds` + идемпотентные data-fix (флаг в `app_settings`). |
-| Authz | `app/authz.py` | Единственное место ACL секторов/устройств/script_runs и ролей. |
+| Authz | `app/authz.py` | Вошедший видит всё. Отдельных ролей и ACL секторов нет. |
 | Утилиты | `app/utils.py` | `utcnow` / `as_utc` / `ilike_pattern` / `clip` / пагинация. |
 
 **Инвариант:** маршрут не делает side-effect сеть/LDAP; сервис не рендерит HTML.
@@ -288,8 +288,8 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 
 | Модель | Таблица | Файл | Назначение |
 | --- | --- | --- | --- |
-| `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Операторы сайта после LDAP. Флаги: `is_admin`, `is_viewer`, `is_operator`, `is_password_viewer`. Группы — для `sector_access`. |
-| `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR) и ACL (subject = username или LDAP group CN). |
+| `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Люди после LDAP. Успешный вход ставит `is_admin=True` и сбрасывает старые флаги `is_viewer` / `is_operator` / `is_password_viewer`. Группы — снимок memberOf, на права не влияют. |
+| `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR). `sector_access` в схеме остаётся и больше не фильтрует карту. |
 | `Device`, `DeviceAddress`, `DeviceHistory` | `devices`, `device_addresses`, `device_history` | `device.py` | Машины + адреса интерфейсов + журнал опросов. Идентичность: **только** `serial_number` (WMI инвентаря сети). `hostname` — отображение, не ключ. `devices.ip` — основной (последний онлайн); `device_addresses` — все виденные IP/MAC (Wi‑Fi + Ethernet). Без SN — заглушка на текущем IP. Снимок железа (CPU/ОЗУ/диск/ОС, `bad_id`) пишет только кнопка на карточке через lookup bAD. `device_id` в таблицу не кладётся. |
 | `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов ICMP-опроса. |
 | `HardwarePollRun`, `DeviceHardwareHistory` | `hardware_poll_runs`, `device_hardware_history` | `hardware.py` | Замок одного прогона кнопки «Опросить сейчас» и история смены CPU/ОЗУ/дисков/ОС. Страницы журнала прогонов нет. |
@@ -352,7 +352,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Модуль | Роль |
 | --- | --- |
-| `ldap_service.py` | bind/search, mapping LDAP-групп → роли, `upsert_local_user` |
+| `ldap_service.py` | bind/search, допуск по `LDAP_ADMIN_GROUP`, `upsert_local_user` |
 | `crypto_service.py` | Fernet `encrypt` / `decrypt` |
 | `credential_service.py` | `get_remote_admin_credentials`, `save_remote_admin_credentials`, `remember_login_password` |
 | `settings_service.py` | интервал опроса, WMI creds, update-sudo в `app_settings` |
@@ -424,13 +424,13 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/` | Карта сети |
 | GET | `/map/status` | JSON статуса карты |
 | POST | `/api/map/bulk/ping` | Bulk ping (нужны права diagnostics) |
-| POST | `/api/map/bulk/script` | Bulk script (operator + published) |
+| POST | `/api/map/bulk/script` | Bulk script (любой вошедший, любой скрипт) |
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
-| GET | `/api/command-presets` | Пресеты (**admin**) |
+| GET | `/api/command-presets` | Пресеты (вошедший) |
 | GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа, иконка VNC. Учётные записи — история. Команды — запуск и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
 | GET | `/devices/<id>/vnc` | Экспериментальный noVNC: билет 90 с, цель только `Device.ip` + порт 5900–5999 |
-| POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD (**admin**). Без связи «подключено» WMI железа не вызывается |
+| POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. Без связи «подключено» WMI железа не вызывается |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
 ### Diagnostics — `diagnostics.py`
@@ -440,11 +440,11 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | POST | `/devices/<id>/check` | diagnostics — быстрый ICMP → `device_history` + обновление статуса |
 | POST | `/devices/<id>/ping` | diagnostics — diagnostic run в `script_runs` |
 | POST | `/devices/<id>/tracert` | diagnostics |
-| POST | `/devices/<id>/command` | **admin** |
+| POST | `/devices/<id>/command` | вошедший |
 
 ### Sectors — prefix `/admin/sectors`
 
-CRUD: list, new, create, detail, edit, update, delete (mutating — `admin_required`). Старый `/sectors/…` → 308.
+CRUD: list, new, create, detail, edit, update, delete (mutating — `admin_required`, то есть любой вошедший). Старый `/sectors/…` → 308. Форма сектора — имя и CIDR, без списка пользователей и групп.
 
 ### Search — `search.py`
 
@@ -454,20 +454,20 @@ CRUD: list, new, create, detail, edit, update, delete (mutating — `admin_requi
 
 ### Scripts — prefix `/admin/scripts`
 
-CRUD (admin); list/run (operator + `is_published`); `/runs/<id>`, `/status`, cancel, close-session.
+CRUD, список и запуск — любой вошедший. Флаг `is_published` в таблице остаётся и никого не скрывает. `/runs/<id>`, `/status`, cancel, close-session.
 `GET /batches` — история пачек (`list_batch_summaries`: новые сверху, `?open=1` только живые, `?device=` фильтр карточки).
 `GET /batches/<batch_id>` — прогресс одной пачки. Несколько машин из формы скрипта открывают пачку, а не первый журнал.
 Старый `/scripts/…` → 308.
 
 ### Accounts — prefix `/admin/accounts`
 
-List, `export.csv`, detail (только видимые по ACL). Старый `/accounts/…` → 308.
+List, `export.csv`, detail (все учётки). Старый `/accounts/…` → 308.
 
 ### Actions — prefix `/admin/actions`
 
 Лента + `export.csv`. Старый `/actions/…` → 308.
 
-### Admin — prefix `/admin` (всё `admin_required`)
+### Admin — prefix `/admin` (всё `admin_required` = вошедший)
 
 | Method | Path | Примечание |
 | --- | --- | --- |
@@ -484,12 +484,12 @@ List, `export.csv`, detail (только видимые по ACL). Старый 
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| GET | `/` | `password_viewer` |
-| POST | `/toggle` | admin — тумблер рассылки + ensure `bawh-password-reports` |
-| POST | `/vacation-toggle`, `/vacation-run` | admin — cron и ручной разбор писем об отпуске |
-| GET/POST | `/settings` | admin — bind LDAP |
-| GET/POST | `/report-settings` | admin — пороги, cron, ящик IMAP и срок отпуска |
-| POST | `/run`, `/pause`, `/notify` | admin |
+| GET | `/` | вошедший |
+| POST | `/toggle` | тумблер рассылки + ensure `bawh-password-reports` |
+| POST | `/vacation-toggle`, `/vacation-run` | cron и ручной разбор писем об отпуске |
+| GET/POST | `/settings` | 308 на `/admin/settings/ldap` |
+| GET/POST | `/report-settings` | 308 на `/admin/settings/passwords` |
+| POST | `/run`, `/pause`, `/notify` | вошедший |
 
 ### Login services — `login_services.py`
 
@@ -512,7 +512,8 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 
 ### Вход
 
-`POST /login` → `ldap_service.authenticate` → `upsert_local_user` (роли + группы) →
+`POST /login` → `ldap_service.authenticate` (группа `LDAP_ADMIN_GROUP`, пустая — любой bind) →
+`upsert_local_user` (`is_admin=True`, старые флаги ролей в False) →
 опционально `remember_login_password` (Fernet) → `login_user` → cookie-сессия.
 
 ### Сессия / CSRF
@@ -523,24 +524,18 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 
 ### Authz (`app/authz.py`)
 
-| Роль | LDAP env | Флаг `User` | Смысл |
-| --- | --- | --- | --- |
-| `admin` | `LDAP_ADMIN_GROUP` | `is_admin` | Всё (`user_has_role` считает admin обладателем любой роли) |
-| `viewer` | `LDAP_VIEWER_GROUP` | `is_viewer` | Чтение карты/устройств в рамках `sector_access`; **без** ping/скриптов |
-| `operator` | `LDAP_OPERATOR_GROUP` | `is_operator` | Ping/tracert + веб-VNC + запуск **опубликованных** скриптов; CRUD скриптов — только admin |
-| `password_viewer` | `LDAP_PASSWORD_VIEWER_GROUP` | `is_password_viewer` | Отчёт паролей AD; SMTP/settings — admin |
+Ролей нет. Единственная настройка доступа — `LDAP_ADMIN_GROUP` (CN, сравнение без регистра).
 
-Базовые правила:
+- Группа задана: вход только если CN есть в `memberOf`.
+- Группа пустая: любой успешный bind.
+- Вошедший видит все сектора, устройства, скрипты, пачки, учётные записи, аудит и отчёт паролей и может запускать команды, ping, tracert, скрипты и VNC (если тумблер VNC включён).
+- `admin_required` означает «вошёл». Колонки `is_viewer`, `is_operator`, `is_password_viewer` и таблица `sector_access` в базе остаются, решения по ним не принимаются.
+- Проверка на маршруте остаётся: анонимный запрос не проходит `@login_required`.
 
-- Admin видит всё.
-- Non-admin: сектора/устройства по `sector_access` (username или CN группы из `user_ldap_groups`).
-- `script_runs`: admin, автор, или доступное устройство; orphan без автора скрыт (`user_can_see_script_run`).
-- UI-скрытие меню **не** защита: каждый mutating endpoint проверяет на сервере.
-
-Хелперы: `admin_required`, `user_has_role`, `user_can_run_scripts`, `user_can_run_script`,
-`user_can_run_diagnostics`, `user_can_connect_vnc` (как диагностика), `user_can_view_password_expiry`, `accessible_sector_ids`,
-`user_can_access_device`, `get_visible_device_or_404`, `filter_accessible_devices`,
-`user_can_see_script_run`.
+Хелперы: `admin_required`, `user_can_run_scripts`, `user_can_run_script`,
+`user_can_run_diagnostics`, `user_can_connect_vnc`, `user_can_view_password_expiry`,
+`accessible_sectors`, `accessible_sector_ids`, `user_can_access_device`,
+`get_visible_device_or_404`, `filter_accessible_devices`, `user_can_see_script_run`.
 
 ### Секреты
 
@@ -886,4 +881,4 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 ---
 
-*Обновляйте этот файл при смене слоёв, схемы БД, новых blueprints/сервисов/ролей или инвариантов домена.*
+*Обновляйте этот файл при смене слоёв, схемы БД, новых blueprints/сервисов или инвариантов домена.*

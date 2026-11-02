@@ -321,7 +321,7 @@ def bulk_ping():
 @bp.post("/api/map/bulk/script")
 @login_required
 def bulk_script():
-    """Массовый запуск скрипта библиотеки (user_can_run_scripts + ACL скрипта)."""
+    """Массовый запуск скрипта библиотеки."""
     if not user_can_run_scripts(current_user):
         abort(403)
 
