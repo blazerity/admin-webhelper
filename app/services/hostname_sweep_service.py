@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
@@ -27,6 +26,7 @@ from sqlalchemy import select
 from app.extensions import db
 from app.models import Device, DeviceStatus
 from app.services import discovery_service
+from app.services.device_sweep import DeviceSweepTarget, map_pool
 from app.services.ping_service import ping_host
 
 logger = logging.getLogger(__name__)
@@ -74,14 +74,6 @@ class HostnameSweepResult:
             "dry_run": self.dry_run,
             "changes": len(self.changes),
         }
-
-
-@dataclass(frozen=True)
-class _Target:
-    device_id: int
-    ip: str
-    hostname: str | None
-    serial_number: str | None
 
 
 @dataclass
@@ -262,20 +254,22 @@ def _load_targets(
     *,
     limit: int | None,
     device_ids: list[int] | tuple[int, ...] | None,
-) -> list[_Target]:
+) -> list[DeviceSweepTarget]:
+    # LIMIT в SQL — до отбрасывания пустого IP. У опроса железа лимит
+    # считается после фильтра Windows, поэтому загрузчики не общие.
     stmt = select(Device).order_by(Device.id)
     if device_ids:
         stmt = stmt.where(Device.id.in_(list(device_ids)))
     if limit is not None:
         stmt = stmt.limit(max(0, int(limit)))
     rows = list(db.session.scalars(stmt))
-    targets: list[_Target] = []
+    targets: list[DeviceSweepTarget] = []
     for row in rows:
         ip = (row.ip or "").strip()
         if not ip:
             continue
         targets.append(
-            _Target(
+            DeviceSweepTarget(
                 device_id=row.id,
                 ip=ip,
                 hostname=row.hostname,
@@ -286,24 +280,20 @@ def _load_targets(
 
 
 def _probe_targets(
-    targets: list[_Target],
+    targets: list[DeviceSweepTarget],
     creds: discovery_service.DiscoveryCredentials,
 ) -> list[_Probe]:
-    probes: list[_Probe] = []
-    with ThreadPoolExecutor(max_workers=_SWEEP_WORKERS) as pool:
-        futures = [
-            pool.submit(_probe_one, target, creds) for target in targets
-        ]
-        for future in futures:
-            try:
-                probes.append(future.result())
-            except Exception:
-                logger.exception("Рабочий поток обновления имён завершился с ошибкой")
-    return probes
+    return map_pool(
+        targets,
+        lambda target: _probe_one(target, creds),
+        workers=_SWEEP_WORKERS,
+        failure="Рабочий поток обновления имён завершился с ошибкой",
+        log=logger,
+    )
 
 
 def _probe_one(
-    target: _Target,
+    target: DeviceSweepTarget,
     creds: discovery_service.DiscoveryCredentials,
 ) -> _Probe:
     """Только сеть. Сессию SQLAlchemy сюда не передаём."""

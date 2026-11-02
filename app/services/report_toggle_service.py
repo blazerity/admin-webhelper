@@ -34,10 +34,6 @@ class ReportToggleResult:
     scheduler_action: str = ""
 
 
-def unit_status(unit: str) -> UnitStatus:
-    return get_unit_status(unit)
-
-
 def password_reports_status() -> UnitStatus:
     return get_unit_status(PASSWORD_REPORTS_UNIT)
 
@@ -51,7 +47,7 @@ def apply_report_toggle(
 ) -> ReportToggleResult:
     """Сохранить флаг расписания и поднять/остановить службу модуля.
 
-    set_enabled(bool) — колбэк модуля (password / sector report), пишет app_settings.
+    set_enabled(bool) — колбэк модуля паролей, пишет app_settings.
     Выключение тумблера останавливает только службу этого отчёта —
     опрос сети (bawh-scheduler) не трогаем.
     """

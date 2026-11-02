@@ -44,7 +44,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
@@ -52,7 +52,8 @@ from app.models import Device, DeviceHistory, DeviceStatus, NetworkPollRun, Sect
 from app.services import discovery_service, fingerprint_service
 from app.services.device_kind import needs_fingerprint
 from app.services.net_utils import NetworkInputError, assert_public_ipv4, expand_ranges
-from app.utils import as_utc, utcnow
+from app.services.run_journal import close_stale_runs, count_rows, load_recent_by_id, unfinished_run
+from app.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -351,7 +352,7 @@ def poll_all_sectors() -> dict[str, int]:
 
 def count_poll_runs() -> int:
     """Число записей в network_poll_runs."""
-    return int(db.session.scalar(select(func.count()).select_from(NetworkPollRun)) or 0)
+    return count_rows(NetworkPollRun)
 
 
 def load_recent_poll_runs(
@@ -363,16 +364,7 @@ def load_recent_poll_runs(
 
     offset — для пагинации на странице настроек (CSV по-прежнему берёт limit).
     """
-    limit = max(1, min(200, int(limit)))
-    offset = max(0, int(offset or 0))
-    return list(
-        db.session.scalars(
-            select(NetworkPollRun)
-            .order_by(NetworkPollRun.id.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-    )
+    return load_recent_by_id(NetworkPollRun, limit, offset=offset)
 
 
 def run_network_poll(*, mode: str = "scheduled") -> dict[str, int]:
@@ -385,8 +377,13 @@ def run_network_poll(*, mode: str = "scheduled") -> dict[str, int]:
     started = utcnow()
     run: NetworkPollRun | None = None
     try:
-        _close_stale_poll_runs(started)
-        active = _active_poll_run(started)
+        close_stale_runs(
+            NetworkPollRun,
+            started,
+            _STALE_POLL_AFTER,
+            message="Прогон прерван (устаревший незавершённый запуск).",
+        )
+        active = unfinished_run(NetworkPollRun, started, _STALE_POLL_AFTER)
         if active is not None:
             raise PollInProgressError(
                 "Опрос сети уже выполняется (другой процесс)."
@@ -412,36 +409,6 @@ def run_network_poll(*, mode: str = "scheduled") -> dict[str, int]:
         return stats
     finally:
         _poll_run_lock.release()
-
-
-def _active_poll_run(now) -> NetworkPollRun | None:
-    """Незавершённый прогон младше порога устаревания."""
-    cutoff = as_utc(now) - _STALE_POLL_AFTER
-    return db.session.scalars(
-        select(NetworkPollRun)
-        .where(NetworkPollRun.finished_at.is_(None))
-        .where(NetworkPollRun.started_at >= cutoff)
-        .order_by(NetworkPollRun.id.desc())
-        .limit(1)
-    ).first()
-
-
-def _close_stale_poll_runs(now) -> None:
-    """Пометить зависшие прогоны (процесс убит) как завершённые с ошибкой."""
-    cutoff = as_utc(now) - _STALE_POLL_AFTER
-    stale = list(
-        db.session.scalars(
-            select(NetworkPollRun)
-            .where(NetworkPollRun.finished_at.is_(None))
-            .where(NetworkPollRun.started_at < cutoff)
-        )
-    )
-    if not stale:
-        return
-    for row in stale:
-        row.finished_at = now
-        row.error = row.error or "Прогон прерван (устаревший незавершённый запуск)."
-    db.session.commit()
 
 
 def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:

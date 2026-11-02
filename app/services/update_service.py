@@ -1000,24 +1000,6 @@ def _ensure_report_units_for_enabled_schedules() -> None:
         logger.exception("vnc unit after update failed")
 
 
-def restart_command(systemctl: str, sudo_user: str = "", *, with_password: bool = False) -> list[str]:
-    """Команда перезапуска служб — делегат в systemd_service."""
-    from app.services.systemd_service import restart_command as _restart_command
-
-    return _restart_command(systemctl, sudo_user, with_password=with_password)
-
-
-def run_service_restart(
-    systemctl: str,
-    sudo_user: str = "",
-    sudo_password: str = "",
-) -> subprocess.CompletedProcess:
-    """Перезапускает службы: с паролем через su -P, иначе sudo -n."""
-    from app.services.systemd_service import run_service_restart as _run
-
-    return _run(systemctl, sudo_user, sudo_password)
-
-
 def iter_managed(root: Path):
     root = root.resolve()
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
