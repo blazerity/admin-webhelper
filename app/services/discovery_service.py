@@ -130,6 +130,8 @@ class BadAgentProbe:
     service_present: bool = False
     machine_guid: str | None = None
     wmi_failed: bool = False
+    # Короткая причина сбоя WMI. Без текста исключения и без учётки.
+    detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -429,9 +431,13 @@ def _wmi_hardware(ip: str, creds: DiscoveryCredentials) -> WmiHardware:
 
 def _read_badagent(ip: str, creds: DiscoveryCredentials) -> BadAgentProbe:
     """Один DCOM: только Win32_Service и, при успехе, MachineGuid."""
+    try:
+        import impacket.dcerpc.v5.dcom.wmi  # noqa: F401
+    except ImportError:
+        return BadAgentProbe(wmi_failed=True, detail="нет пакета удалённого WMI")
     dcom, services = _wmi_open(ip, creds)
     if services is None:
-        return BadAgentProbe(wmi_failed=True)
+        return BadAgentProbe(wmi_failed=True, detail="DCOM не открылся")
     try:
         if not _wmi_service_present(services, _BAD_AGENT_SERVICE):
             return BadAgentProbe(service_present=False)
@@ -440,8 +446,8 @@ def _read_badagent(ip: str, creds: DiscoveryCredentials) -> BadAgentProbe:
             machine_guid=_read_machine_guid(dcom),
         )
     except Exception as exc:
-        logger.debug("badagent: %s — %s", ip, exc)
-        return BadAgentProbe(wmi_failed=True)
+        logger.debug("badagent: %s — %s", ip, type(exc).__name__)
+        return BadAgentProbe(wmi_failed=True, detail="запрос службы упал")
     finally:
         _wmi_close(dcom, services)
 
