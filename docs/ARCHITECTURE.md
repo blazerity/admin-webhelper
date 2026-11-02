@@ -191,9 +191,8 @@ def ensure_schema() -> None:
     # 1) если в metadata есть таблицы, которых нет в БД → db.create_all()
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
     # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
-    # 4) ветка обновлений beta, если ещё не выбирали (data_fix.update_branch_beta_v167)
-    # 5) скрипт TightVNC (удаление) в библиотеке (data_fix.seed_tightvnc_script_v176)
-    # 6) если action_kinds пуст → seed_action_kinds() + commit
+    # 4) скрипт TightVNC (удаление) в библиотеке (data_fix.seed_tightvnc_script_v176)
+    # 5) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
 Вызывается при каждом старте `create_app` (web и scheduler).  
@@ -655,8 +654,7 @@ ICMP-опрос сети **не** трогает эти поля.
 
 Admin UI → `update_service` (фоновый поток + `app.app_context()`).
 Ветка: `app_settings.update_git_branch` (список через `git ls-remote --heads`),
-иначе `GIT_BRANCH`. Хотфикс 1.6.7 при первом старте ставит `beta`, если
-ключ ещё пустой. Дальше:
+иначе `GIT_BRANCH`. Пустой выбор старт не заполняет. Дальше:
 backup → git → pip → `flask init-db` → опциональный restart
 `bawh-web` + `bawh-scheduler` + при включённых тумблерах
 `bawh-password-reports` / `bawh-pc-reports` (sudo-учётка из Настройки → Общие / sudoers).
