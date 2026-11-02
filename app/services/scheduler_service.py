@@ -67,7 +67,9 @@ PASSWORD_REFRESH_JOB_ID = "password-expiry-refresh"
 SECTOR_DAILY_JOB_ID = "sector-daily-report"
 SECTOR_REFRESH_JOB_ID = "sector-daily-refresh"
 HARDWARE_POLL_JOB_ID = "hardware-poll"
-# Как часто подхватывать cron/тумблер из БД без перезапуска процесса.
+BAD_INTEGRATION_JOB_ID = "bad-integration-poll"
+# Как часто подхватывать cron/тумблер из БД без перезапуска процесса
+# и проверять заявку bAD, пока она не подтверждена.
 _REPORT_REFRESH_SECONDS = 30
 
 
@@ -239,7 +241,7 @@ def register_commands(app) -> None:
         @click.option(
             "--dry-run",
             is_flag=True,
-            help="Спросить WMI, не писать в БД.",
+            help="Спросить bAD, не писать в БД.",
         )
         @click.option(
             "--limit",
@@ -257,7 +259,7 @@ def register_commands(app) -> None:
         def hardware_poll_cmd(
             dry_run: bool, limit: int | None, device_ids: tuple[int, ...]
         ) -> None:
-            """Опросить CPU / ОЗУ / диски / версию Windows по WMI."""
+            """Опросить CPU / ОЗУ / диски / версию Windows через lookup bAD."""
             with app.app_context():
                 try:
                     result = run_hardware_poll(
@@ -337,6 +339,17 @@ def start_scheduler(app) -> BackgroundScheduler:
             except Exception:
                 logger.exception("Не удалось архивировать логи")
 
+    def bad_integration_job() -> None:
+        with app.app_context():
+            try:
+                from app.services.bad_integration import poll_pending_request
+
+                poll_pending_request()
+            except Exception:
+                logger.exception("bAD: не удалось проверить заявку")
+            finally:
+                db.session.remove()
+
     def hardware_poll_job() -> None:
         with app.app_context():
             try:
@@ -374,6 +387,15 @@ def start_scheduler(app) -> BackgroundScheduler:
         "interval",
         seconds=scheduled_for["seconds"],
         id=JOB_ID,
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        bad_integration_job,
+        "interval",
+        seconds=_REPORT_REFRESH_SECONDS,
+        id=BAD_INTEGRATION_JOB_ID,
         max_instances=1,
         coalesce=True,
         replace_existing=True,

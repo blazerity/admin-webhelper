@@ -19,10 +19,12 @@
   (шифротекст в app_settings), иначе DISCOVERY_* в .env. Без неё
   возвращаем пустой инвентарь; идентичность без серийника — только
   заглушка по текущему IP, не по PTR-имени. MAC — только из ARP.
-* Железо по WMI (lookup_wmi_hardware) — отдельный ежедневный опрос,
-  не ICMP: Win32_Processor, сумма Win32_PhysicalMemory.Capacity
-  (запасной — TotalPhysicalMemory), Win32_DiskDrive,
-  Win32_OperatingSystem + DisplayVersion из реестра (StdRegProv).
+* Служба badagent и MachineGuid (lookup_badagent) — для связи с bAD.
+  Если службы нет, реестр не читаем. Файл config.json агента не открываем.
+  Процессор, память, диски и версию Windows опрос железа больше не берёт
+  по WMI: их приносит lookup bAD.
+* Железо по WMI (lookup_wmi_hardware) — прежний разбор CPU / ОЗУ / дисков / ОС.
+  Планировщик и кнопка опроса железа его не вызывают.
 
 Scapy здесь не используем. Ему нужен захват пакетов и дополнительные
 права (raw socket / Npcap). Для первой версии достаточно прочитать
@@ -74,6 +76,8 @@ _WMI_HARDWARE_TIMEOUT_S = 20
 
 _HKLM = 0x80000002
 _WINNT_CURRENT_VERSION = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+_MACHINE_GUID_KEY = r"SOFTWARE\Microsoft\Cryptography"
+_BAD_AGENT_SERVICE = "badagent"
 _REMOVABLE_DISK_IFACES = {"USB", "1394"}
 
 # Заглушки BIOS/OEM, которые нельзя считать service tag.
@@ -114,6 +118,18 @@ class WmiInventory:
     hostname: str | None = None
     # Win32_ComputerSystem.UserName: DOMAIN\user или пусто.
     logged_on_user: str | None = None
+
+
+@dataclass(frozen=True)
+class BadAgentProbe:
+    """Служба badagent и MachineGuid. Железо сюда не входит.
+
+    machine_guid живёт только в памяти вызова lookup. На карточку его не пишем.
+    """
+
+    service_present: bool = False
+    machine_guid: str | None = None
+    wmi_failed: bool = False
 
 
 @dataclass(frozen=True)
@@ -219,6 +235,25 @@ def lookup_wmi_inventory(
 def lookup_serial(ip: str) -> str | None:
     """Только серийник. Для полного опроса предпочтительнее lookup_wmi_inventory."""
     return lookup_wmi_inventory(ip).serial_number
+
+
+def lookup_badagent(
+    ip: str,
+    creds: DiscoveryCredentials | None = None,
+) -> BadAgentProbe:
+    """Проверить службу badagent и, если она есть, прочитать MachineGuid.
+
+    Регистр не меняем. ``%ProgramData%\\blazerity\\bAD\\config.json`` не читаем:
+    там ключ агента. Без службы реестр не открываем и WMI железа не вызываем.
+    """
+    ip = assert_public_ipv4(ip)
+    if creds is None:
+        creds = discovery_credentials()
+    if creds is None:
+        return BadAgentProbe(wmi_failed=True)
+    return _wmi_timed_call(
+        _read_badagent, ip, creds, _WMI_TIMEOUT_S, BadAgentProbe(wmi_failed=True)
+    )
 
 
 def lookup_wmi_hardware(
@@ -390,6 +425,56 @@ def _wmi_hardware(ip: str, creds: DiscoveryCredentials) -> WmiHardware:
         return WmiHardware()
     finally:
         _wmi_close(dcom, services)
+
+
+def _read_badagent(ip: str, creds: DiscoveryCredentials) -> BadAgentProbe:
+    """Один DCOM: только Win32_Service и, при успехе, MachineGuid."""
+    dcom, services = _wmi_open(ip, creds)
+    if services is None:
+        return BadAgentProbe(wmi_failed=True)
+    try:
+        if not _wmi_service_present(services, _BAD_AGENT_SERVICE):
+            return BadAgentProbe(service_present=False)
+        return BadAgentProbe(
+            service_present=True,
+            machine_guid=_read_machine_guid(dcom),
+        )
+    except Exception as exc:
+        logger.debug("badagent: %s — %s", ip, exc)
+        return BadAgentProbe(wmi_failed=True)
+    finally:
+        _wmi_close(dcom, services)
+
+
+def _wmi_service_present(services, name: str) -> bool:
+    """Служба установлена. Состояние (работает / остановлена) не важно."""
+    safe = name.replace("'", "")
+    enum_obj = services.ExecQuery(
+        f"SELECT Name FROM Win32_Service WHERE Name = '{safe}'"
+    )
+    try:
+        for props in _wmi_enum_properties(enum_obj):
+            found = _wmi_prop_text(props, "Name")
+            if found and found.lower() == name.lower():
+                return True
+    finally:
+        _wmi_release(enum_obj)
+    return False
+
+
+def _read_machine_guid(dcom) -> str | None:
+    """HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid. Только чтение."""
+    values = _wmi_reg_strings(dcom, _MACHINE_GUID_KEY, ("MachineGuid",))
+    return _clean_machine_guid(values[0] if values else None)
+
+
+def _clean_machine_guid(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if not text or len(text) > 128:
+        return None
+    if any(ord(ch) < 32 for ch in text):
+        return None
+    return text
 
 
 def _wmi_open(ip: str, creds: DiscoveryCredentials):

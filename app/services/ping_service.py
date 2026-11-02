@@ -356,10 +356,11 @@ def poll_all_sectors() -> dict[str, int]:
 
 
 def _poll_hardware_for_discovered(device_ids: list[int]) -> int:
-    """Сразу после появления карточки — опрос железа (SN/CPU/ОЗУ/диски/ОС).
+    """Сразу после появления карточки — lookup bAD (SN/CPU/ОЗУ/диски/ОС).
 
     Не ждём полуденный cron: иначе смена IP на следующий день до железа
     оставляет «пустую» карточку и плодит призраков.
+    Пока bAD не подключён, WMI железа вместо lookup не запускаем.
     """
     from app.services.hardware_poll_service import (
         HardwarePollError,

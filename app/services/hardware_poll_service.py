@@ -1,10 +1,17 @@
 """Ежедневный опрос конфигурации железа на Windows-машинах.
 
 Отдельный проход, не ICMP-опрос сети: берём уже известные устройства,
-которые похожи на Windows (WMI-серийник, имена n/w/v/серверы, fingerprint),
-пингуем, читаем WMI (CPU / ОЗУ / диски / версия ОС **и серийник**) и пишем
-снимок только если зонд — та же машина. Короткий DHCP/VPN-lease не должен
-переносить железо чужого ПК на карточку с устаревшим IP.
+которые похожи на Windows (серийник, имена n/w/v/серверы, fingerprint),
+пингуем и спрашиваем bAD. Процессор, память, диски и версию Windows
+из WMI больше не читаем — их приносит lookup.
+
+На машине той же учёткой, что ходила в WMI, проверяем службу badagent.
+Службы нет — новый снимок не пишем. Служба есть — читаем MachineGuid
+и POST /v1/integrations/lookup. На карточку кладём bad_id из ответа.
+Серийник снимка bAD остаётся паспортом: чужой ПК на том же IP снимок не получает.
+
+Пока связь с bAD не «подключено», проход не стартует и старый WMI-опрос
+железа не подменяет lookup.
 
 Планировщик: cron из app_settings, по умолчанию полдень локального TZ.
 """
@@ -23,7 +30,7 @@ from app.extensions import db
 from app.models import Device, DeviceHardwareHistory, DeviceStatus, HardwarePollRun
 from app.services import discovery_service
 from app.services.device_kind import KIND_DESKTOP, KIND_NOTEBOOK, KIND_SERVER, KIND_VDS
-from app.services.hardware_info import HardwareSnapshot, build_hardware_snapshot
+from app.services.hardware_info import HardwareSnapshot
 from app.services.ping_service import ping_host
 from app.utils import as_utc, utcnow
 
@@ -38,7 +45,7 @@ _MAX_STORED_CHANGES = 200
 
 
 class HardwarePollError(RuntimeError):
-    """Проход нельзя начать (нет учётки WMI)."""
+    """Проход нельзя начать (нет связи с bAD или учётки WMI)."""
 
 
 class HardwarePollInProgressError(RuntimeError):
@@ -66,6 +73,8 @@ class HardwarePollResult:
     skipped: int = 0
     mismatched: int = 0
     no_wmi: int = 0
+    no_agent: int = 0
+    unregistered: int = 0
     errors: int = 0
     dry_run: bool = False
     mode: str = "scheduled"
@@ -82,6 +91,8 @@ class HardwarePollResult:
             "skipped": self.skipped,
             "mismatched": self.mismatched,
             "no_wmi": self.no_wmi,
+            "no_agent": self.no_agent,
+            "unregistered": self.unregistered,
             "errors": self.errors,
             "dry_run": self.dry_run,
             "mode": self.mode,
@@ -106,6 +117,10 @@ class _Probe:
     snapshot: HardwareSnapshot | None = None
     serial_number: str | None = None
     hostname: str | None = None
+    bad_id: str | None = None
+    no_agent: bool = False
+    unregistered: bool = False
+    revoked: bool = False
     error: str | None = None
 
 
@@ -262,10 +277,18 @@ def run_hardware_poll(
     run: HardwarePollRun | None = None
     result = HardwarePollResult(dry_run=dry_run, mode=mode or "scheduled")
     try:
+        from app.services.bad_integration import connected_credentials
+
+        bad_credentials = connected_credentials()
+        if bad_credentials is None:
+            raise HardwarePollError(
+                "Интеграция с bAD не подключена. Железо берём только из lookup, "
+                "когда связь в состоянии «подключено» (Настройки → Опросы железа)."
+            )
         creds = discovery_service.discovery_credentials()
         if creds is None:
             raise HardwarePollError(
-                "Учётка WMI не задана: железо не прочитать "
+                "Учётка WMI не задана: службу badagent не проверить "
                 "(Настройки → Опрос сети или DISCOVERY_* в .env)."
             )
 
@@ -281,7 +304,13 @@ def run_hardware_poll(
             db.session.commit()
 
         try:
-            _poll_targets(result, creds, limit=limit, device_ids=device_ids)
+            _poll_targets(
+                result,
+                creds,
+                bad_credentials=bad_credentials,
+                limit=limit,
+                device_ids=device_ids,
+            )
         except Exception as exc:  # noqa: BLE001
             result.error = str(exc)[:2000]
             result.errors += 1
@@ -311,13 +340,14 @@ def run_hardware_poll(
 
         logger.info(
             "Опрос железа: проверено %s, онлайн %s, собрано %s, изменено %s, "
-            "офлайн %s, без WMI %s, чужой IP %s, ошибок %s",
+            "офлайн %s, без агента %s, не в bAD %s, чужой IP %s, ошибок %s",
             result.scanned,
             result.online,
             result.collected,
             result.changed,
             result.offline,
-            result.no_wmi,
+            result.no_agent,
+            result.unregistered,
             result.mismatched,
             result.errors,
         )
@@ -353,18 +383,24 @@ def _poll_targets(
     result: HardwarePollResult,
     creds: discovery_service.DiscoveryCredentials,
     *,
+    bad_credentials: tuple[str, str],
     limit: int | None,
     device_ids: list[int] | tuple[int, ...] | None,
 ) -> None:
     targets = _load_targets(limit=limit, device_ids=device_ids)
     if not targets:
         return
-    probes = _probe_targets(targets, creds)
+    probes = _probe_targets(targets, creds, bad_credentials)
+    if any(item.revoked for item in probes):
+        from app.services.bad_integration import mark_revoked
+
+        mark_revoked()
     by_id = {item.device_id: item for item in probes}
     now = utcnow()
     allow_remap = not device_ids
 
-    pending: list[tuple[_Target, HardwareSnapshot, str | None, str | None]] = []
+    pending: list[tuple[_Target, HardwareSnapshot | None, str | None, str | None, str | None]] = []
+    unregistered_ids: list[int] = []
     for target in targets:
         result.scanned += 1
         probe = by_id.get(target.device_id)
@@ -378,13 +414,27 @@ def _poll_targets(
             result.offline += 1
             continue
         result.online += 1
+        if probe.no_agent:
+            result.no_agent += 1
+            continue
+        if probe.unregistered:
+            result.unregistered += 1
+            unregistered_ids.append(target.device_id)
+            continue
         snapshot = probe.snapshot
-        if snapshot is None or snapshot.is_empty:
+        if (snapshot is None or snapshot.is_empty) and not probe.bad_id:
             result.no_wmi += 1
             continue
-        pending.append((target, snapshot, probe.serial_number, probe.hostname))
+        pending.append(
+            (target, snapshot, probe.serial_number, probe.hostname, probe.bad_id)
+        )
+
+    if unregistered_ids and not result.dry_run:
+        _mark_unregistered(unregistered_ids)
 
     if not pending:
+        if unregistered_ids and not result.dry_run:
+            db.session.commit()
         return
 
     from app.services.device_identity_service import absorb_ghosts, upsert_device_address
@@ -392,7 +442,7 @@ def _poll_targets(
     target_ids = [item[0].device_id for item in pending]
     live_serials = {
         discovery_service.normalize_serial(serial)
-        for _, _, serial, _ in pending
+        for _, _, serial, _, _ in pending
         if discovery_service.normalize_serial(serial)
     }
     devices = {
@@ -409,7 +459,7 @@ def _poll_targets(
             if device.serial_number
         }
 
-    for target, snapshot, live_serial, live_hostname in pending:
+    for target, snapshot, live_serial, live_hostname, bad_id in pending:
         probed = devices.get(target.device_id)
         if probed is None:
             result.skipped += 1
@@ -442,16 +492,24 @@ def _poll_targets(
             device_id=owner.id,
             ip=target.ip,
             hostname=owner.hostname or live_hostname or target.hostname,
-            os_label=snapshot.os_label,
-            cpu_name=snapshot.cpu_name,
-            ram_gb=snapshot.ram_gb,
-            disk_gb=snapshot.disk_gb,
+            os_label=snapshot.os_label if snapshot is not None else "",
+            cpu_name=snapshot.cpu_name if snapshot is not None else None,
+            ram_gb=snapshot.ram_gb if snapshot is not None else None,
+            disk_gb=snapshot.disk_gb if snapshot is not None else None,
         )
         if result.dry_run:
             result.collected += 1
-            if owner.hardware_identity != snapshot.identity or owner.hardware_checked_at is None:
+            hardware_changed = (
+                snapshot is not None
+                and not snapshot.is_empty
+                and (
+                    owner.hardware_identity != snapshot.identity
+                    or owner.hardware_checked_at is None
+                )
+            )
+            if hardware_changed or (bad_id and owner.bad_id != bad_id):
                 result.changed += 1
-                if len(result.changes) < _MAX_STORED_CHANGES:
+                if len(result.changes) < _MAX_STORED_CHANGES and snapshot is not None:
                     result.changes.append(change)
             continue
 
@@ -477,7 +535,12 @@ def _poll_targets(
                 hostname=live_hostname,
                 hostname_trusted=bool(live_hostname),
             )
-        changed = apply_hardware_snapshot(owner, snapshot, collected_at=now)
+        bad_changed = bool(bad_id) and owner.bad_id != bad_id
+        if bad_id:
+            _assign_bad_id(owner, bad_id)
+        changed = bad_changed
+        if snapshot is not None and not snapshot.is_empty:
+            changed = apply_hardware_snapshot(owner, snapshot, collected_at=now) or changed
         result.collected += 1
         if changed:
             result.changed += 1
@@ -520,10 +583,13 @@ def _load_targets(
 def _probe_targets(
     targets: list[_Target],
     creds: discovery_service.DiscoveryCredentials,
+    bad_credentials: tuple[str, str],
 ) -> list[_Probe]:
     probes: list[_Probe] = []
     with ThreadPoolExecutor(max_workers=_SWEEP_WORKERS) as pool:
-        futures = [pool.submit(_probe_one, target, creds) for target in targets]
+        futures = [
+            pool.submit(_probe_one, target, creds, bad_credentials) for target in targets
+        ]
         for future in futures:
             try:
                 probes.append(future.result())
@@ -535,39 +601,119 @@ def _probe_targets(
 def _probe_one(
     target: _Target,
     creds: discovery_service.DiscoveryCredentials,
+    bad_credentials: tuple[str, str],
 ) -> _Probe:
-    """Только сеть. Сессию SQLAlchemy сюда не передаём."""
+    """Ping, служба badagent, lookup bAD. Сессию SQLAlchemy сюда не передаём.
+
+    WMI процессора, памяти, дисков и версии Windows не вызывается.
+    """
+    from app.services.bad_hardware import card_from_lookup
+    from app.services.bad_integration import lookup_with_credentials
+
     try:
         ping = ping_host(target.ip)
         if ping.status != DeviceStatus.ONLINE:
             return _Probe(device_id=target.device_id, ip=target.ip, online=False)
-        raw = discovery_service.lookup_wmi_hardware(target.ip, creds=creds)
-        snapshot = build_hardware_snapshot(
-            cpu_name=raw.cpu_name,
-            ram_bytes=raw.ram_bytes,
-            disk_bytes=raw.disk_bytes,
-            os_caption=raw.os_caption,
-            os_version=raw.os_version,
-            os_build=raw.os_build,
-            os_display_version=raw.os_display_version,
-            os_edition_id=raw.os_edition_id,
+        agent = discovery_service.lookup_badagent(target.ip, creds=creds)
+        if agent.wmi_failed:
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=True,
+                error="службу badagent не прочитали",
+            )
+        if not agent.service_present:
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=True,
+                no_agent=True,
+            )
+        if not agent.machine_guid:
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=True,
+                error="MachineGuid пустой",
+            )
+        looked = lookup_with_credentials(
+            bad_credentials[0], bad_credentials[1], agent.machine_guid
         )
+        if looked.error == "revoked" or looked.status == 401:
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=True,
+                revoked=True,
+                error="ключ интеграции не активен",
+            )
+        if looked.error == "not_connected":
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=True,
+                error="ключ интеграции не активен",
+            )
+        if looked.status == 404:
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=True,
+                unregistered=True,
+            )
+        if looked.status != 200 or not isinstance(looked.data, dict):
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=True,
+                error=f"lookup bAD: {looked.status or 'нет ответа'}",
+            )
+        card = card_from_lookup(looked.data)
+        if not card.bad_id and (card.snapshot is None or card.snapshot.is_empty):
+            return _Probe(
+                device_id=target.device_id,
+                ip=target.ip,
+                online=True,
+                error="в ответе lookup нет карточки",
+            )
         return _Probe(
             device_id=target.device_id,
             ip=target.ip,
             online=True,
-            snapshot=snapshot,
-            serial_number=raw.serial_number,
-            hostname=raw.hostname,
+            snapshot=card.snapshot,
+            serial_number=card.serial_number,
+            hostname=card.hostname,
+            bad_id=card.bad_id,
         )
     except Exception as exc:
-        logger.debug("hardware poll: %s — %s", target.ip, exc)
+        logger.debug("hardware poll: %s — %s", target.ip, type(exc).__name__)
         return _Probe(
             device_id=target.device_id,
             ip=target.ip,
             online=False,
-            error=str(exc)[:300],
+            error="сбой опроса",
         )
+
+
+def _mark_unregistered(device_ids: list[int]) -> None:
+    """Агент есть, в bAD устройства нет. Снимок железа не трогаем."""
+    rows = list(db.session.scalars(select(Device).where(Device.id.in_(device_ids))))
+    for device in rows:
+        device.bad_id = None
+        device.bad_agent_status = "unregistered"
+
+
+def _assign_bad_id(owner: Device, bad_id: str) -> None:
+    """Единственная привязка к bAD. device_id на карточку не пишем."""
+    others = list(
+        db.session.scalars(
+            select(Device).where(Device.bad_id == bad_id, Device.id != owner.id)
+        )
+    )
+    for other in others:
+        other.bad_id = None
+    owner.bad_id = bad_id
+    owner.bad_agent_status = None
 
 
 def _active_run(now) -> HardwarePollRun | None:

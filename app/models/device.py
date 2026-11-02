@@ -1,7 +1,8 @@
 """Устройства и история опросов.
 
 devices — текущее состояние; device_history — каждая проверка.
-Уникальность машины: только serial_number (WMI service tag).
+Уникальность машины: только serial_number (паспорт снимка, раньше WMI).
+bad_id — привязка к карточке bAD, не ключ слияния и не MachineGuid.
 Hostname — отображение, не ключ слияния.
 IP на карточке — «основной» (последний успешный онлайн-зонд).
 device_addresses — все виденные IP/MAC одной машины (Wi‑Fi + Ethernet и т.п.).
@@ -65,7 +66,7 @@ class Device(TimestampMixin, db.Model):
     # Отпечаток серого адреса: windows/router/camera/printer. Пишет poll, не пользователь.
     fingerprint_kind = db.Column(db.String(16), nullable=True)
     fingerprint_detail = db.Column(db.String(255), nullable=True)
-    # Снимок железа (отдельный WMI-опрос, не ICMP). Пусто — ещё не собирали.
+    # Снимок железа из lookup bAD, не ICMP. Пусто — ещё не собирали.
     cpu_name = db.Column(db.String(255), nullable=True)
     ram_gb = db.Column(db.Integer, nullable=True)
     disk_gb = db.Column(db.Integer, nullable=True)
@@ -75,6 +76,10 @@ class Device(TimestampMixin, db.Model):
     os_display_version = db.Column(db.String(32), nullable=True)
     os_build = db.Column(db.String(32), nullable=True)
     hardware_checked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Код карточки bAD (BAD-…). MachineGuid сюда не пишем.
+    bad_id = db.Column(db.String(32), nullable=True, index=True)
+    # unregistered — служба badagent есть, lookup ответил «устройства нет».
+    bad_agent_status = db.Column(db.String(32), nullable=True)
 
     sector = db.relationship("Sector", back_populates="devices")
     current_account = db.relationship(
