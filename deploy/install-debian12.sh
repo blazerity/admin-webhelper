@@ -620,7 +620,7 @@ print_summary() {
   printf '\n'
   printf '%sСледующий шаг:%s заполните LDAP в %s/.env\n' "$C_YELLOW$C_BOLD" "$C_RESET" "$INSTALL_DIR"
   printf '  (LDAP_HOST, LDAP_BASE_DN, LDAP_DOMAIN) и перезапустите:\n'
-  printf '    systemctl restart bawh-web bawh-scheduler bawh-vnc bawh-password-reports bawh-pc-reports\n'
+  printf '    systemctl restart bawh-web bawh-scheduler bawh-vnc bawh-password-reports\n'
   printf '\n'
   printf '%sPsExec:%s учётка на странице /admin/settings (на пользователя).\n' "$C_DIM" "$C_RESET"
   printf '%sVNC:%s   рабочий стол в браузере — карточка устройства; агент TightVNC на ПК.\n' "$C_DIM" "$C_RESET"

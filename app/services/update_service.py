@@ -878,7 +878,7 @@ def schedule_restart(root: Path, previous: str) -> str:
             if sudo_user:
                 hint = (
                     f"su - {sudo_user} -c '{systemctl} restart "
-                    "bawh-scheduler bawh-web bawh-password-reports bawh-pc-reports'"
+                    "bawh-scheduler bawh-web bawh-password-reports bawh-vnc'"
                 )
             _write_operation(
                 root,
@@ -893,7 +893,7 @@ def schedule_restart(root: Path, previous: str) -> str:
     threading.Thread(target=_later, name="bawh-restart", daemon=True).start()
     return (
         "Службы bawh-web, bawh-scheduler, bawh-password-reports и "
-        "bawh-pc-reports будут синхронизированы и перезапущены через несколько секунд."
+        "bawh-vnc будут синхронизированы и перезапущены через несколько секунд."
     )
 
 
@@ -930,7 +930,7 @@ def _run_post_update_restart(
             if sudo_user:
                 hint = (
                     f"su - {sudo_user} -c '{systemctl} restart "
-                    "bawh-scheduler bawh-web bawh-password-reports bawh-pc-reports'"
+                    "bawh-scheduler bawh-web bawh-password-reports bawh-vnc'"
                 )
             detail = _tail(
                 result.stderr or result.stdout or legacy.stderr or legacy.stdout
@@ -974,10 +974,8 @@ def _run_legacy_restart(
 def _ensure_report_units_for_enabled_schedules() -> None:
     """После обновления поднять службы отчётов, если тумблеры включены."""
     from app.services.password_expiry_settings import get_password_expiry_settings
-    from app.services.sector_daily_report_settings import get_sector_daily_report_settings
     from app.services.systemd_service import (
         PASSWORD_REPORTS_UNIT,
-        PC_REPORTS_UNIT,
         VNC_UNIT,
         SystemdError,
         ensure_unit_running,
@@ -990,14 +988,6 @@ def _ensure_report_units_for_enabled_schedules() -> None:
         logger.warning("password reports unit after update: %s", exc)
     except Exception:
         logger.exception("password reports unit after update failed")
-
-    try:
-        if get_sector_daily_report_settings().schedule_enabled:
-            ensure_unit_running(PC_REPORTS_UNIT)
-    except SystemdError as exc:
-        logger.warning("pc reports unit after update: %s", exc)
-    except Exception:
-        logger.exception("pc reports unit after update failed")
 
     try:
         from app.services.vnc_settings import get_vnc_settings

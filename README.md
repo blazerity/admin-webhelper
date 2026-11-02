@@ -26,7 +26,7 @@ sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsS
 sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/blazerity/admin-webhelper/main/deploy/install-debian12.sh | sudo BAWH_SERVER_NAME=bawh.example.com bash
 ```
 
-Установщик кладёт код в `/opt/bawh`, поднимает PostgreSQL, Nginx, `bawh-web` и `bawh-scheduler`, пишет секреты в `/opt/bawh/.env`. Unit'ы отчётов (`bawh-password-reports`, `bawh-pc-reports`) ставятся сразу, запускаются тумблером в UI. В консоли показывает прогресс по шагам (пакеты → код → venv → БД → службы → Nginx → health).
+Установщик кладёт код в `/opt/bawh`, поднимает PostgreSQL, Nginx, `bawh-web` и `bawh-scheduler`, пишет секреты в `/opt/bawh/.env`. Unit отчётов о паролях (`bawh-password-reports`) ставится сразу и запускается тумблером в UI. В консоли показывает прогресс по шагам (пакеты → код → venv → БД → службы → Nginx → health).
 
 После установки заполните LDAP в `/opt/bawh/.env` и перезапустите службы:
 
@@ -63,14 +63,13 @@ sudo systemctl restart bawh-web bawh-scheduler bawh-vnc
 | Юнит | Назначение |
 | --- | --- |
 | `bawh-web` | Gunicorn (`127.0.0.1:8000`), снаружи — Nginx :80 (443 после сертификата в Настройках → HTTPS) |
-| `bawh-scheduler` | опрос сети / железа / архив логов |
+| `bawh-scheduler` | опрос сети и архив логов |
 | `bawh-vnc` | WebSocket-прокси для noVNC (`127.0.0.1:6080`) |
 | `bawh-password-reports` | рассылка отчётов о паролях AD и проверка пароля перед отпуском (тумблеры в UI) |
-| `bawh-pc-reports` | рассылка отчётов о ПК (тумблер в UI) |
 
 ```bash
-sudo systemctl status bawh-web bawh-scheduler bawh-vnc bawh-password-reports bawh-pc-reports
-journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -u bawh-pc-reports -f
+sudo systemctl status bawh-web bawh-scheduler bawh-vnc bawh-password-reports
+journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -f
 ```
 
 ## Обновление
@@ -79,7 +78,7 @@ journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -u
 
 Или повторный запуск установщика из каталога с кодом / через one-liner — обновит `/opt/bawh`, зависимости и юниты; существующий `.env` не перезаписывает.
 
-Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.11.1`).
+Версия релиза — файл [`VERSION`](VERSION) (сейчас `1.12`).
 
 На странице **Обновления** можно выбрать ветку git (список с сервера).
 Выбор хранится в базе и важнее `GIT_BRANCH` в `.env`. Пока ветку там не
@@ -115,8 +114,7 @@ flask --app wsgi run --debug
 Таблицы и недостающие колонки подтягиваются при старте (`ensure_schema` + справочники).
 Переустановка кода без очистки Postgres безопасна: новые колонки (например роли
 `is_viewer` / `is_operator`) добавятся сами. Фоновые процессы отдельно:
-`python -m app.scheduler_worker`, `python -m app.password_report_worker`,
-`python -m app.pc_report_worker`.
+`python -m app.scheduler_worker`, `python -m app.password_report_worker`.
 
 Имена на карте — с самой машины (WMI), не reverse DNS. Если карточки показывают общее PTR-имя, на сервере с доступом в LAN:
 
@@ -128,14 +126,9 @@ flask --app wsgi refresh-hostnames
 Строки с разными серийниками не сливаются: меняется только поле hostname.
 Слияние карточек — только по серийнику: смена IP при том же SN обновляет ту же запись.
 
-Конфигурация железа Windows (процессор, ОЗУ, диски, версия 10/11/Server и 25H2/26H2)
-приходит из bAD, по умолчанию каждый день в полдень. Адрес сервера и включение —
-Настройки → Опросы железа. Заявку создаёт bAWH, подтверждение — в панели bAD:
-Параметры → Интеграции. Пока связь не «Подключено», опрос железа по WMI не запускается.
-Снимок пишется на карточку с тем же серийником: если VPN/DHCP отдал адрес другому ПК,
+Конфигурация железа Windows (процессор, ОЗУ, диски, версия ОС) приходит из bAD
+по кнопке «Опросить сейчас» на вкладке «Оборудование». Адрес сервера и включение —
+Настройки → Опрос сети. Заявку создаёт bAWH, подтверждение — в панели bAD:
+Параметры → Интеграции. Пока связь не «Подключено», снимок не пишется.
+Серийник снимка сверяется с карточкой: если VPN/DHCP отдал адрес другому ПК,
 история конфигурации не смешивается.
-
-```bash
-flask --app wsgi hardware-poll --dry-run
-flask --app wsgi hardware-poll
-```

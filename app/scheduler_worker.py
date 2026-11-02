@@ -1,8 +1,7 @@
-"""Отдельный процесс опроса сети/железа (без HTTP).
+"""Отдельный процесс опроса сети (без HTTP).
 
 Запуск: python -m app.scheduler_worker
-Отчёты о паролях и о ПК — отдельные процессы
-(password_report_worker / pc_report_worker).
+Отчёты о паролях — отдельный процесс (password_report_worker).
 """
 
 import logging

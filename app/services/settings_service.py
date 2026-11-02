@@ -9,8 +9,8 @@ APScheduler в scheduler_worker пересоздаёт интервал, про�
 
 Sudo-учётка для управления службами (Настройки → Общие) —
 Linux-логин и опционально пароль (Fernet). Используется для перезапуска
-после обновления и для start/enable/stop служб отчётов
-(`bawh-password-reports`, `bawh-pc-reports`) при тумблерах.
+после обновления и для start/enable/stop службы отчётов
+(`bawh-password-reports`) при тумблере.
 С паролем — через su, без отдельного sudoers. Без пароля — sudo -n
 (нужен bawh-update.sudoers).
 """

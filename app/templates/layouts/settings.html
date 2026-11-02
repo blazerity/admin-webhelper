@@ -25,7 +25,6 @@
       {% if current_user.is_admin %}
       <div class="settings-nav-group">
         <a class="settings-nav-link{% if ep == 'admin.settings' and settings_section == 'polls' %} active{% endif %}" href="{{ url_for('admin.settings', section='polls') }}">Опрос сети</a>
-        <a class="settings-nav-link{% if ep == 'sector_daily_report.settings_page' %} active{% endif %}" href="{{ url_for('sector_daily_report.settings_page') }}">Опросы железа</a>
         <a class="settings-nav-link{% if ep == 'password_expiry.report_settings' %} active{% endif %}" href="{{ url_for('password_expiry.report_settings') }}">Отчёт о паролях</a>
       </div>
       {% endif %}

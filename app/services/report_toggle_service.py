@@ -3,7 +3,6 @@
 Тумблер в UI включает job в APScheduler (флаг в app_settings) и при
 включении поднимает свой systemd-unit:
   пароли AD → bawh-password-reports
-  отчёты о ПК → bawh-pc-reports
 
 Опрос сети живёт в bawh-scheduler и от тумблеров отчётов не зависит.
 """
@@ -15,7 +14,6 @@ from dataclasses import dataclass
 
 from app.services.systemd_service import (
     PASSWORD_REPORTS_UNIT,
-    PC_REPORTS_UNIT,
     SystemdError,
     UnitStatus,
     ensure_unit_running,
@@ -42,10 +40,6 @@ def unit_status(unit: str) -> UnitStatus:
 
 def password_reports_status() -> UnitStatus:
     return get_unit_status(PASSWORD_REPORTS_UNIT)
-
-
-def pc_reports_status() -> UnitStatus:
-    return get_unit_status(PC_REPORTS_UNIT)
 
 
 def apply_report_toggle(
