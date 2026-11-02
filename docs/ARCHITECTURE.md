@@ -874,7 +874,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `vnc-agents/*.msi`, `vnc-agents/*.exe` | установщик TightVNC, который админ кладёт на сервер |
 | `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
 | `tests/` | локальные unittest, в поставку не входят |
-| `scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики |
+| `/scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики в корне. `app/templates/scripts/` в git |
 | `debug_*`, `diagnose_*`, `diag_*`, `*_manual.py`, `smoke_*.py`, `harness_*.py`, `scratch_*.py` | диагностика и ручные прогоны |
 
 Установщик (`deploy/install-debian12.sh`) и self-update (`update_service._SKIP_DIRS`)
