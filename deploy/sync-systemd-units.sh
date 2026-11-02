@@ -11,7 +11,7 @@ if [[ ! -d "$DEPLOY_DIR" ]]; then
   exit 1
 fi
 
-for unit in bawh-web bawh-scheduler bawh-password-reports bawh-pc-reports bawh-vnc; do
+for unit in bawh-web bawh-scheduler bawh-password-reports bawh-vnc; do
   src="$DEPLOY_DIR/${unit}.service"
   if [[ ! -f "$src" ]]; then
     echo "Нет unit-файла $src" >&2
@@ -30,6 +30,11 @@ if [[ -f "$DEPLOY_DIR/bawh-update.sudoers" ]]; then
       exit 1
     fi
   fi
+fi
+
+if systemctl list-unit-files bawh-pc-reports.service --no-legend 2>/dev/null | grep -q bawh-pc-reports; then
+  systemctl disable --now bawh-pc-reports.service || true
+  rm -f /etc/systemd/system/bawh-pc-reports.service
 fi
 
 systemctl daemon-reload

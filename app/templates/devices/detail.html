@@ -264,7 +264,7 @@
       </dl>
       {% elif not device.hardware_poll_note %}
       <p class="text-muted mb-0">
-        Ещё не опрашивали. Плановый сбор — около полудня, из bAD.
+        Ещё не опрашивали. Снимок приходит из bAD по кнопке на вкладке «Оборудование».
         {% if current_user.is_admin %}
         Опрос одной машины — на вкладке
         <a href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>.
@@ -386,7 +386,7 @@
       <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
         <div>
           <h2 class="panel-title mb-1">Текущая конфигурация</h2>
-          <p class="panel-hint mb-0">Последний успешный снимок. Кнопка опрашивает сразу. Плановый сбор — по расписанию, по умолчанию в полдень.</p>
+          <p class="panel-hint mb-0">Последний успешный снимок из bAD. Кнопка опрашивает эту машину сразу.</p>
         </div>
         {% if current_user.is_admin %}
         <form method="post" action="{{ url_for('devices.poll_device_hardware', device_id=device.id) }}">
@@ -460,9 +460,9 @@
       <p class="text-muted mb-0 mt-3">
         Снимка ещё нет.
         {% if current_user.is_admin %}
-        Нажмите «Опросить сейчас» или дождитесь планового сбора около полудня.
+        Нажмите «Опросить сейчас».
         {% else %}
-        Плановый сбор — около полудня, из bAD.
+        Снимок появится после опроса администратором.
         {% endif %}
       </p>
       {% endif %}

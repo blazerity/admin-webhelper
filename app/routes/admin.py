@@ -5,13 +5,12 @@
   section: general | polls | mail | tls (по умолчанию general).
   Старый section=vnc открывает Общие#vnc.
 - poll-run      POST /admin/poll-run — принудительный опрос сети
-- hardware-poll-run POST /admin/hardware-poll-run — опрос железа Windows
 - refresh-hostnames POST /admin/refresh-hostnames — WMI-имена на известных машинах
 - duplicates    GET/POST /admin/duplicates — поиск и удаление дублей устройств
 - updates       GET/POST /admin/updates
 
 Формы на страницах настроек различаются скрытым полем form:
-psexec, discovery, poll, hardware_poll, smtp, test_smtp, update, vnc, tls.
+psexec, discovery, poll, bad_integration, smtp, test_smtp, update, vnc, tls.
 После сохранения редирект в соответствующий раздел.
 Открытый пароль в шаблон и во flash не попадает.
 
@@ -25,8 +24,8 @@ Discovery: глобальная учётка WMI для опроса (серий
 Опрос: интервал в app_settings; журнал прогонов — network_poll_runs;
 кнопка «Запустить сейчас» вызывает ту же run_network_poll, что и планировщик.
 
-Опрос железа: cron и журнал hardware_poll_runs на странице
-«Опросы железа» (/pc-reports/settings); кнопка вызывает run_hardware_poll.
+Связь с bAD — на странице «Опрос сети». Железо одной машины читается
+кнопкой на карточке, без расписания и без отдельной вкладки отчётов.
 
 SMTP — раздел mail. VNC и сервисы экрана входа — на general.
 
@@ -43,7 +42,7 @@ from flask_login import current_user
 
 from app.authz import admin_required
 from app.services import audit_service
-from app.services.export_service import csv_attachment, export_hardware_poll_runs_csv, export_poll_runs_csv
+from app.services.export_service import csv_attachment, export_poll_runs_csv
 from app.services.credential_service import (
     CredentialsNotConfigured,
     get_stored_credential,
@@ -55,12 +54,12 @@ from app.services.device_dedup_service import (
     find_duplicate_groups,
 )
 from app.services.crypto_service import CryptoError, CryptoNotConfigured
-from app.services.hardware_poll_service import (
-    HardwarePollError,
-    HardwarePollInProgressError,
-    run_hardware_poll,
+from app.services.bad_integration import (
+    BadIntegrationError,
+    integration_view,
+    poll_pending_request,
+    save_integration,
 )
-from app.services.hardware_poll_settings import set_hardware_poll_settings
 from app.services.hostname_sweep_service import (
     HostnameSweepError,
     run_hostname_sweep,
@@ -119,7 +118,7 @@ _FORM_TO_SECTION = {
     "update": "general",
     "discovery": "polls",
     "poll": "polls",
-    "hardware_poll": "polls",
+    "bad_integration": "polls",
     "vnc": "general",
     "tls": "tls",
 }
@@ -146,14 +145,6 @@ def _credential_view(user_id: int) -> tuple[str, str, bool]:
     if row is None:
         return "", "", False
     return row.username or "", row.domain or "", bool(row.password_encrypted)
-
-
-def _hardware_settings_url(*, anchor: str = "hardware-poll") -> str:
-    """Страница «Опросы железа», куда переехал блок опроса Windows."""
-    target = url_for("sector_daily_report.settings_page")
-    if anchor:
-        target = f"{target}#{anchor.lstrip('#')}"
-    return target
 
 
 def _poll_history_context() -> dict:
@@ -191,9 +182,6 @@ def settings(section: str | None = None):
         abort(404)
     if request.method == "GET" and section == "vnc":
         return redirect(_settings_redirect("general", anchor="vnc"))
-    if request.method == "GET" and section == "polls" and as_truthy(request.args.get("hw_all")):
-        return redirect(url_for("sector_daily_report.settings_page", hw_all=1))
-
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
         target_section = _FORM_TO_SECTION.get(kind, section)
@@ -259,25 +247,24 @@ def settings(section: str | None = None):
             )
             flash("Интервал опроса сохранён.", "success")
             return redirect(_settings_redirect("polls"))
-        if kind == "hardware_poll":
-            want_enabled = request.form.get("hardware_poll_enabled") == "1"
+        if kind == "bad_integration":
             try:
-                set_hardware_poll_settings(
-                    schedule_enabled=want_enabled,
-                    schedule_cron=request.form.get("hardware_poll_cron", ""),
+                saved = save_integration(
+                    base_url=request.form.get("bad_base_url", ""),
+                    enabled=request.form.get("bad_enabled") == "1",
                 )
-            except ValueError as exc:
+            except (BadIntegrationError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
-                return redirect(_hardware_settings_url())
+                return redirect(_settings_redirect("polls", anchor="bad-integration"))
             audit_service.log(
                 current_user,
                 "update",
                 "admin_settings",
-                "hardware_poll",
-                detail=f"enabled={int(want_enabled)} cron={request.form.get('hardware_poll_cron', '')}",
+                "bad_integration",
+                detail=f"enabled={int(saved.enabled)} status={saved.status}",
             )
-            flash("Расписание опроса железа сохранено.", "success")
-            return redirect(_hardware_settings_url())
+            flash(f"Связь с bAD: {saved.status_label}.", "success")
+            return redirect(_settings_redirect("polls", anchor="bad-integration"))
         if kind == "smtp":
             try:
                 set_smtp_settings(
@@ -460,12 +447,20 @@ def settings(section: str | None = None):
             login_services=load_login_services(),
         )
     elif section == "polls":
+        from app.extensions import db
+
+        try:
+            poll_pending_request()
+        except Exception:
+            logger.exception("bAD: не удалось обновить статус заявки")
+            db.session.rollback()
         discovery = get_discovery_credential_view()
         ctx.update(
             discovery_username=discovery.username,
             discovery_domain=discovery.domain,
             discovery_password_set=discovery.password_set,
             poll_interval=get_poll_interval_seconds(),
+            bad_integration=integration_view(),
             **_poll_history_context(),
         )
     elif section == "mail":
@@ -481,44 +476,6 @@ def settings(section: str | None = None):
 def export_poll_runs():
     """CSV журнала прогонов опроса (admin)."""
     return csv_attachment(export_poll_runs_csv(limit=200), "poll_runs.csv")
-
-
-@bp.get("/hardware-poll-runs/export.csv")
-@admin_required
-def export_hardware_poll_runs():
-    """CSV журнала прогонов опроса железа (admin)."""
-    return csv_attachment(
-        export_hardware_poll_runs_csv(limit=200), "hardware_poll_runs.csv"
-    )
-
-
-@bp.route("/hardware-poll-run", methods=["POST"])
-@admin_required
-def hardware_poll_run():
-    """Принудительный опрос железа Windows (тот же код, что у планировщика)."""
-    try:
-        result = run_hardware_poll(mode="manual")
-    except HardwarePollInProgressError as exc:
-        flash(str(exc), "warning")
-        return redirect(_hardware_settings_url())
-    except HardwarePollError as exc:
-        flash(str(exc), "warning")
-        return redirect(_hardware_settings_url())
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Сбой ручного опроса железа")
-        flash(f"Ошибка опроса железа: {exc}", "danger")
-        return redirect(_hardware_settings_url())
-
-    flash(
-        "Опрос железа: проверено {scanned}, онлайн {online}, "
-        "собрано {collected}, изменено {changed}, офлайн {offline}, "
-        "без агента {no_agent}, не в bAD {unregistered}, "
-        "чужой IP {mismatched}, ошибок {errors}.".format(
-            **result.as_dict()
-        ),
-        "success",
-    )
-    return redirect(_hardware_settings_url())
 
 
 @bp.route("/poll-run", methods=["POST"])

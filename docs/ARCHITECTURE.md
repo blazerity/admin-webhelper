@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v1.11.1)
+# Архитектура bAWH (актуально для v1.12)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `1.11.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `1.12` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -84,7 +84,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (1.11.1)
+  VERSION                      # semver (1.12)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -631,9 +631,9 @@ Scheduler cron / CLI / UI → `run_sector_daily_report` → ноутбуки (`B
 
 ### D3. Опрос железа Windows
 
-Scheduler cron (полдень) / CLI `hardware-poll` / UI Настройки → Опросы железа или карточка →
-`run_hardware_poll`. Пока связь с bAD не «подключено», проход не начинается
-и старый WMI-опрос процессора/ОЗУ/дисков/ОС не подменяет lookup.
+Кнопка на карточке устройства вызывает `run_hardware_poll` только для этой машины.
+Расписания, CLI `hardware-poll` и вкладки «Отчёт о ПК» нет. Пока связь с bAD
+не «подключено», проход не начинается. WMI процессора, ОЗУ, дисков и ОС не вызывается.
 
 Если подключено: ping известных Windows-целей → та же учётка, что для WMI,
 проверяет службу `badagent`. Службы нет — новый снимок не пишется.

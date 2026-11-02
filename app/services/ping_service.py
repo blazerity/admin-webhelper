@@ -27,8 +27,7 @@
      MAC сначала из ARP, иначе из WMI. Имя: Win32_ComputerSystem,
      PTR только если WMI молчит и у строки ещё нет имени.
      Текущая УЗ пишется в endpoint_accounts / device_account_history.
-5. После прохода — опрос железа для впервые созданных Windows-карточек
-   (не ждать полуденный cron).
+     Железо Windows этот проход не читает.
 
 Позже ту же функцию run_network_poll / poll_all_sectors вызовет задача Celery.
 Менять разбор пинга и запись истории для этого не нужно.
@@ -292,8 +291,7 @@ def poll_all_sectors() -> dict[str, int]:
     online / offline — из них, чья запись в БД прошла
       (offline считается только для уже известных машин);
     errors — битый диапазон сектора, сбой рабочего потока или ошибка COMMIT;
-    discovered — сколько новых карточек создано;
-    hardware_polled — сколько из них прошли опрос железа сразу после.
+    discovered — сколько новых карточек создано.
 
     Для журнала прогонов и защиты от параллели вызывайте run_network_poll.
     """
@@ -303,7 +301,6 @@ def poll_all_sectors() -> dict[str, int]:
         "offline": 0,
         "errors": 0,
         "discovered": 0,
-        "hardware_polled": 0,
     }
     assignments = _collect_assignments(stats)
     if not assignments:
@@ -339,64 +336,17 @@ def poll_all_sectors() -> dict[str, int]:
             stats["offline"] += 1
 
     stats["discovered"] = len(new_device_ids)
-    if new_device_ids:
-        stats["hardware_polled"] = _poll_hardware_for_discovered(new_device_ids)
 
     logger.info(
         "Опрос секторов: проверено %s, онлайн %s, офлайн %s, "
-        "новых %s, железо сразу %s, ошибок %s",
+        "новых %s, ошибок %s",
         stats["scanned"],
         stats["online"],
         stats["offline"],
         stats["discovered"],
-        stats["hardware_polled"],
         stats["errors"],
     )
     return stats
-
-
-def _poll_hardware_for_discovered(device_ids: list[int]) -> int:
-    """Сразу после появления карточки — lookup bAD (SN/CPU/ОЗУ/диски/ОС).
-
-    Не ждём полуденный cron: иначе смена IP на следующий день до железа
-    оставляет «пустую» карточку и плодит призраков.
-    Пока bAD не подключён, WMI железа вместо lookup не запускаем.
-    """
-    from app.services.hardware_poll_service import (
-        HardwarePollError,
-        HardwarePollInProgressError,
-        is_windows_hardware_target,
-        run_hardware_poll,
-    )
-
-    unique_ids = list(dict.fromkeys(int(item) for item in device_ids))
-    if not unique_ids:
-        return 0
-    devices = list(
-        db.session.scalars(select(Device).where(Device.id.in_(unique_ids)))
-    )
-    targets = [
-        device.id
-        for device in devices
-        if is_windows_hardware_target(device) and device.hardware_checked_at is None
-    ]
-    if not targets:
-        return 0
-    try:
-        result = run_hardware_poll(mode="on_discover", device_ids=targets)
-    except HardwarePollInProgressError:
-        logger.info(
-            "Опрос железа для новых устройств отложен: уже выполняется (%s id)",
-            len(targets),
-        )
-        return 0
-    except HardwarePollError as exc:
-        logger.warning("Опрос железа для новых устройств пропущен: %s", exc)
-        return 0
-    except Exception:
-        logger.exception("Сбой опроса железа для новых устройств %s", targets)
-        return 0
-    return int(result.collected or 0)
 
 
 def count_poll_runs() -> int:
