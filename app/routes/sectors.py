@@ -9,9 +9,8 @@
 - update_sector  POST /admin/sectors/<sector_id>
 - delete_sector  POST /admin/sectors/<sector_id>/delete
 
-Кто что видит, решает app.authz. Здесь только форма и ответы.
-Создание и правка доступны администратору. Чужой или несуществующий
-сектор на карточке — 404/403 из get_visible_sector_or_404.
+Кто вошёл, тот видит все сектора. Здесь только форма и ответы.
+Несуществующий сектор — 404 из get_visible_sector_or_404.
 Правка несуществующего id — 404 ещё до сохранения.
 """
 
@@ -54,12 +53,7 @@ def list_sectors():
 @bp.get("/new")
 @admin_required
 def new_sector():
-    return render_template(
-        "sectors/form.html",
-        sector=None,
-        access_users="",
-        access_groups="",
-    )
+    return render_template("sectors/form.html", sector=None)
 
 
 @bp.post("/")
@@ -83,13 +77,7 @@ def detail(sector_id: int):
 @admin_required
 def edit_sector(sector_id: int):
     sector = _existing_sector(sector_id)
-    access_users, access_groups = _access_text(sector)
-    return render_template(
-        "sectors/form.html",
-        sector=sector,
-        access_users=access_users,
-        access_groups=access_groups,
-    )
+    return render_template("sectors/form.html", sector=sector)
 
 
 @bp.post("/<int:sector_id>")
@@ -123,16 +111,9 @@ def _existing_sector(sector_id: int) -> Sector:
 
 
 def _save_from_form(sector_id: int | None):
-    name, description, ranges_text, access_users, access_groups = _form_values()
+    name, description, ranges_text = _form_values()
     try:
-        sector = save_sector(
-            sector_id,
-            name,
-            description,
-            ranges_text,
-            access_users,
-            access_groups,
-        )
+        sector = save_sector(sector_id, name, description, ranges_text)
     except (SectorError, NetworkInputError) as exc:
         # Откат на случай, если сервис успел добавить объект в сессию.
         # Черновик собираем после отката и в сессию не кладём,
@@ -142,8 +123,6 @@ def _save_from_form(sector_id: int | None):
         return render_template(
             "sectors/form.html",
             sector=_unsaved_sector(name, description, ranges_text, sector_id),
-            access_users=access_users,
-            access_groups=access_groups,
         )
     if sector_id is None:
         audit_service.log(current_user, "create", "sector", sector.id, detail=sector.name)
@@ -154,13 +133,11 @@ def _save_from_form(sector_id: int | None):
     return redirect(url_for("sectors.detail", sector_id=sector.id))
 
 
-def _form_values() -> tuple[str, str, str, str, str]:
+def _form_values() -> tuple[str, str, str]:
     return (
         request.form.get("name", ""),
         request.form.get("description", ""),
         request.form.get("ranges", ""),
-        request.form.get("access_users", ""),
-        request.form.get("access_groups", ""),
     )
 
 
@@ -179,10 +156,3 @@ def _unsaved_sector(
         if text:
             draft.ranges.append(SectorRange(cidr=text))
     return draft
-
-
-def _access_text(sector: Sector) -> tuple[str, str]:
-    rules = sorted(sector.access_rules, key=lambda rule: rule.id or 0)
-    users = [rule.subject_name for rule in rules if rule.subject_type == "user"]
-    groups = [rule.subject_name for rule in rules if rule.subject_type == "group"]
-    return ", ".join(users), ", ".join(groups)

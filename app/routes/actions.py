@@ -80,17 +80,13 @@ def list_actions():
     if _wants_json():
         return jsonify(_actions_payload(result))
 
-    audit_entries = []
-    audit_total = 0
-    audit_show_all = False
-    if getattr(current_user, "is_admin", False):
-        audit_total = audit_service.count_audit_entries()
-        audit_show_all = as_truthy(request.args.get("audit_all"))
-        # Полный журнал без отдельной пагинации (как раньше до 200),
-        # чтобы не пересекаться с page ленты действий на той же странице.
-        audit_entries = audit_service.list_audit_entries(
-            limit=200 if audit_show_all else _PREVIEW_LIMIT
-        )
+    audit_total = audit_service.count_audit_entries()
+    audit_show_all = as_truthy(request.args.get("audit_all"))
+    # Полный журнал без отдельной пагинации (как раньше до 200),
+    # чтобы не пересекаться с page ленты действий на той же странице.
+    audit_entries = audit_service.list_audit_entries(
+        limit=200 if audit_show_all else _PREVIEW_LIMIT
+    )
 
     return render_template(
         "actions/list.html",

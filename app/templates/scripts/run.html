@@ -46,7 +46,7 @@
         id="run-log"
         data-waiting-hint="Выполняется… вывод появится здесь"
       >{% if run.log_text %}{{ run.log_text }}{% elif log_waiting %}Выполняется… вывод появится здесь{% endif %}</pre>
-      {% if current_user.is_admin and run.device %}
+      {% if run.device %}
       <form method="post" action="{{ url_for('diagnostics.command_device', device_id=run.device.id) }}" class="terminal-form" id="run-command-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label class="prompt" for="run-command">{{ pc_name }}&gt;</label>

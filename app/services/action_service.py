@@ -9,10 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.authz import accessible_sector_ids
 from app.extensions import db
 from app.models import (
     ActionKind,
@@ -111,11 +110,12 @@ def list_system_actions(
     if limit is not None:
         page, per_page = 1, max(1, int(limit))
     page, per_page = normalize_page(page, per_page)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return {"items": [], "total": 0, "page": page, "per_page": per_page}
     query_text = (q or "").strip().lower()
     kind_code = (kind or "").strip().lower()
 
     kinds = ensure_action_kinds()
-    sector_ids = None if user.is_admin else accessible_sector_ids(user)
 
     run_stmt = (
         select(ScriptRun)
@@ -127,24 +127,9 @@ def list_system_actions(
         .order_by(ScriptRun.started_at.desc(), ScriptRun.id.desc())
         .limit(_MAX_FETCH)
     )
-    if not user.is_admin:
-        # Автор или устройство в доступном секторе — как user_can_see_script_run.
-        # Orphaned runs (device удалён) видны только автору, не всем.
-        run_filters = [ScriptRun.user_id == user.id]
-        if sector_ids:
-            run_filters.append(Device.sector_id.in_(sector_ids))
-        run_stmt = run_stmt.outerjoin(Device, Device.id == ScriptRun.device_id).where(
-            or_(*run_filters)
-        )
 
     items: list[SystemActionItem] = []
     for run in db.session.scalars(run_stmt).all():
-        # Запрос уже отфильтровал видимые запуски; повторный accessible_sectors
-        # через user_can_see_script_run давал N+1 на каждой строке.
-        if not user.is_admin and run.user_id != user.id:
-            device = run.device
-            if device is None or not sector_ids or device.sector_id not in sector_ids:
-                continue
         code = run.run_type or ActionKindCode.COMMAND
         items.append(
             SystemActionItem(
@@ -160,22 +145,16 @@ def list_system_actions(
             )
         )
 
-    sight_rows: list[DeviceAccountHistory] = []
-    if sector_ids is None or sector_ids:
-        sight_stmt = (
-            select(DeviceAccountHistory)
-            .options(
-                selectinload(DeviceAccountHistory.account),
-                selectinload(DeviceAccountHistory.device),
-            )
-            .order_by(DeviceAccountHistory.seen_at.desc(), DeviceAccountHistory.id.desc())
-            .limit(_MAX_FETCH)
+    sight_stmt = (
+        select(DeviceAccountHistory)
+        .options(
+            selectinload(DeviceAccountHistory.account),
+            selectinload(DeviceAccountHistory.device),
         )
-        if sector_ids is not None:
-            sight_stmt = sight_stmt.join(
-                Device, Device.id == DeviceAccountHistory.device_id
-            ).where(Device.sector_id.in_(sector_ids))
-        sight_rows = list(db.session.scalars(sight_stmt).all())
+        .order_by(DeviceAccountHistory.seen_at.desc(), DeviceAccountHistory.id.desc())
+        .limit(_MAX_FETCH)
+    )
+    sight_rows = list(db.session.scalars(sight_stmt).all())
 
     # Одно событие на пару УЗ+устройство (последнее обнаружение), иначе лента
     # забивается почасовыми повторными sighting'ами одного и того же пользователя.

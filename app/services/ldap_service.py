@@ -2,8 +2,11 @@
 
 Пароль в базу приложения не пишется: при каждом входе его заново
 подтверждает каталог. Локальная строка users нужна Flask-Login
-(сессия хранит id, а не пароль) и правам на секторы, которые
-сравниваются с группами на момент последнего входа.
+(сессия хранит id, а не пароль).
+
+Доступ в систему даёт одна группа: LDAP_ADMIN_GROUP (CN, без учёта
+регистра). Пустое значение пускает любой успешный bind. Вошедший
+считается администратором. Отдельных ролей нет.
 
 Пустой пароль отвергается до сети. Иначе сервер может принять
 анонимный bind и пустить в систему без пароля.
@@ -41,10 +44,6 @@ class LdapIdentity:
     email: str | None
     dn: str
     groups: list[str]  # только CN, без полного DN
-    is_admin: bool
-    is_viewer: bool = False
-    is_operator: bool = False
-    is_password_viewer: bool = False
 
 
 def authenticate(username: str, password: str) -> LdapIdentity | None:
@@ -77,10 +76,10 @@ def authenticate(username: str, password: str) -> LdapIdentity | None:
 
 
 def upsert_local_user(identity: LdapIdentity) -> User:
-    """Создать или обновить пользователя и заменить его группы LDAP.
+    """Создать или обновить пользователя и заменить снимок его групп LDAP.
 
-    Группы не дополняются, а пишутся заново: человек мог выйти из группы
-    в каталоге, и старое членство не должно оставлять доступ к сектору.
+    Группы не используются для прав внутри сайта: их пишем как снимок
+    memberOf на момент входа. Старые флаги viewer/operator сбрасываются.
     """
     username = identity.username.strip().lower()
     user = db.session.scalar(select(User).where(User.username == username))
@@ -96,10 +95,10 @@ def upsert_local_user(identity: LdapIdentity) -> User:
     user.email = email[:_EMAIL_MAX] if email else None
     dn = (identity.dn or "").strip()
     user.ldap_dn = dn[:_DN_MAX] if dn else None
-    user.is_admin = bool(identity.is_admin)
-    user.is_viewer = bool(identity.is_viewer)
-    user.is_operator = bool(identity.is_operator)
-    user.is_password_viewer = bool(identity.is_password_viewer)
+    user.is_admin = True
+    user.is_viewer = False
+    user.is_operator = False
+    user.is_password_viewer = False
     user.last_login_at = utcnow()
 
     user.ldap_groups.clear()
@@ -149,10 +148,7 @@ def _bind_and_search(username: str, password: str) -> LdapIdentity | None:
     service_dn = str(cfg.get("LDAP_BIND_DN") or "").strip()
     service_password = str(cfg.get("LDAP_BIND_PASSWORD") or "")
     user_filter = str(cfg.get("LDAP_USER_FILTER") or "(sAMAccountName={username})")
-    admin_group = str(cfg.get("LDAP_ADMIN_GROUP") or "")
-    viewer_group = str(cfg.get("LDAP_VIEWER_GROUP") or "")
-    operator_group = str(cfg.get("LDAP_OPERATOR_GROUP") or "")
-    password_viewer_group = str(cfg.get("LDAP_PASSWORD_VIEWER_GROUP") or "")
+    access_group = str(cfg.get("LDAP_ADMIN_GROUP") or "")
     domain = str(cfg.get("LDAP_DOMAIN") or "").strip()
 
     # escape_filter_chars — вторая линия после белого списка: шаблон фильтра
@@ -211,10 +207,7 @@ def _bind_and_search(username: str, password: str) -> LdapIdentity | None:
         return _identity_from_entry(
             entries[0],
             username,
-            admin_group=admin_group,
-            viewer_group=viewer_group,
-            operator_group=operator_group,
-            password_viewer_group=password_viewer_group,
+            access_group=access_group,
         )
     finally:
         if service_conn is not None:
@@ -234,10 +227,7 @@ def _identity_from_entry(
     entry: object,
     typed_username: str,
     *,
-    admin_group: str,
-    viewer_group: str = "",
-    operator_group: str = "",
-    password_viewer_group: str = "",
+    access_group: str,
 ) -> LdapIdentity | None:
     dn = getattr(entry, "entry_dn", None)
     if not isinstance(dn, str) or not dn.strip():
@@ -255,17 +245,20 @@ def _identity_from_entry(
 
     display_name = _first(attrs, "displayname") or _first(attrs, "cn") or username
     groups = _group_names(attrs.get("memberof", []))
-    # Сравнение без регистра: в каталоге CN часто написан иначе, чем в LDAP_*_GROUP.
+    # Пустая группа — любой успешный bind. Иначе CN memberOf должен совпасть.
+    if access_group.strip() and not _cn_in_groups(groups, access_group):
+        logger.warning(
+            "Пользователь %s не состоит в группе доступа %s, вход запрещён",
+            typed_username,
+            access_group.strip(),
+        )
+        return None
     return LdapIdentity(
         username=username,
         display_name=display_name,
         email=_first(attrs, "mail"),
         dn=dn.strip(),
         groups=groups,
-        is_admin=_cn_in_groups(groups, admin_group),
-        is_viewer=_cn_in_groups(groups, viewer_group),
-        is_operator=_cn_in_groups(groups, operator_group),
-        is_password_viewer=_cn_in_groups(groups, password_viewer_group),
     )
 
 
@@ -273,8 +266,8 @@ def _group_names(member_of: list[str]) -> list[str]:
     """CN из DN групп.
 
     memberOf приходит как «CN=netops,OU=Groups,DC=example,DC=com».
-    В user_ldap_groups и в правах на сектор лежит короткое имя:
-    полный путь в каталоге при переносе OU пришлось бы переписывать.
+    В user_ldap_groups лежит короткое имя: полный путь в каталоге
+    при переносе OU пришлось бы переписывать.
     """
     groups: list[str] = []
     seen: set[str] = set()

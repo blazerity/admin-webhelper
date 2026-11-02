@@ -52,9 +52,9 @@ sudo systemctl restart bawh-web bawh-scheduler bawh-vnc
 | `LDAP_HOST` | контроллер домена |
 | `LDAP_BASE_DN` | база поиска |
 | `LDAP_DOMAIN` | UPN или NetBIOS |
-| `LDAP_ADMIN_GROUP` | группа администраторов приложения |
+| `LDAP_ADMIN_GROUP` | группа AD, которая даёт вход. Пусто — любой успешный bind |
 
-Роли (опционально): `LDAP_VIEWER_GROUP`, `LDAP_OPERATOR_GROUP`, `LDAP_PASSWORD_VIEWER_GROUP`.
+Вошедший пользователь видит всю систему. Отдельных ролей нет.
 
 Учётку PsExec и WMI, шлюз VNC и HTTPS-сертификат можно задать в веб-интерфейсе: **Настройки**.
 
@@ -78,7 +78,7 @@ journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -f
 
 Или повторный запуск установщика из каталога с кодом / через one-liner — обновит `/opt/bawh`, зависимости и юниты; существующий `.env` не перезаписывает.
 
-Версия релиза — файл [`VERSION`](VERSION) (сейчас `2.0`).
+Версия релиза — файл [`VERSION`](VERSION) (сейчас `2.1`).
 
 На странице **Обновления** можно выбрать ветку git (список с сервера).
 Выбор хранится в базе и важнее `GIT_BRANCH` в `.env`. Пока ветку там не
@@ -112,8 +112,8 @@ flask --app wsgi run --debug
 ```
 
 Таблицы и недостающие колонки подтягиваются при старте (`ensure_schema` + справочники).
-Переустановка кода без очистки Postgres безопасна: новые колонки (например роли
-`is_viewer` / `is_operator`) добавятся сами. Фоновые процессы отдельно:
+Переустановка кода без очистки Postgres безопасна: новые колонки добавятся сами.
+Фоновые процессы отдельно:
 `python -m app.scheduler_worker`, `python -m app.password_report_worker`.
 
 Имена на карте — с самой машины (WMI), не reverse DNS. Если карточки показывают общее PTR-имя, на сервере с доступом в LAN:

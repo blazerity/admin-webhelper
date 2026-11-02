@@ -20,10 +20,9 @@ class User(UserMixin, db.Model):
     display_name = db.Column(db.String(255), nullable=False, default="")
     email = db.Column(db.String(255), nullable=True)
     ldap_dn = db.Column(db.String(512), nullable=True)
-    # Обновляется при каждом входе по членству в LDAP_ADMIN_GROUP.
-    is_admin = db.Column(db.Boolean, nullable=False, default=False, server_default=false())
-    # Роли из LDAP_*_GROUP (viewer / operator / password_viewer).
-    # server_default нужен, чтобы ensure_schema мог ADD COLUMN на непустой таблице.
+    # При успешном входе всегда True. Колонка остаётся: ensure_schema не удаляет поля.
+    is_admin = db.Column(db.Boolean, nullable=False, default=True, server_default=false())
+    # Старые флаги ролей. Решения по ним не принимаются; при входе сбрасываются в False.
     is_viewer = db.Column(db.Boolean, nullable=False, default=False, server_default=false())
     is_operator = db.Column(db.Boolean, nullable=False, default=False, server_default=false())
     is_password_viewer = db.Column(
@@ -39,14 +38,11 @@ class User(UserMixin, db.Model):
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<User {self.username} admin={self.is_admin} "
-            f"op={self.is_operator} view={self.is_viewer}>"
-        )
+        return f"<User {self.username}>"
 
 
 class UserLdapGroup(db.Model):
-    """Группы LDAP на момент последнего входа (для прав на сектор)."""
+    """Группы LDAP на момент последнего входа. На доступ внутри сайта не влияют."""
 
     __tablename__ = "user_ldap_groups"
     __table_args__ = (

@@ -1,8 +1,7 @@
 """Библиотека скриптов и просмотр лога запуска.
 
-CRUD — admin_required; список и запуск — user_can_run_scripts /
-user_can_run_script (operator: только опубликованные).
-run_detail/status доступны автору Ping и тем, кто видит устройство.
+Библиотека и запуск доступны каждому вошедшему.
+run_detail/status — тоже: отдельных ролей нет.
 """
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
@@ -59,7 +58,7 @@ def _render_form(script: Script | None):
         script_body=script_body,
         devices=devices,
         sectors=sectors,
-        can_manage_scripts=bool(getattr(current_user, "is_admin", False)),
+        can_manage_scripts=True,
     )
 
 
@@ -72,7 +71,6 @@ def _form_fields():
         storage=request.form.get("storage", "db"),
         run_as=request.form.get("run_as", "psexec"),
         content=request.form.get("content", ""),
-        is_published=request.form.get("is_published") == "1",
         user_id=current_user.id,
     )
 
@@ -97,8 +95,6 @@ def _pc_name(run: ScriptRun) -> str:
 
 def _account_label(run: ScriptRun) -> str | None:
     """Имя учётки SMB без пароля. Пароль для подписи страницы не расшифровывается."""
-    if not getattr(current_user, "is_admin", False):
-        return None
     if run.run_type not in {RunType.SCRIPT, RunType.COMMAND, RunType.VNC_ENSURE} or not run.user_id:
         return None
     row = get_stored_credential(run.user_id)
@@ -156,7 +152,7 @@ def list_scripts():
     return render_template(
         "scripts/list.html",
         scripts=scripts,
-        can_manage_scripts=bool(getattr(current_user, "is_admin", False)),
+        can_manage_scripts=True,
     )
 
 
@@ -188,14 +184,9 @@ def create_script():
 @bp.get("/<int:script_id>/edit")
 @login_required
 def edit_script(script_id: int):
-    """Admin — правка; operator — просмотр/запуск опубликованного."""
     script = db.session.get(Script, script_id)
     if script is None:
         abort(404)
-    if getattr(current_user, "is_admin", False):
-        return _render_form(script)
-    if not user_can_run_script(current_user, script):
-        abort(403)
     return _render_form(script)
 
 
@@ -206,7 +197,11 @@ def update_script(script_id: int):
     if script is None:
         abort(404)
     try:
-        script_service.save_script(**_form_fields(), script=script)
+        script_service.save_script(
+            **_form_fields(),
+            script=script,
+            is_published=script.is_published,
+        )
     except script_service.ScriptError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("scripts.edit_script", script_id=script.id))

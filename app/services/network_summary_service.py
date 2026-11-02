@@ -1,7 +1,7 @@
 """Сводка сети для карты и health планировщика опроса.
 
-Агрегаты по видимым устройствам (accessible_sector_ids) + последний
-прогон network_poll_runs. Маршруты только читают dict — без ping/LDAP.
+Агрегаты по всем устройствам + последний прогон network_poll_runs.
+Маршруты только читают dict — без ping/LDAP.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
-from app.authz import accessible_sector_ids
 from app.extensions import db
 from app.models import Device, DeviceStatus, NetworkPollRun, RunStatus, ScriptRun
 from app.services.settings_service import get_poll_interval_seconds
@@ -62,23 +61,15 @@ def latest_successful_poll_run() -> NetworkPollRun | None:
 
 
 def _device_status_counts(user) -> dict[str, int]:
-    """Счётчики устройств по last_status в доступных секторах."""
+    """Счётчики устройств по last_status."""
+    del user
     counts = {
         "devices_total": 0,
         "devices_online": 0,
         "devices_offline": 0,
         "devices_unknown": 0,
     }
-    if user.is_admin:
-        sector_ids = None
-    else:
-        sector_ids = accessible_sector_ids(user)
-        if not sector_ids:
-            return counts
-
     stmt = select(Device.last_status, func.count()).group_by(Device.last_status)
-    if sector_ids is not None:
-        stmt = stmt.where(Device.sector_id.in_(sector_ids))
 
     for status, n in db.session.execute(stmt).all():
         n = int(n)
@@ -93,7 +84,8 @@ def _device_status_counts(user) -> dict[str, int]:
 
 
 def _failed_script_runs_24h(user) -> int:
-    """Число failed script_runs за сутки с учётом видимости устройств."""
+    """Число failed script_runs за сутки."""
+    del user
     since = utcnow() - timedelta(hours=24)
     stmt = (
         select(func.count())
@@ -101,13 +93,6 @@ def _failed_script_runs_24h(user) -> int:
         .where(ScriptRun.status == RunStatus.FAILED)
         .where(ScriptRun.started_at >= since)
     )
-    if not user.is_admin:
-        sector_ids = accessible_sector_ids(user)
-        if not sector_ids:
-            return 0
-        stmt = stmt.join(Device, Device.id == ScriptRun.device_id).where(
-            Device.sector_id.in_(sector_ids)
-        )
     return int(db.session.scalar(stmt) or 0)
 
 

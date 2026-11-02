@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">{% if sector and sector.id %}Изменить сектор{% else %}Новый сектор{% endif %}</h1>
-    <p class="page-subtitle">IP, CIDR и кому сектор виден</p>
+    <p class="page-subtitle">IP и CIDR</p>
   </div>
 </div>
 <div class="panel content-card">
@@ -22,14 +22,6 @@
       <label class="form-label" for="ranges">IP и CIDR, по одному на строку</label>
       <textarea class="form-control font-monospace" id="ranges" name="ranges" rows="6" placeholder="10.0.1.10&#10;10.0.2.0/28">{% if sector %}{% for item in sector.ranges %}{{ item.cidr }}
 {% endfor %}{% endif %}</textarea>
-    </div>
-    <div class="mb-3">
-      <label class="form-label" for="access_users">Пользователи (логины через запятую)</label>
-      <input class="form-control" id="access_users" name="access_users" value="{{ access_users|default('') }}">
-    </div>
-    <div class="mb-3">
-      <label class="form-label" for="access_groups">Группы LDAP (CN через запятую)</label>
-      <input class="form-control" id="access_groups" name="access_groups" value="{{ access_groups|default('') }}">
     </div>
     <div class="d-flex flex-wrap gap-2">
       <button class="btn btn-primary" type="submit">Сохранить</button>

@@ -93,7 +93,7 @@ def dashboard():
         smtp=get_smtp_settings(),
         ldap=ldap,
         scheduler=password_reports_status(),
-        can_toggle=bool(getattr(current_user, "is_admin", False)),
+        can_toggle=True,
         vacation=get_vacation_check_settings(),
         vacation_checks=load_recent_vacation_checks(),
     )

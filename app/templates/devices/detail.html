@@ -321,12 +321,10 @@
           <h2 class="panel-title mb-1">Текущая конфигурация</h2>
           <p class="panel-hint mb-0">Последний успешный снимок из bAD. Кнопка опрашивает эту машину сразу.</p>
         </div>
-        {% if current_user.is_admin %}
         <form method="post" action="{{ url_for('devices.poll_device_hardware', device_id=device.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-sm btn-outline-primary" type="submit">Опросить сейчас</button>
         </form>
-        {% endif %}
       </div>
       {% if device.bad_agent_status == 'unregistered' %}
       <p class="text-warning mt-3 mb-0">Агент bAD не зарегистрирован.</p>
@@ -391,12 +389,7 @@
       {% endif %}
       {% elif not device.hardware_poll_note %}
       <p class="text-muted mb-0 mt-3">
-        Снимка ещё нет.
-        {% if current_user.is_admin %}
-        Нажмите «Опросить сейчас».
-        {% else %}
-        Снимок появится после опроса администратором.
-        {% endif %}
+        Снимка ещё нет. Нажмите «Опросить сейчас».
       </p>
       {% endif %}
     </div>

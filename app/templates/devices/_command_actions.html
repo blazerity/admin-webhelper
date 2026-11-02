@@ -6,8 +6,8 @@
   {"id": "netstat", "label": "netstat -ano", "command": "netstat -ano"}
 ] %}
 {% set available_scripts = scripts if scripts is defined and scripts else [] %}
-{% set can_scripts = current_user.is_authenticated and (current_user.is_admin or current_user.is_operator) %}
-{% set can_command = current_user.is_authenticated and current_user.is_admin %}
+{% set can_scripts = current_user.is_authenticated %}
+{% set can_command = current_user.is_authenticated %}
 <div class="device-actions">
   {% if can_command %}
   <div class="device-actions-group">

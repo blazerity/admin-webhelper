@@ -81,11 +81,9 @@ class ScriptError(ValueError):
 
 
 def scripts_visible_to_user(user) -> list[Script]:
-    """Скрипты для UI запуска: admin — все; иначе только опубликованные."""
-    query = Script.query.order_by(Script.name)
-    if not getattr(user, "is_admin", False):
-        query = query.filter(Script.is_published.is_(True))
-    return query.all()
+    """Все скрипты библиотеки. Флаг is_published больше никого не ограничивает."""
+    del user
+    return Script.query.order_by(Script.name).all()
 
 
 def save_script(
