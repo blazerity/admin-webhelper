@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v2.6)
+# Архитектура bAWH (актуально для v2.7)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.6` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.7` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -738,7 +738,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/css/app.css` | стили; `.entity-link` — единый вид ссылок на устройство / УЗ |
 | `static/favicon.ico`, `favicon.svg` | иконка вкладки (`base.html`) |
 | `static/js/http.js` | общий fetch/CSRF helper |
-| `static/js/live_progress.js` | шаги «Проверить сейчас» и «Опросить сейчас» |
+| `static/js/live_progress.js` | шаги проверки, железа и опроса сети: рамка, прокрутка, список остаётся после обновления страницы |
 | `static/js/map.js` | карта сети (сайдбар поиск/фильтры); автообновление опционально (localStorage) |
 | `static/js/search.js` | живой фильтр карты (без suggest-dropdown); поиск по УЗ |
 | `static/js/live_search.js` | живой поиск списков Действия и аудит / Обнаруженные УЗ |

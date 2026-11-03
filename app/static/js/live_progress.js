@@ -1,8 +1,13 @@
 /**
- * Короткие шаги долгой кнопки на карточке.
- * Форма с data-live-progress. Без fetch уходит обычным POST.
+ * Шаги долгой кнопки: проверка, железо, опрос сети.
+ * Лог в рамке, видны последние строки. После обновления страницы он остаётся.
+ * Без fetch форма уходит обычным POST.
  */
 (() => {
+  const STORAGE_KEY = "bawh-live-progress";
+
+  restoreLog();
+
   const forms = document.querySelectorAll("form[data-live-progress]");
   if (!forms.length || !window.fetch || !window.ReadableStream) return;
 
@@ -38,6 +43,7 @@
       });
       if (!response.ok || !response.body) {
         appendStep(log, "Не удалось выполнить операцию.");
+        settle(log);
         if (button) {
           button.disabled = false;
           button.textContent = label;
@@ -69,6 +75,7 @@
       appendStep(log, "Связь прервалась, обновляю страницу…");
     }
 
+    settle(log);
     if (notice) {
       let cookie =
         "bawh_check_notice=" +
@@ -77,6 +84,7 @@
       if (window.location.protocol === "https:") cookie += "; Secure";
       document.cookie = cookie;
     }
+    rememberLog(log, target);
     window.setTimeout(() => {
       window.location.assign(target);
     }, 700);
@@ -112,5 +120,65 @@
     item.className = "is-current";
     item.textContent = text;
     log.appendChild(item);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function settle(log) {
+    if (!log) return;
+    const current = log.querySelector(".is-current");
+    if (current) current.classList.remove("is-current");
+  }
+
+  function pageKey(url) {
+    const parsed = new URL(url, window.location.origin);
+    return parsed.pathname + parsed.search;
+  }
+
+  function rememberLog(log, target) {
+    if (!log) return;
+    const lines = [...log.querySelectorAll("li")].map((item) => item.textContent);
+    if (!lines.length) return;
+    try {
+      sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ page: pageKey(target), lines }),
+      );
+    } catch (_err) {
+      /* private mode */
+    }
+  }
+
+  function restoreLog() {
+    let raw = "";
+    try {
+      raw = sessionStorage.getItem(STORAGE_KEY) || "";
+    } catch (_err) {
+      return;
+    }
+    if (!raw) return;
+    try {
+      sessionStorage.removeItem(STORAGE_KEY);
+    } catch (_err) {
+      /* ignore */
+    }
+    let saved = null;
+    try {
+      saved = JSON.parse(raw);
+    } catch (_err) {
+      return;
+    }
+    if (!saved || saved.page !== pageKey(window.location.href) || !Array.isArray(saved.lines)) {
+      return;
+    }
+    const log = document.querySelector("[data-progress-log]");
+    if (!log) return;
+    log.replaceChildren();
+    saved.lines.forEach((text) => {
+      const item = document.createElement("li");
+      item.textContent = text;
+      log.appendChild(item);
+    });
+    log.hidden = false;
+    log.scrollTop = log.scrollHeight;
   }
 })();
