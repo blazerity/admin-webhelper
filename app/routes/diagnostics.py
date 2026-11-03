@@ -50,8 +50,10 @@ def check_device_status(device_id: int):
         return redirect(url_for("devices.detail", device_id=device.id, tab=tab))
 
     detail = (payload.get("detail") or "").strip()
-    if detail:
+    if detail and payload.get("status") != "online":
         flash(detail, "warning")
+    elif detail:
+        flash(detail, "success")
     else:
         label = {"online": "доступен", "offline": "недоступен"}.get(
             payload["status"], "неизвестно"

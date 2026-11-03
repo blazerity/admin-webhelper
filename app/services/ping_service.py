@@ -741,11 +741,15 @@ def check_device(device: Device, *, timeout_s: int = 1) -> dict:
     if device is None or not getattr(device, "id", None):
         raise ValueError("Устройство не задано.")
     previous = device.last_status or DeviceStatus.UNKNOWN
+    previous_ip = device.ip
     detail = ""
     try:
-        confirm_device_address(device, timeout_s=timeout_s)
+        found = confirm_device_address(device, timeout_s=timeout_s)
     except DeviceTargetError as exc:
         detail = str(exc)
+    else:
+        if found and found != previous_ip:
+            detail = f"Компьютер найден на {found}. Адрес карточки обновлён."
     now = utcnow()
     status = device.last_status or DeviceStatus.OFFLINE
     return {
