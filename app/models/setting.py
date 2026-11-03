@@ -7,6 +7,7 @@ from app.extensions import db
 from app.utils import utcnow
 
 POLL_INTERVAL_KEY = "poll_interval_seconds"
+HARDWARE_POLL_INTERVAL_KEY = "hardware_poll_interval_seconds"
 
 
 class AppSetting(db.Model):

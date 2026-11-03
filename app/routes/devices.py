@@ -539,9 +539,9 @@ def detail(device_id: int):
         ),
     )
 
-    from app.live_progress import LIVE_NOTICE_COOKIE, pop_live_notice
+    from app.live_progress import LIVE_NOTICE_COOKIE, consume_live_notice
 
-    notice = pop_live_notice(device.id)
+    notice, clear_notice = consume_live_notice(device_id=device.id)
     if notice is not None:
         flash(notice[1], notice[0])
     response = make_response(
@@ -569,7 +569,7 @@ def detail(device_id: int):
             can_connect_vnc=user_can_connect_vnc(current_user) and device.shows_commands,
         )
     )
-    if LIVE_NOTICE_COOKIE in request.cookies:
+    if clear_notice:
         response.delete_cookie(LIVE_NOTICE_COOKIE, path="/")
     return response
 

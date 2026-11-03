@@ -23,11 +23,15 @@ from dataclasses import dataclass
 from flask import current_app
 
 from app.extensions import db
-from app.models import POLL_INTERVAL_KEY, AppSetting
+from app.models import HARDWARE_POLL_INTERVAL_KEY, POLL_INTERVAL_KEY, AppSetting
 from app.services.crypto_service import decrypt, encrypt
 
 MIN_POLL_SECONDS = 30
 MAX_POLL_SECONDS = 24 * 60 * 60
+# Известные компьютеры: не чаще раза в час и не реже раза в 30 суток.
+MIN_HARDWARE_POLL_SECONDS = 60 * 60
+MAX_HARDWARE_POLL_SECONDS = 30 * 24 * 60 * 60
+DEFAULT_HARDWARE_POLL_SECONDS = 24 * 60 * 60
 
 DISCOVERY_USERNAME_KEY = "discovery_username"
 DISCOVERY_DOMAIN_KEY = "discovery_domain"
@@ -104,6 +108,36 @@ def get_poll_interval_seconds() -> int:
     else:
         value = int(current_app.config.get("POLL_INTERVAL_SECONDS", 300))
     return max(MIN_POLL_SECONDS, min(MAX_POLL_SECONDS, value))
+
+
+def get_hardware_poll_interval_seconds() -> int:
+    """Как часто заново спрашивать железо уже известных компьютеров."""
+    row = db.session.get(AppSetting, HARDWARE_POLL_INTERVAL_KEY)
+    if row is not None:
+        try:
+            value = int(row.value)
+        except (TypeError, ValueError):
+            value = DEFAULT_HARDWARE_POLL_SECONDS
+    else:
+        value = DEFAULT_HARDWARE_POLL_SECONDS
+    return max(MIN_HARDWARE_POLL_SECONDS, min(MAX_HARDWARE_POLL_SECONDS, value))
+
+
+def set_hardware_poll_interval_seconds(value: int) -> int:
+    value = int(value)
+    if value < MIN_HARDWARE_POLL_SECONDS or value > MAX_HARDWARE_POLL_SECONDS:
+        raise ValueError(
+            "Интервал опроса железа должен быть от "
+            f"{MIN_HARDWARE_POLL_SECONDS // 3600} до {MAX_HARDWARE_POLL_SECONDS // 3600} часов."
+        )
+    row = db.session.get(AppSetting, HARDWARE_POLL_INTERVAL_KEY)
+    if row is None:
+        row = AppSetting(key=HARDWARE_POLL_INTERVAL_KEY, value=str(value))
+        db.session.add(row)
+    else:
+        row.value = str(value)
+    db.session.commit()
+    return value
 
 
 def set_poll_interval_seconds(value: int) -> int:

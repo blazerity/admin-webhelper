@@ -26,34 +26,69 @@ def wants_live_progress() -> bool:
     return "application/x-ndjson" in (request.headers.get("Accept") or "")
 
 
-def pack_live_notice(device_id: int, category: str, message: str) -> str:
+def pack_live_notice(
+    device_id: int | None,
+    category: str,
+    message: str,
+    *,
+    scope: str | None = None,
+) -> str:
     text = (message or "").strip()
     if len(text) > 800:
         text = text[:799].rstrip() + "…"
-    return _serializer().dumps({"d": int(device_id), "c": category, "m": text})
+    payload: dict = {"c": category, "m": text}
+    if scope:
+        payload["s"] = scope
+    else:
+        payload["d"] = int(device_id or 0)
+    return _serializer().dumps(payload)
+
+
+def consume_live_notice(
+    *,
+    device_id: int | None = None,
+    scope: str | None = None,
+) -> tuple[tuple[str, str] | None, bool]:
+    """Сообщение и флаг «cookie можно стереть».
+
+    Чужой scope не стираем: страница карточки не должна съесть итог опроса сети.
+    """
+    raw = request.cookies.get(LIVE_NOTICE_COOKIE)
+    if not raw:
+        return None, False
+    try:
+        data = _serializer().loads(raw, max_age=_NOTICE_MAX_AGE)
+    except BadData:
+        return None, True
+    if not isinstance(data, dict):
+        return None, True
+    notice = _notice_from(data)
+    if scope:
+        if data.get("s") != scope or notice is None:
+            return None, data.get("s") == scope
+        return notice, True
+    if data.get("s"):
+        return None, False
+    if data.get("d") != device_id or notice is None:
+        return None, True
+    return notice, True
 
 
 def pop_live_notice(device_id: int) -> tuple[str, str] | None:
     """Сообщение для этой карточки. Подпись не даёт подменить текст."""
-    raw = request.cookies.get(LIVE_NOTICE_COOKIE)
-    if not raw:
-        return None
-    try:
-        data = _serializer().loads(raw, max_age=_NOTICE_MAX_AGE)
-    except BadData:
-        return None
-    if not isinstance(data, dict) or data.get("d") != device_id:
-        return None
-    category = data.get("c") or "info"
-    if category not in {"success", "danger", "warning", "info"}:
-        category = "info"
-    message = (data.get("m") or "").strip()
-    if not message:
-        return None
-    return category, message
+    notice, _clear = consume_live_notice(device_id=device_id)
+    return notice
 
 
-def stream_live_progress(device_id: int, redirect_url: str, work, *, first_step: str):
+def stream_live_progress(
+    device_id: int,
+    redirect_url: str,
+    work,
+    *,
+    first_step: str,
+    scope: str | None = None,
+    timeout_s: int = _JOIN_TIMEOUT_S,
+):
     """Выполнить work(on_progress) в потоке и отдать NDJSON.
 
     work возвращает пару (категория, текст). Исключение становится
@@ -84,7 +119,7 @@ def stream_live_progress(device_id: int, redirect_url: str, work, *, first_step:
         yield _line({"type": "step", "text": first_step})
         while True:
             try:
-                item = steps.get(timeout=_JOIN_TIMEOUT_S)
+                item = steps.get(timeout=timeout_s)
             except queue.Empty:
                 category, message = "warning", "Операция заняла слишком много времени."
                 break
@@ -93,13 +128,23 @@ def stream_live_progress(device_id: int, redirect_url: str, work, *, first_step:
                 continue
             category, message = item[1], item[2]
             break
-        notice = pack_live_notice(device_id, category, message)
+        notice = pack_live_notice(device_id, category, message, scope=scope)
         yield _line({"type": "done", "notice": notice, "redirect": redirect_url})
 
     response = Response(stream_with_context(generate()), mimetype="application/x-ndjson")
     response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Accel-Buffering"] = "no"
     return response
+
+
+def _notice_from(data: dict) -> tuple[str, str] | None:
+    category = data.get("c") or "info"
+    if category not in {"success", "danger", "warning", "info"}:
+        category = "info"
+    message = (data.get("m") or "").strip()
+    if not message:
+        return None
+    return category, message
 
 
 def _serializer() -> URLSafeTimedSerializer:

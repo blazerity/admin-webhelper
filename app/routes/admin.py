@@ -24,8 +24,10 @@ Discovery: глобальная учётка WMI для опроса (серий
 Опрос: интервал в app_settings; журнал прогонов — network_poll_runs;
 кнопка «Запустить сейчас» вызывает ту же run_network_poll, что и планировщик.
 
-Связь с bAD — на странице «Опрос сети». Железо одной машины читается
-кнопкой на карточке, без расписания и без отдельной вкладки отчётов.
+Связь с bAD — на странице «Опрос сети». Железо нового компьютера
+запрашивается в конце опроса сети, как только есть серийник.
+Известные машины — по интервалу на той же странице. Кнопка на карточке
+остаётся.
 
 SMTP — раздел mail. VNC и сервисы экрана входа — на general.
 
@@ -37,7 +39,16 @@ SMTP — раздел mail. VNC и сервисы экрана входа — н
 
 import logging
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    abort,
+    flash,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_login import current_user
 
 from app.authz import admin_required
@@ -74,10 +85,12 @@ from app.services.settings_service import (
     DiscoveryCredentialsError,
     UpdateSudoUserError,
     get_discovery_credential_view,
+    get_hardware_poll_interval_seconds,
     get_poll_interval_seconds,
     get_update_sudo_view,
     save_discovery_credentials,
     save_update_sudo_credentials,
+    set_hardware_poll_interval_seconds,
     set_poll_interval_seconds,
 )
 from app.services.password_expiry_settings import get_smtp_settings, set_smtp_settings
@@ -246,6 +259,27 @@ def settings(section: str | None = None):
                 detail=f"interval={value}",
             )
             flash("Интервал опроса сохранён.", "success")
+            return redirect(_settings_redirect("polls"))
+        if kind == "hardware_poll":
+            raw = (request.form.get("hardware_poll_hours") or "").strip()
+            try:
+                hours = int(raw)
+            except ValueError:
+                flash("Интервал опроса железа должен быть целым числом часов.", "danger")
+                return redirect(_settings_redirect("polls"))
+            try:
+                set_hardware_poll_interval_seconds(hours * 3600)
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(_settings_redirect("polls"))
+            audit_service.log(
+                current_user,
+                "update",
+                "admin_settings",
+                "hardware_poll",
+                detail=f"hours={hours}",
+            )
+            flash("Интервал опроса железа сохранён.", "success")
             return redirect(_settings_redirect("polls"))
         if kind == "bad_integration":
             try:
@@ -460,6 +494,7 @@ def settings(section: str | None = None):
             discovery_domain=discovery.domain,
             discovery_password_set=discovery.password_set,
             poll_interval=get_poll_interval_seconds(),
+            hardware_poll_hours=get_hardware_poll_interval_seconds() // 3600,
             bad_integration=integration_view(),
             **_poll_history_context(),
         )
@@ -468,7 +503,17 @@ def settings(section: str | None = None):
     elif section == "tls":
         ctx.update(tls=get_tls_settings())
 
-    return render_template(f"admin/settings_{section}.html", **ctx)
+    from app.live_progress import LIVE_NOTICE_COOKIE, consume_live_notice
+
+    notice, clear_notice = (None, False)
+    if section == "polls":
+        notice, clear_notice = consume_live_notice(scope="polls")
+        if notice is not None:
+            flash(notice[1], notice[0])
+    response = make_response(render_template(f"admin/settings_{section}.html", **ctx))
+    if clear_notice:
+        response.delete_cookie(LIVE_NOTICE_COOKIE, path="/")
+    return response
 
 
 @bp.get("/poll-runs/export.csv")
@@ -478,26 +523,44 @@ def export_poll_runs():
     return csv_attachment(export_poll_runs_csv(limit=200), "poll_runs.csv")
 
 
+def _network_poll_message(stats: dict) -> tuple[str, str]:
+    return (
+        "success",
+        "Опрос завершён: проверено {scanned}, онлайн {online}, "
+        "офлайн {offline}, ошибок {errors}.".format(**stats),
+    )
+
+
+def _run_manual_network_poll(on_progress) -> tuple[str, str]:
+    try:
+        stats = run_network_poll(mode="manual", on_progress=on_progress)
+    except PollInProgressError as exc:
+        return "warning", str(exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Сбой ручного опроса сети")
+        return "danger", f"Ошибка опроса: {exc}"
+    return _network_poll_message(stats)
+
+
 @bp.route("/poll-run", methods=["POST"])
 @admin_required
 def poll_run():
     """Принудительный полный опрос сети (тот же код, что у планировщика)."""
-    try:
-        stats = run_network_poll(mode="manual")
-    except PollInProgressError as exc:
-        flash(str(exc), "warning")
-        return redirect(_settings_redirect("polls"))
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Сбой ручного опроса сети")
-        flash(f"Ошибка опроса: {exc}", "danger")
-        return redirect(_settings_redirect("polls"))
+    from app.live_progress import stream_live_progress, wants_live_progress
 
-    flash(
-        "Опрос завершён: проверено {scanned}, онлайн {online}, "
-        "офлайн {offline}, ошибок {errors}.".format(**stats),
-        "success",
-    )
-    return redirect(_settings_redirect("polls"))
+    redirect_url = _settings_redirect("polls")
+    if wants_live_progress():
+        return stream_live_progress(
+            0,
+            redirect_url,
+            _run_manual_network_poll,
+            first_step="Опрашиваю сеть…",
+            scope="polls",
+            timeout_s=600,
+        )
+    category, message = _run_manual_network_poll(None)
+    flash(message, category)
+    return redirect(redirect_url)
 
 
 @bp.route("/refresh-hostnames", methods=["POST"])

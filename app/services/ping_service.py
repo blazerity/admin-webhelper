@@ -27,7 +27,9 @@
      MAC сначала из ARP, иначе из WMI. Имя: Win32_ComputerSystem,
      PTR только если WMI молчит и у строки ещё нет имени.
      Текущая УЗ пишется в endpoint_accounts / device_account_history.
-     Железо Windows этот проход не читает.
+     Если у онлайн-карточки появился серийник, а bAD ещё не спрашивали,
+     следом идёт один проход железа. Повтор известных машин — по интервалу
+     из настроек, не на каждом опросе сети.
 
 Позже ту же функцию run_network_poll / poll_all_sectors вызовет задача Celery.
 Менять разбор пинга и запись истории для этого не нужно.
@@ -40,7 +42,7 @@ import re
 import subprocess
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -281,7 +283,7 @@ def _stream_command(
     return rc if rc is not None else 1, output
 
 
-def poll_all_sectors() -> dict[str, int]:
+def poll_all_sectors(*, on_progress=None) -> dict[str, int]:
     """Один проход по всем секторам.
 
     Вызывать внутри app.app_context(): expand_ranges читает лимит из
@@ -303,11 +305,14 @@ def poll_all_sectors() -> dict[str, int]:
         "errors": 0,
         "discovered": 0,
     }
-    assignments = _collect_assignments(stats)
+    assignments = _collect_assignments(stats, on_progress=on_progress)
     if not assignments:
+        _progress(on_progress, "Адресов к проверке нет")
         return stats
 
-    probes = _probe_all(list(assignments), stats)
+    _progress(on_progress, f"Адресов к проверке: {len(assignments)}")
+    probes = _probe_all(list(assignments), stats, on_progress=on_progress)
+    _progress(on_progress, "Записываю карточки")
     # Сначала онлайн: если машина сменила IP в этом же проходе,
     # строка devices уже уедет на новый адрес, и офлайн по старому
     # IP не запишет лишнюю историю.
@@ -338,6 +343,14 @@ def poll_all_sectors() -> dict[str, int]:
 
     stats["discovered"] = len(new_device_ids)
 
+    from app.services.hardware_poll_service import poll_fresh_hardware
+
+    try:
+        poll_fresh_hardware(on_progress=on_progress)
+    except Exception:
+        logger.exception("Не удалось запросить железо новых компьютеров")
+        _progress(on_progress, "Опрос железа новых компьютеров не завершился")
+
     logger.info(
         "Опрос секторов: проверено %s, онлайн %s, офлайн %s, "
         "новых %s, ошибок %s",
@@ -367,7 +380,7 @@ def load_recent_poll_runs(
     return load_recent_by_id(NetworkPollRun, limit, offset=offset)
 
 
-def run_network_poll(*, mode: str = "scheduled") -> dict[str, int]:
+def run_network_poll(*, mode: str = "scheduled", on_progress=None) -> dict[str, int]:
     """Опрос с записью в network_poll_runs. Без параллельных запусков.
 
     mode: scheduled (планировщик), manual (кнопка в Параметрах), cli (flask poll).
@@ -393,7 +406,7 @@ def run_network_poll(*, mode: str = "scheduled") -> dict[str, int]:
         db.session.commit()
 
         try:
-            stats = poll_all_sectors()
+            stats = poll_all_sectors(on_progress=on_progress)
         except Exception as exc:  # noqa: BLE001
             run.finished_at = utcnow()
             run.error = str(exc)[:2000]
@@ -411,7 +424,12 @@ def run_network_poll(*, mode: str = "scheduled") -> dict[str, int]:
         _poll_run_lock.release()
 
 
-def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
+def _progress(on_progress, text: str) -> None:
+    if on_progress is not None and text:
+        on_progress(text)
+
+
+def _collect_assignments(stats: dict[str, int], *, on_progress=None) -> dict[str, int]:
     """IP → sector_id. Секторы идут по id, при пересечении побеждает поздний.
 
     Словарь, а не список: один адрес пингуем один раз, даже если он
@@ -441,8 +459,11 @@ def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
             )
             stats["errors"] += 1
             continue
+        added = 0
         for ip in ips:
             previous = assigned.get(ip)
+            if previous is None:
+                added += 1
             if previous is not None and previous != sector.id:
                 key = (previous, sector.id)
                 overlaps[key] = overlaps.get(key, 0) + 1
@@ -451,6 +472,7 @@ def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
                         f"{ip} (секторы {previous} → {sector.id})"
                     )
             assigned[ip] = sector.id
+        _progress(on_progress, f"Сектор {sector.name}: {added} адресов")
     if overlaps:
         total = sum(overlaps.values())
         pairs = ", ".join(
@@ -467,7 +489,7 @@ def _collect_assignments(stats: dict[str, int]) -> dict[str, int]:
     return assigned
 
 
-def _probe_all(ips: list[str], stats: dict[str, int]) -> list[_Probe]:
+def _probe_all(ips: list[str], stats: dict[str, int], *, on_progress=None) -> list[_Probe]:
     """Пинг и discovery в пуле. Сессию здесь не передаём и не открываем.
 
     Учётку WMI читаем один раз в главном потоке (есть app context / БД)
@@ -492,14 +514,19 @@ def _probe_all(ips: list[str], stats: dict[str, int]) -> list[_Probe]:
         )
 
     probes: list[_Probe] = []
+    total = len(ips)
+    done = 0
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
         futures = [pool.submit(_probe, ip, wmi_creds) for ip in ips]
-        for future in futures:
+        for future in as_completed(futures):
+            done += 1
             try:
                 probes.append(future.result())
             except Exception:
                 logger.exception("Рабочий поток опроса завершился с ошибкой")
                 stats["errors"] += 1
+            if done == 1 or done == total or done % 25 == 0:
+                _progress(on_progress, f"Проверено адресов {done} из {total}")
     return probes
 
 
