@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v2.1)
+# Архитектура bAWH (актуально для v2.2)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.2` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -334,7 +334,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Модуль | Роль |
 | --- | --- |
 | `net_utils.py` | `parse_range`, `expand_ranges`, `normalize_mac`, `assert_host_or_ipv4`, `resolve_to_ipv4` |
-| `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (разовый ICMP → `device_history`); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
+| `ping_service.py` | ICMP; `run_network_poll` (mutex + журнал) → `poll_all_sectors`; `ping_host` / `trace_host` / `check_device` (доступность карточки через `confirm_device_address`, не голый ICMP); ThreadPoolExecutor. После ICMP+WMI серые адреса — `fingerprint_service` |
 | `fingerprint_service.py` | короткий TCP (445/135, 8728/8291, 9100/515, 554) + SNMPv1 sysDescr `public`; без новых зависимостей |
 | `device_kind.py` | тип карты: имена AD (`BN***` = ноутбук, `n…`/`w…`/…), WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
 | `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user для опроса сети. Для bAD — `lookup_badagent`: служба `badagent` и, только если она есть, `device_id` из конфига агента (только это поле; ключ агента отбрасывается) либо MachineGuid. Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опрос сети или `DISCOVERY_*` |
@@ -437,7 +437,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/devices/<id>/check` | diagnostics — быстрый ICMP → `device_history` + обновление статуса |
+| POST | `/devices/<id>/check` | diagnostics — адрес карточки отвечает её серийником → `device_history` |
 | POST | `/devices/<id>/ping` | diagnostics — diagnostic run в `script_runs` |
 | POST | `/devices/<id>/tracert` | diagnostics |
 | POST | `/devices/<id>/command` | вошедший |
@@ -696,7 +696,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 ## 12. Соглашения по домену и коду
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
-- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё и пишет адрес в `device_addresses` (несколько интерфейсов: Ethernet + Wi‑Fi). На карточке в UI — **один актуальный IP на MAC** (по `last_seen`). Hostname и PTR **не** ключи слияния. Без SN можно переиспользовать только запись с тем же IP и пустым SN. Призрак без SN на старом IP после появления SN на новом (или совпадения WMI-hostname) **сливается** в карточку с SN (`device_identity_service.absorb_ghosts`). Один IP у разных SN — разные машины (история аренды), не дубль.
+- **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё и пишет адрес в `device_addresses` (несколько интерфейсов: Ethernet + Wi‑Fi). На карточке в UI — **один актуальный IP на MAC** (по `last_seen`). Hostname и PTR не ключи: PTR бывает общим и отстаёт, имя можно сменить, а чтение имени с машины — тот же админский WMI, что и серийник. Без SN можно переиспользовать только запись с тем же IP и пустым SN. Призрак без SN на старом IP после появления SN на новом (или совпадения WMI-hostname) сливается в карточку с SN (`absorb_ghosts`). Один IP у разных SN — разные машины (история аренды), не дубль.
+- **Команда на карточку:** `confirm_device_address` перед скриптом, командой, ping/tracert, проверкой «сейчас» и билетом VNC. ICMP без сверки серийника не означает «этот компьютер доступен». Чужой SN на адресе — отказ и offline у этой карточки; чужую карточку функция не переписывает. Без SN на карточке достаточно ICMP. Учётка сверки — WMI опроса, иначе учётка запуска.
 - **Опрос железа:** только кнопка на карточке. Сетевой опрос новые карточки железом не дополняет.
 - **Дубли (UI):** Настройки → Удаление дублей. Уверенные — одинаковый SN; призраки — IP с SN + без SN; история IP — разные SN на одном адресе (без авто-галочек); предположительно — MAC/hostname без авто-удаления.
 - **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames` (чужой SN на том же IP имя не пишет).
@@ -821,7 +822,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Идентичность устройств | `ping_service._find_existing_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Дубли устройств | `device_dedup_service` (SN / призраки / история IP / suspected), GET/POST `/admin/duplicates` |
-| Идентичность / призраки | `device_identity_service` (`device_addresses`, `absorb_ghosts`) во время опроса сети |
+| Идентичность / призраки | `device_identity_service` (`device_addresses`, `absorb_ghosts`, `confirm_device_address`) |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |

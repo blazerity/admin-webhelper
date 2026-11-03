@@ -49,13 +49,17 @@ def check_device_status(device_id: int):
         flash("Не удалось выполнить проверку.", "danger")
         return redirect(url_for("devices.detail", device_id=device.id, tab=tab))
 
-    label = {"online": "доступен", "offline": "недоступен"}.get(
-        payload["status"], "неизвестно"
-    )
-    if payload["changed"]:
-        flash(f"Статус изменился: устройство {label}.", "success")
+    detail = (payload.get("detail") or "").strip()
+    if detail:
+        flash(detail, "warning")
     else:
-        flash(f"Устройство {label}.", "info")
+        label = {"online": "доступен", "offline": "недоступен"}.get(
+            payload["status"], "неизвестно"
+        )
+        if payload["changed"]:
+            flash(f"Статус изменился: устройство {label}.", "success")
+        else:
+            flash(f"Устройство {label}.", "info")
     return redirect(url_for("devices.detail", device_id=device.id, tab=tab))
 
 

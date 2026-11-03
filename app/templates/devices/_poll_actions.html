@@ -6,9 +6,9 @@
     <form method="post" action="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="tab" value="polls">
-      <button class="btn btn-primary" type="submit" title="ICMP и запись в историю опросов">Проверить сейчас</button>
+      <button class="btn btn-primary" type="submit" title="Проверить, что по адресу отвечает этот компьютер">Проверить сейчас</button>
     </form>
-    <p class="small text-muted mb-0">Короткий ICMP. Результат попадает в таблицу ниже и меняет статус карточки.</p>
+    <p class="small text-muted mb-0">Адрес с серийником сверяется с паспортом карточки. Чужой ответ не считается доступностью. Результат пишется в таблицу ниже.</p>
   </div>
   <div class="device-actions-group">
     <p class="device-actions-label">Журнал запуска</p>

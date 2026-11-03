@@ -388,6 +388,22 @@ def execute_run(app, run_id: int) -> None:
                 db.session.commit()
 
             run = db.session.get(ScriptRun, run_id)
+            from app.services.device_identity_service import (
+                DeviceTargetError,
+                confirm_device_address,
+            )
+
+            if run.device is None:
+                raise ScriptError("У запуска нет устройства.")
+            try:
+                target_ip = confirm_device_address(
+                    run.device,
+                    user_id=run.user_id,
+                )
+            except DeviceTargetError as exc:
+                logger.info("Запуск %s не начат: %s", run_id, exc)
+                _mark_failed(app, run_id, exc, cancel_event)
+                return
 
             def on_output(text: str) -> None:
                 _append_log(app, run_id, text)
@@ -398,7 +414,7 @@ def execute_run(app, run_id: int) -> None:
 
             exit_code, log_text, status = _perform(
                 run.run_type,
-                run.device.ip if run.device is not None else "",
+                target_ip,
                 run.command_text or "",
                 run.script,
                 run.run_as or RunAs.PSEXEC,
