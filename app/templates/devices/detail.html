@@ -321,10 +321,17 @@
           <h2 class="panel-title mb-1">Текущая конфигурация</h2>
           <p class="panel-hint mb-0">Последний успешный снимок из bAD. Кнопка опрашивает эту машину сразу.</p>
         </div>
-        <form method="post" action="{{ url_for('devices.poll_device_hardware', device_id=device.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-sm btn-outline-primary" type="submit">Опросить сейчас</button>
-        </form>
+        <div>
+          <form method="post"
+                action="{{ url_for('devices.poll_device_hardware', device_id=device.id) }}"
+                data-live-progress
+                data-progress-label="Опрашиваю…"
+                data-redirect="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-primary" type="submit" data-progress-button>Опросить сейчас</button>
+          </form>
+          <ol class="live-progress-log" data-progress-log hidden aria-live="polite"></ol>
+        </div>
       </div>
       {% if device.bad_agent_status == 'unregistered' %}
       <p class="text-warning mt-3 mb-0">Агент bAD не зарегистрирован.</p>
@@ -448,6 +455,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/live_progress.js') }}"></script>
 <div class="copy-toast" id="copy-toast" role="status" aria-live="polite" hidden></div>
 <script>
 (() => {

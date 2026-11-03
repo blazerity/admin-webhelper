@@ -1833,9 +1833,9 @@ code {
   text-transform: uppercase;
 }
 
-.device-check-log {
+.live-progress-log {
   list-style: none;
-  margin: 0;
+  margin: 0.35rem 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -1843,16 +1843,16 @@ code {
   font-size: 0.875rem;
 }
 
-.device-check-log li {
+.live-progress-log li {
   color: var(--muted);
 }
 
-.device-check-log li.is-current {
+.live-progress-log li.is-current {
   color: inherit;
   font-weight: 600;
 }
 
-.device-check-log li.is-current::before {
+.live-progress-log li.is-current::before {
   content: "";
   display: inline-block;
   width: 0.7rem;
@@ -1862,17 +1862,17 @@ code {
   border-right-color: transparent;
   border-radius: 50%;
   vertical-align: -0.05rem;
-  animation: device-check-spin 0.7s linear infinite;
+  animation: live-progress-spin 0.7s linear infinite;
 }
 
-@keyframes device-check-spin {
+@keyframes live-progress-spin {
   to {
     transform: rotate(360deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .device-check-log li.is-current::before {
+  .live-progress-log li.is-current::before {
     animation: none;
     border-right-color: currentColor;
   }
