@@ -623,10 +623,15 @@ def vnc_ticket(device_id: int):
     if not user_can_connect_vnc(current_user):
         abort(403)
 
+    from app.services.device_identity_service import DeviceTargetError, confirm_device_address
     from app.services.vnc_settings import get_vnc_settings
     from app.services.vnc_token import VncTokenError, mint_ticket
 
     settings = get_vnc_settings(include_password=False)
+    try:
+        confirm_device_address(device, user_id=current_user.id)
+    except DeviceTargetError as exc:
+        return jsonify({"error": str(exc)}), 409
     try:
         token = mint_ticket(
             device_id=device.id,

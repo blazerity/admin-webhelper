@@ -730,44 +730,34 @@ def _displace_other_ip_holders(owner: Device, ip: str) -> None:
 
 
 def check_device(device: Device, *, timeout_s: int = 1) -> dict:
-    """Разовый ICMP по уже известному устройству: статус + device_history.
+    """Проверка, что по адресу карточки отвечает она сама.
 
-    В отличие от diagnostic Ping (script_runs), пишет в историю опросов
-    и сразу обновляет last_status / last_seen / last_response_time_ms.
-    WMI/discovery не вызываются — только доступность.
+    История и статус пишет ``confirm_device_address``: ICMP для адреса
+    без серийника, серийник по WMI — если паспорт уже есть. Чужой ответ
+    не считается «доступен».
     """
+    from app.services.device_identity_service import DeviceTargetError, confirm_device_address
+
     if device is None or not getattr(device, "id", None):
         raise ValueError("Устройство не задано.")
-    ip = assert_public_ipv4(device.ip)
     previous = device.last_status or DeviceStatus.UNKNOWN
-    result = ping_host(ip, timeout_s=timeout_s)
+    detail = ""
+    try:
+        confirm_device_address(device, timeout_s=timeout_s)
+    except DeviceTargetError as exc:
+        detail = str(exc)
     now = utcnow()
-    status = result.status
-    changed = status != previous
-
-    device.last_status = status
-    device.last_response_time_ms = result.response_time_ms
-    if status == DeviceStatus.ONLINE:
-        device.last_seen = now
-    db.session.add(
-        DeviceHistory(
-            device_id=device.id,
-            timestamp=now,
-            status=status,
-            response_time_ms=result.response_time_ms,
-        )
-    )
-    db.session.commit()
-
+    status = device.last_status or DeviceStatus.OFFLINE
     return {
         "device_id": device.id,
         "ip": device.ip,
         "status": status,
         "previous_status": previous,
-        "changed": changed,
-        "response_time_ms": result.response_time_ms,
+        "changed": status != previous,
+        "response_time_ms": device.last_response_time_ms,
         "last_seen": device.last_seen.isoformat() if device.last_seen else None,
         "checked_at": now.isoformat(),
+        "detail": detail,
     }
 
 

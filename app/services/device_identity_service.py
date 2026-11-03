@@ -4,6 +4,16 @@
 интерфейсов (их может быть несколько: Ethernet + Wi‑Fi). Призрак без SN
 на старом IP после появления SN на новом — сливаем в карточку с SN,
 если совпал IP или WMI-hostname.
+
+Имя компьютера паспортом не является. PTR часто общий на несколько
+адресов и отстаёт, когда VPN отдаёт адрес другой машине. Короткое имя
+можно переименовать. Читать серийник и читать имя с самой машины —
+один и тот же WMI под админской учёткой; имя из DNS этого доступа
+не требует и как раз поэтому не доказывает, кто ответил на пинг.
+
+``confirm_device_address`` — единственная проверка перед командой,
+скриптом, ping/tracert и билетом VNC: адрес карточки сейчас отвечает
+этим серийником. Без серийника карточка и есть адрес, хватает ICMP.
 """
 
 from __future__ import annotations
@@ -253,3 +263,139 @@ def _merge_ghost_into(keeper: Device, ghost: Device) -> None:
 
     db.session.delete(ghost)
     db.session.flush()
+
+
+class DeviceTargetError(Exception):
+    """Адрес карточки сейчас нельзя считать этой машиной."""
+
+
+def machine_matches_card(stored_serial: str | None, live_serial: str | None) -> str:
+    """Как живой серийник относится к паспорту карточки.
+
+    ``no_serial`` — у карточки нет паспорта, адрес и есть устройство.
+    ``match`` / ``mismatch`` — оба серийника прочитаны.
+    ``unproven`` — паспорт есть, а с адреса серийник не пришёл.
+    Имя машины в решение не входит.
+    """
+    stored = discovery_service.normalize_serial(stored_serial)
+    live = discovery_service.normalize_serial(live_serial)
+    if not stored:
+        return "no_serial"
+    if not live:
+        return "unproven"
+    if stored == live:
+        return "match"
+    return "mismatch"
+
+
+def confirm_device_address(
+    device: Device,
+    *,
+    user_id: int | None = None,
+    timeout_s: int = 1,
+) -> str:
+    """Вернуть IP, только если по нему отвечает эта карточка.
+
+    Пишет статус и строку истории и делает commit до возврата или
+    исключения: отказ не должен потеряться, если вызывающий потом
+    откатит свою транзакцию запуска.
+    """
+    from app.services.net_utils import assert_public_ipv4
+    from app.services.ping_service import ping_host
+
+    if device is None or not getattr(device, "id", None):
+        raise DeviceTargetError("Устройство не задано.")
+    ip = assert_public_ipv4(device.ip or "")
+    ping = ping_host(ip, timeout_s=timeout_s)
+    if ping.status != DeviceStatus.ONLINE:
+        _remember_endpoint(device, DeviceStatus.OFFLINE, None)
+        db.session.commit()
+        raise DeviceTargetError(f"{ip} не отвечает.")
+
+    live_name = None
+    creds = None
+    if discovery_service.normalize_serial(device.serial_number):
+        creds = _wmi_creds_for_target(user_id)
+        live_serial = None
+        if creds is not None:
+            inventory = discovery_service.lookup_wmi_inventory(ip, creds=creds)
+            live_serial = inventory.serial_number
+            live_name = inventory.hostname
+        verdict = machine_matches_card(device.serial_number, live_serial)
+    else:
+        verdict = "no_serial"
+
+    if verdict in {"match", "no_serial"}:
+        _remember_endpoint(device, DeviceStatus.ONLINE, ping.response_time_ms)
+        db.session.commit()
+        return ip
+
+    _remember_endpoint(device, DeviceStatus.OFFLINE, None)
+    db.session.commit()
+    raise DeviceTargetError(
+        _refusal_text(ip, verdict, live_name, creds_missing=creds is None)
+    )
+
+
+def _refusal_text(ip: str, verdict: str, live_name: str | None, *, creds_missing: bool) -> str:
+    if verdict == "mismatch":
+        who = f" ({live_name})" if live_name else ""
+        return (
+            f"На {ip} отвечает другой компьютер{who}. "
+            "Серийник не совпал с карточкой, команда не выполнена."
+        )
+    if creds_missing:
+        return (
+            f"Адрес {ip} отвечает, но серийник прочитать нечем: "
+            "не задана учётка WMI (Настройки → Опрос сети) и нет учётки запуска. "
+            "Команда не выполнена."
+        )
+    return (
+        f"Адрес {ip} отвечает, но серийник компьютера прочитать не удалось. "
+        "Команда не выполнена."
+    )
+
+
+def _wmi_creds_for_target(user_id: int | None):
+    """Учётка опроса, иначе учётка того, кто запускает команду."""
+    creds = discovery_service.discovery_credentials()
+    if creds is not None:
+        return creds
+    if user_id is None:
+        return None
+    from app.services.credential_service import (
+        CredentialsNotConfigured,
+        get_remote_admin_credentials,
+    )
+
+    try:
+        remote = get_remote_admin_credentials(user_id)
+    except CredentialsNotConfigured:
+        return None
+    return discovery_service.DiscoveryCredentials(
+        username=remote.username,
+        password=remote.password,
+        domain=remote.domain or "",
+    )
+
+
+def _remember_endpoint(device: Device, status: str, response_time_ms: int | None) -> None:
+    """Статус этой карточки на её текущем IP. Чужие карточки не трогаем."""
+    now = utcnow()
+    device.last_status = status
+    device.last_response_time_ms = response_time_ms if status == DeviceStatus.ONLINE else None
+    if status == DeviceStatus.ONLINE:
+        device.last_seen = now
+    for row in list(device.addresses or []):
+        if row.ip == device.ip:
+            row.last_status = status
+            if status == DeviceStatus.ONLINE:
+                row.last_seen = now
+    db.session.add(
+        DeviceHistory(
+            device_id=device.id,
+            timestamp=now,
+            status=status,
+            response_time_ms=response_time_ms if status == DeviceStatus.ONLINE else None,
+        )
+    )
