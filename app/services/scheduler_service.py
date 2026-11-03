@@ -6,7 +6,9 @@
 
 Опрос сети и архив логов — app/scheduler_worker.py (bawh-scheduler).
 Отчёты о паролях AD — app/password_report_worker.py (bawh-password-reports).
-Железо Windows планировщик не собирает: его читает кнопка на карточке через bAD.
+Железо известных Windows-компьютеров планировщик спрашивает у bAD
+по интервалу из настроек (по умолчанию раз в сутки). Новый серийник
+опрашивается сразу в конце прохода сети.
 
 Позже вместо APScheduler может появиться Celery beat. Задача beat
 вызовет ту же start_* или напрямую run_network_poll / run_*_report.
@@ -49,6 +51,9 @@ PASSWORD_EXPIRY_JOB_ID = "password-expiry"
 PASSWORD_VACATION_JOB_ID = "password-vacation"
 PASSWORD_REFRESH_JOB_ID = "password-expiry-refresh"
 BAD_INTEGRATION_JOB_ID = "bad-integration-poll"
+HARDWARE_POLL_JOB_ID = "hardware-poll-due"
+# Как часто смотреть, у кого уже прошёл интервал железа.
+_HARDWARE_DUE_SECONDS = 15 * 60
 # Как часто подхватывать cron/тумблер из БД без перезапуска процесса
 # и проверять заявку bAD, пока она не подтверждена.
 _REPORT_REFRESH_SECONDS = 30
@@ -205,6 +210,11 @@ def start_scheduler(app) -> BackgroundScheduler:
     прохода читаем его снова: форма администратора пишет новое число в БД,
     и следующий тик уже с новым интервалом, без перезапуска процесса.
 
+    Задача hardware-poll-due каждые 15 минут берёт компьютеры, у которых
+    с прошлого запроса железа прошёл интервал из Настройки → Опрос сети.
+    Сам интервал (по умолчанию сутки) читается в момент запуска, без
+    перезапуска процесса.
+
     Задача archive-logs — раз в сутки около 00:20 UTC: суточные хвосты
     завершённых месяцев пакуются в LOG_ARCHIVE_DIR.
 
@@ -244,6 +254,17 @@ def start_scheduler(app) -> BackgroundScheduler:
             except Exception:
                 logger.exception("Не удалось архивировать логи")
 
+    def hardware_poll_job() -> None:
+        with app.app_context():
+            try:
+                from app.services.hardware_poll_service import poll_due_hardware
+
+                poll_due_hardware()
+            except Exception:
+                logger.exception("Сбой планового опроса железа")
+            finally:
+                db.session.remove()
+
     def bad_integration_job() -> None:
         with app.app_context():
             try:
@@ -260,6 +281,15 @@ def start_scheduler(app) -> BackgroundScheduler:
         "interval",
         seconds=scheduled_for["seconds"],
         id=JOB_ID,
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        hardware_poll_job,
+        "interval",
+        seconds=_HARDWARE_DUE_SECONDS,
+        id=HARDWARE_POLL_JOB_ID,
         max_instances=1,
         coalesce=True,
         replace_existing=True,

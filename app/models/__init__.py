@@ -16,7 +16,12 @@ from app.models.password_expiry import (
 from app.models.poll_run import NetworkPollRun
 from app.models.script import RunAs, RunStatus, RunType, Script, ScriptRun
 from app.models.sector import Sector, SectorAccess, SectorRange
-from app.models.setting import POLL_INTERVAL_KEY, AppSetting, RemoteCredential
+from app.models.setting import (
+    HARDWARE_POLL_INTERVAL_KEY,
+    POLL_INTERVAL_KEY,
+    AppSetting,
+    RemoteCredential,
+)
 from app.models.user import User, UserLdapGroup
 
 __all__ = [
@@ -31,6 +36,7 @@ __all__ = [
     "DeviceHardwareHistory",
     "DeviceHistory",
     "DeviceStatus",
+    "HARDWARE_POLL_INTERVAL_KEY",
     "HardwarePollRun",
     "EndpointAccount",
     "LoginService",

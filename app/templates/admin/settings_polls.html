@@ -50,7 +50,9 @@
     <p class="text-muted mb-3">
       Адрес сервера bAD. Заявку отправляет bAWH. Подтверждение — в панели bAD:
       Параметры → Интеграции. Здесь кнопки «Подтвердить» нет.
-      Ключ на странице не показывается. Железо читается кнопкой на карточке устройства.
+      Ключ на странице не показывается. Железо нового компьютера запрашивается
+      после того, как опрос сети записал серийник. Дальше — по интервалу ниже.
+      device_id машины в базу не пишется.
     </p>
     {% set bad = bad_integration if bad_integration is defined else none %}
     <div class="row g-3">
@@ -105,11 +107,32 @@
     </div>
     <button class="btn btn-primary" type="submit">Сохранить интервал</button>
   </form>
-  <hr class="my-3">
-  <form method="post" action="{{ url_for('admin.poll_run') }}">
+  <form method="post" class="mt-3">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button class="btn btn-outline-primary" type="submit">Запустить опрос сейчас</button>
+    <input type="hidden" name="form" value="hardware_poll">
+    <label class="form-label" for="hardware_poll_hours">Опрос железа известных компьютеров, часы</label>
+    <p class="text-muted small">
+      Повторный запрос в bAD для машин, у которых серийник уже есть.
+      Новый компьютер не ждёт этого интервала: железо спрашивается сразу после появления серийника.
+      По умолчанию раз в сутки.
+    </p>
+    <div class="col-md-3 mb-3">
+      <input class="form-control" id="hardware_poll_hours" name="hardware_poll_hours" type="number" min="1" max="720" value="{{ hardware_poll_hours|default(24) }}">
+    </div>
+    <button class="btn btn-primary" type="submit">Сохранить интервал железа</button>
   </form>
+  <hr class="my-3">
+  <div>
+    <form method="post"
+          action="{{ url_for('admin.poll_run') }}"
+          data-live-progress
+          data-progress-label="Опрашиваю…"
+          data-redirect="{{ url_for('admin.settings', section='polls') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-primary" type="submit" data-progress-button>Запустить опрос сейчас</button>
+    </form>
+    <ol class="live-progress-log" data-progress-log hidden aria-live="polite"></ol>
+  </div>
   <form method="post" action="{{ url_for('admin.refresh_hostnames') }}" class="mt-2">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn btn-outline-secondary" type="submit">Обновить имена с машин (WMI)</button>
@@ -179,4 +202,7 @@
   <p class="text-muted small mt-3 mb-0">Прогонов ещё нет — дождитесь расписания или нажмите «Запустить опрос сейчас».</p>
   {% endif %}
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/live_progress.js') }}"></script>
 {% endblock %}

@@ -1,6 +1,6 @@
 """Опрос конфигурации железа одной Windows-машины через bAD.
 
-Кнопка на карточке, не ICMP и не расписание: пингуем машину и спрашиваем bAD.
+Кнопка на карточке, конец опроса сети и интервал известных машин: пингуем и спрашиваем bAD.
 Процессор, память, диски и версию Windows из WMI не читаем — их приносит lookup.
 
 На машине той же учёткой, что ходила в WMI, проверяем службу badagent.
@@ -372,6 +372,111 @@ def poll_one_device(device: Device, *, on_progress=None) -> HardwarePollResult:
         mode="manual",
         device_ids=(device.id,),
         on_progress=on_progress,
+    )
+
+
+def poll_fresh_hardware(*, on_progress=None) -> None:
+    """Железо карточек, у которых серийник уже есть, а bAD ещё не спрашивали.
+
+    device_id машины читается внутри прохода и в базу не пишется.
+    Нет связи с bAD — сеть из-за этого не падает.
+    """
+    ids = _fresh_hardware_ids()
+    if not ids:
+        return
+    _note(
+        on_progress,
+        f"Компьютеров с серийником без снимка железа: {len(ids)}. Запрашиваю bAD",
+    )
+    _run_connected(ids, mode="discovered", on_progress=on_progress)
+
+
+def poll_due_hardware() -> HardwarePollResult | None:
+    """Повторный опрос известных компьютеров по интервалу из настроек."""
+    from app.services.bad_integration import connected_credentials
+
+    ids = _due_hardware_ids()
+    if not ids or connected_credentials() is None:
+        return None
+    try:
+        return run_hardware_poll(mode="scheduled", device_ids=ids)
+    except (HardwarePollError, HardwarePollInProgressError) as exc:
+        logger.info("Плановый опрос железа пропущен: %s", exc)
+        return None
+    except Exception:
+        logger.exception("Сбой планового опроса железа")
+        return None
+
+
+def _fresh_hardware_ids() -> list[int]:
+    rows = list(
+        db.session.scalars(
+            select(Device).where(
+                Device.hardware_poll_at.is_(None),
+                Device.last_status == DeviceStatus.ONLINE,
+            )
+        )
+    )
+    return [device.id for device in rows if _ready_for_hardware(device)]
+
+
+def _due_hardware_ids() -> list[int]:
+    from app.services.settings_service import get_hardware_poll_interval_seconds
+    from app.utils import as_utc
+
+    interval = get_hardware_poll_interval_seconds()
+    cutoff = utcnow() - timedelta(seconds=interval)
+    rows = list(
+        db.session.scalars(select(Device).where(Device.serial_number.is_not(None)))
+    )
+    due: list[int] = []
+    for device in rows:
+        if not _ready_for_hardware(device):
+            continue
+        when = device.hardware_poll_at
+        if when is not None and as_utc(when) >= cutoff:
+            continue
+        due.append(device.id)
+    return due
+
+
+def _ready_for_hardware(device: Device) -> bool:
+    if not (device.ip or "").strip():
+        return False
+    if not discovery_service.normalize_serial(device.serial_number):
+        return False
+    return is_windows_hardware_target(device)
+
+
+def _run_connected(device_ids: list[int], *, mode: str, on_progress=None) -> None:
+    from app.services.bad_integration import connected_credentials
+
+    if connected_credentials() is None:
+        _note(on_progress, "Связь с bAD не подключена, железо не запрашиваю")
+        return
+    # На пачке машин шаги каждой службы забьют список. Подробности — у одной.
+    detail = on_progress if len(device_ids) == 1 else None
+    try:
+        result = run_hardware_poll(
+            mode=mode,
+            device_ids=device_ids,
+            on_progress=detail,
+        )
+    except HardwarePollError as exc:
+        logger.info("Опрос железа не начат: %s", exc)
+        _note(on_progress, str(exc))
+        return
+    except HardwarePollInProgressError:
+        logger.info("Опрос железа уже идёт")
+        _note(on_progress, "Опрос железа уже идёт, эти компьютеры подождут")
+        return
+    except Exception:
+        logger.exception("Сбой опроса железа")
+        _note(on_progress, "Опрос железа не завершился")
+        return
+    _note(
+        on_progress,
+        f"Железо: проверено {result.scanned}, собрано {result.collected}",
     )
 
 
