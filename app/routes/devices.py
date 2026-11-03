@@ -35,6 +35,7 @@ from app.services.hardware_poll_service import (
     HardwarePollError,
     HardwarePollInProgressError,
     count_device_hardware_history,
+    hardware_poll_message,
     load_device_hardware_history,
     poll_one_device,
 )
@@ -538,9 +539,9 @@ def detail(device_id: int):
         ),
     )
 
-    from app.routes.diagnostics import CHECK_NOTICE_COOKIE, pop_check_notice
+    from app.live_progress import LIVE_NOTICE_COOKIE, pop_live_notice
 
-    notice = pop_check_notice(device.id)
+    notice = pop_live_notice(device.id)
     if notice is not None:
         flash(notice[1], notice[0])
     response = make_response(
@@ -568,8 +569,8 @@ def detail(device_id: int):
             can_connect_vnc=user_can_connect_vnc(current_user) and device.shows_commands,
         )
     )
-    if CHECK_NOTICE_COOKIE in request.cookies:
-        response.delete_cookie(CHECK_NOTICE_COOKIE, path="/")
+    if LIVE_NOTICE_COOKIE in request.cookies:
+        response.delete_cookie(LIVE_NOTICE_COOKIE, path="/")
     return response
 
 
@@ -665,57 +666,44 @@ def vnc_ticket(device_id: int):
     return jsonify({"ws_url": f"{ws_scheme}://{request.host}/vnc/ws?token={token}"})
 
 
+def _run_hardware_poll(device_id: int, on_progress) -> tuple[str, str]:
+    fresh = db.session.get(Device, device_id)
+    if fresh is None:
+        return "warning", "Устройство не найдено."
+    try:
+        result = poll_one_device(fresh, on_progress=on_progress)
+    except HardwarePollInProgressError as exc:
+        return "warning", str(exc)
+    except HardwarePollError as exc:
+        return "warning", str(exc)
+    except Exception as exc:  # noqa: BLE001
+        return "danger", f"Ошибка опроса железа: {exc}"
+    db.session.refresh(fresh)
+    return hardware_poll_message(fresh, result)
+
+
 @bp.post("/devices/<int:device_id>/hardware-poll")
 @admin_required
 def poll_device_hardware(device_id: int):
-    """Разовый опрос железа этой машины через bAD (admin)."""
+    """Разовый опрос железа этой машины через bAD."""
+    from app.live_progress import stream_live_progress, wants_live_progress
+
     device = get_visible_device_or_404(device_id)
     if not device.shows_hardware:
         abort(404)
-    try:
-        result = poll_one_device(device)
-    except HardwarePollInProgressError as exc:
-        flash(str(exc), "warning")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
-    except HardwarePollError as exc:
-        flash(str(exc), "warning")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
-    except Exception as exc:  # noqa: BLE001
-        flash(f"Ошибка опроса железа: {exc}", "danger")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
-
-    db.session.refresh(device)
-    note = (device.hardware_poll_note or "").strip()
-    if result.collected and not result.mismatched:
-        ram = f"{device.ram_gb} ГБ" if device.ram_gb is not None else "—"
-        disk = f"{device.disk_gb} ГБ" if device.disk_gb is not None else "—"
-        flash(
-            f"Железо обновлено: {device.os_label or '—'} · {device.cpu_name or '—'} "
-            f"· ОЗУ {ram} · диски {disk}.",
-            "success",
+    checked_id = device.id
+    db.session.rollback()
+    redirect_url = url_for("devices.detail", device_id=checked_id, tab="hardware")
+    if wants_live_progress():
+        return stream_live_progress(
+            checked_id,
+            redirect_url,
+            lambda on_progress: _run_hardware_poll(checked_id, on_progress),
+            first_step="Опрашиваю железо…",
         )
-    elif note:
-        flash(note, "warning")
-    elif result.mismatched:
-        flash(
-            "На этом IP сейчас другая машина (другой серийный номер или имя). "
-            "Снимок железа не записан, чтобы не смешать конфигурации.",
-            "warning",
-        )
-    elif result.unregistered:
-        flash("Агент bAD на этой машине не зарегистрирован.", "warning")
-    elif result.no_agent:
-        flash("Служба badagent не найдена — новый снимок железа не записан.", "warning")
-    elif result.offline:
-        flash("Устройство не ответило на ping — железо не читали.", "warning")
-    elif result.no_wmi:
-        flash("bAD не отдал конфигурацию железа.", "warning")
-    else:
-        flash(
-            "Опрос железа: проверено {scanned}, ошибок {errors}.".format(**result.as_dict()),
-            "warning",
-        )
-    return redirect(url_for("devices.detail", device_id=device.id, tab="hardware"))
+    category, message = _run_hardware_poll(checked_id, None)
+    flash(message, category)
+    return redirect(redirect_url)
 
 
 @bp.post("/devices/<int:device_id>/scripts/run")

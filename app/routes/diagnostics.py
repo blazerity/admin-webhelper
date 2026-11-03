@@ -11,36 +11,18 @@ application/x-ndjson, тот же поиск отдаёт шаги по мере
 В script_runs.command_text пишется сама команда, без пароля PsExec.
 """
 
-import json
-import queue
-import threading
-
-from flask import (
-    Blueprint,
-    Response,
-    abort,
-    current_app,
-    flash,
-    redirect,
-    request,
-    stream_with_context,
-    url_for,
-)
+from flask import Blueprint, abort, current_app, flash, redirect, request, url_for
 from flask_login import current_user, login_required
-from itsdangerous import BadData, URLSafeTimedSerializer
 
 from app.authz import admin_required, get_visible_device_or_404, user_can_run_diagnostics
 from app.extensions import db
+from app.live_progress import stream_live_progress, wants_live_progress
 from app.models import Device, RunType
 from app.services.net_utils import NetworkInputError
 from app.services.ping_service import check_device
 from app.services.script_service import start_run
 
 bp = Blueprint("diagnostics", __name__)
-
-CHECK_NOTICE_COOKIE = "bawh_check_notice"
-_CHECK_NOTICE_MAX_AGE = 120
-_CHECK_JOIN_TIMEOUT_S = 180
 
 
 def _check_message(payload: dict) -> tuple[str, str]:
@@ -57,111 +39,18 @@ def _check_message(payload: dict) -> tuple[str, str]:
     return "info", f"Устройство {label}."
 
 
-def _notice_serializer() -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(current_app.secret_key, salt="bawh-check-notice")
-
-
-def pack_check_notice(device_id: int, category: str, message: str) -> str:
-    text = (message or "").strip()
-    if len(text) > 800:
-        text = text[:799].rstrip() + "…"
-    return _notice_serializer().dumps({"d": int(device_id), "c": category, "m": text})
-
-
-def pop_check_notice(device_id: int) -> tuple[str, str] | None:
-    """Сообщение проверки для этой карточки. Подпись не даёт подменить текст."""
-    raw = request.cookies.get(CHECK_NOTICE_COOKIE)
-    if not raw:
-        return None
+def _run_check(device_id: int, on_progress) -> tuple[str, str]:
+    fresh = db.session.get(Device, device_id)
+    if fresh is None:
+        return "warning", "Устройство не найдено."
     try:
-        data = _notice_serializer().loads(raw, max_age=_CHECK_NOTICE_MAX_AGE)
-    except BadData:
-        return None
-    if not isinstance(data, dict) or data.get("d") != device_id:
-        return None
-    category = data.get("c") or "info"
-    if category not in {"success", "danger", "warning", "info"}:
-        category = "info"
-    message = (data.get("m") or "").strip()
-    if not message:
-        return None
-    return category, message
-
-
-def _wants_progress() -> bool:
-    return "application/x-ndjson" in (request.headers.get("Accept") or "")
-
-
-def _ndjson(payload: dict) -> str:
-    return json.dumps(payload, ensure_ascii=False) + "\n"
-
-
-def _run_check(app, device_id: int, steps: queue.Queue) -> None:
-    """Поиск в отдельном потоке: генератор ответа должен отдавать шаги сразу."""
-    payload = None
-    error: tuple[str, str] | None = None
-    with app.app_context():
-        try:
-            fresh = db.session.get(Device, device_id)
-            if fresh is None:
-                error = ("Устройство не найдено.", "warning")
-            else:
-                payload = check_device(
-                    fresh,
-                    on_progress=lambda text: steps.put(("step", text)),
-                )
-        except NetworkInputError as exc:
-            error = (str(exc), "warning")
-        except Exception:
-            app.logger.exception("Не удалось проверить устройство %s", device_id)
-            error = ("Не удалось выполнить проверку.", "danger")
-        finally:
-            db.session.remove()
-    if error is not None:
-        steps.put(("error", error[0], error[1]))
-    else:
-        steps.put(("result", payload))
-
-
-def _stream_check(device_id: int, tab: str):
-    app = current_app._get_current_object()
-    steps: queue.Queue = queue.Queue()
-    worker = threading.Thread(
-        target=_run_check,
-        args=(app, device_id, steps),
-        name=f"device-check-{device_id}",
-        daemon=True,
-    )
-    worker.start()
-    redirect_url = url_for("devices.detail", device_id=device_id, tab=tab)
-
-    def generate():
-        yield _ndjson({"type": "step", "text": "Ищу компьютер…"})
-        while True:
-            try:
-                item = steps.get(timeout=_CHECK_JOIN_TIMEOUT_S)
-            except queue.Empty:
-                category, message = "warning", "Проверка заняла слишком много времени."
-                break
-            kind = item[0]
-            if kind == "step":
-                yield _ndjson({"type": "step", "text": item[1]})
-                continue
-            if kind == "error":
-                category, message = item[2], item[1]
-            else:
-                category, message = _check_message(item[1])
-            break
-        notice = pack_check_notice(device_id, category, message)
-        yield _ndjson({"type": "done", "notice": notice, "redirect": redirect_url})
-
-    response = Response(
-        stream_with_context(generate()),
-        mimetype="application/x-ndjson",
-    )
-    response.headers["Cache-Control"] = "no-cache"
-    response.headers["X-Accel-Buffering"] = "no"
-    return response
+        payload = check_device(fresh, on_progress=on_progress)
+    except NetworkInputError as exc:
+        return "warning", str(exc)
+    except Exception:
+        current_app.logger.exception("Не удалось проверить устройство %s", device_id)
+        return "danger", "Не удалось выполнить проверку."
+    return _check_message(payload)
 
 
 @bp.post("/devices/<int:device_id>/check")
@@ -175,8 +64,13 @@ def check_device_status(device_id: int):
     # Сессия запроса не должна держать транзакцию, пока поток пишет статус.
     checked_id = device.id
     db.session.rollback()
-    if _wants_progress():
-        return _stream_check(checked_id, tab)
+    if wants_live_progress():
+        return stream_live_progress(
+            checked_id,
+            url_for("devices.detail", device_id=checked_id, tab=tab),
+            lambda on_progress: _run_check(checked_id, on_progress),
+            first_step="Ищу компьютер…",
+        )
     try:
         fresh = db.session.get(Device, checked_id)
         payload = check_device(fresh)

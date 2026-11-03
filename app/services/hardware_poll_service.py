@@ -225,12 +225,51 @@ def count_device_hardware_history(device_id: int) -> int:
     )
 
 
+def hardware_poll_message(device: Device, result: HardwarePollResult) -> tuple[str, str]:
+    """Текст итога кнопки «Опросить сейчас»."""
+    note = (device.hardware_poll_note or "").strip()
+    if result.collected and not result.mismatched:
+        ram = f"{device.ram_gb} ГБ" if device.ram_gb is not None else "—"
+        disk = f"{device.disk_gb} ГБ" if device.disk_gb is not None else "—"
+        return (
+            "success",
+            f"Железо обновлено: {device.os_label or '—'} · {device.cpu_name or '—'} "
+            f"· ОЗУ {ram} · диски {disk}.",
+        )
+    if note:
+        return "warning", note
+    if result.mismatched:
+        return (
+            "warning",
+            "На этом IP сейчас другая машина (другой серийный номер или имя). "
+            "Снимок железа не записан, чтобы не смешать конфигурации.",
+        )
+    if result.unregistered:
+        return "warning", "Агент bAD на этой машине не зарегистрирован."
+    if result.no_agent:
+        return "warning", "Служба badagent не найдена — новый снимок железа не записан."
+    if result.offline:
+        return "warning", "Устройство не ответило на ping — железо не читали."
+    if result.no_wmi:
+        return "warning", "bAD не отдал конфигурацию железа."
+    return (
+        "warning",
+        "Опрос железа: проверено {scanned}, ошибок {errors}.".format(**result.as_dict()),
+    )
+
+
+def _note(on_progress, text: str) -> None:
+    if on_progress is not None and text:
+        on_progress(text)
+
+
 def run_hardware_poll(
     *,
     mode: str = "scheduled",
     dry_run: bool = False,
     limit: int | None = None,
     device_ids: list[int] | tuple[int, ...] | None = None,
+    on_progress=None,
 ) -> HardwarePollResult:
     """Пройти Windows-устройства и записать снимок железа.
 
@@ -280,6 +319,7 @@ def run_hardware_poll(
                 bad_credentials=bad_credentials,
                 limit=limit,
                 device_ids=device_ids,
+                on_progress=on_progress,
             )
         except Exception as exc:  # noqa: BLE001
             result.error = str(exc)[:2000]
@@ -326,9 +366,13 @@ def run_hardware_poll(
         _run_lock.release()
 
 
-def poll_one_device(device: Device) -> HardwarePollResult:
+def poll_one_device(device: Device, *, on_progress=None) -> HardwarePollResult:
     """Опросить одно устройство (кнопка на карточке)."""
-    return run_hardware_poll(mode="manual", device_ids=(device.id,))
+    return run_hardware_poll(
+        mode="manual",
+        device_ids=(device.id,),
+        on_progress=on_progress,
+    )
 
 
 def _poll_targets(
@@ -338,11 +382,12 @@ def _poll_targets(
     bad_credentials: tuple[str, str],
     limit: int | None,
     device_ids: list[int] | tuple[int, ...] | None,
+    on_progress=None,
 ) -> None:
     targets = _load_targets(limit=limit, device_ids=device_ids)
     if not targets:
         return
-    probes = _probe_targets(targets, creds, bad_credentials)
+    probes = _probe_targets(targets, creds, bad_credentials, on_progress=on_progress)
     if any(item.revoked for item in probes):
         from app.services.bad_integration import mark_revoked
 
@@ -390,6 +435,7 @@ def _poll_targets(
 
     if not pending:
         if not result.dry_run and (unregistered_ids or notes):
+            _note(on_progress, "Записываю результат")
             _save_poll_notes(notes, now)
             db.session.commit()
         return
@@ -416,6 +462,7 @@ def _poll_targets(
             if device.serial_number
         }
 
+    _note(on_progress, "Записываю снимок")
     for target, snapshot, live_serial, live_hostname, bad_id in pending:
         probed = devices.get(target.device_id)
         if probed is None:
@@ -559,10 +606,12 @@ def _probe_targets(
     targets: list[DeviceSweepTarget],
     creds: discovery_service.DiscoveryCredentials,
     bad_credentials: tuple[str, str],
+    *,
+    on_progress=None,
 ) -> list[_Probe]:
     return map_pool(
         targets,
-        lambda target: _probe_one(target, creds, bad_credentials),
+        lambda target: _probe_one(target, creds, bad_credentials, on_progress=on_progress),
         workers=_SWEEP_WORKERS,
         failure="Рабочий поток опроса железа завершился с ошибкой",
         log=logger,
@@ -573,6 +622,8 @@ def _probe_one(
     target: DeviceSweepTarget,
     creds: discovery_service.DiscoveryCredentials,
     bad_credentials: tuple[str, str],
+    *,
+    on_progress=None,
 ) -> _Probe:
     """Ping, служба badagent, lookup bAD. Сессию SQLAlchemy сюда не передаём.
 
@@ -582,16 +633,20 @@ def _probe_one(
     from app.services.bad_integration import lookup_with_credentials
 
     try:
+        _note(on_progress, f"Проверяю связь с {target.ip}")
         ping = ping_host(target.ip)
         if ping.status != DeviceStatus.ONLINE:
+            _note(on_progress, f"{target.ip} не отвечает")
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
                 online=False,
                 note="Нет ответа на ping. Службу badagent и lookup не вызывали.",
             )
+        _note(on_progress, "Проверяю службу badagent")
         agent = discovery_service.lookup_badagent(target.ip, creds=creds)
         if agent.wmi_failed:
+            _note(on_progress, "Удалённый WMI не открылся")
             why = agent.detail or "WMI не открылся"
             return _Probe(
                 device_id=target.device_id,
@@ -605,6 +660,7 @@ def _probe_one(
                 ),
             )
         if not agent.service_present:
+            _note(on_progress, "Служба badagent не установлена")
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
@@ -616,6 +672,7 @@ def _probe_one(
                 ),
             )
         if not agent.machine_guid:
+            _note(on_progress, "device_id не прочитался")
             why = agent.detail or "device_id не прочитан"
             return _Probe(
                 device_id=target.device_id,
@@ -627,11 +684,13 @@ def _probe_one(
                     f"{why} Lookup не вызывали. device_id в карточку не пишется."
                 ),
             )
+        _note(on_progress, "Запрашиваю конфигурацию в bAD")
         looked = lookup_with_credentials(
             bad_credentials[0], bad_credentials[1], agent.machine_guid
         )
         found = _identity_phrase(agent)
         if looked.error == "revoked" or looked.status == 401:
+            _note(on_progress, "Ключ интеграции не принят")
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
@@ -652,6 +711,7 @@ def _probe_one(
                 note="Ключ интеграции уже не активен. Lookup не выполнен.",
             )
         if looked.status == 404:
+            _note(on_progress, "Этой машины в bAD нет")
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
@@ -665,6 +725,7 @@ def _probe_one(
             )
         if looked.status != 200 or not isinstance(looked.data, dict):
             status = looked.status or "нет ответа"
+            _note(on_progress, f"Lookup bAD: {status}")
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
@@ -677,6 +738,7 @@ def _probe_one(
             )
         card = card_from_lookup(looked.data)
         if not card.bad_id and (card.snapshot is None or card.snapshot.is_empty):
+            _note(on_progress, "В ответе bAD нет конфигурации")
             return _Probe(
                 device_id=target.device_id,
                 ip=target.ip,
@@ -687,6 +749,7 @@ def _probe_one(
                     "Lookup bAD ответил 200, но без bad_id и без железа."
                 ),
             )
+        _note(on_progress, "Ответ bAD получен")
         return _Probe(
             device_id=target.device_id,
             ip=target.ip,

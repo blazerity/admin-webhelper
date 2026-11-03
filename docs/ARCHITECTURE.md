@@ -1,4 +1,4 @@
-# Архитектура bAWH (актуально для v2.4)
+# Архитектура bAWH (актуально для v2.5)
 
 > **Для ИИ и разработчиков:** это каноническая карта кода.
 > Перед поиском по репозиторию прочитай файл целиком — здесь слои, точки входа,
@@ -11,7 +11,7 @@
 веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.4` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.5` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -339,7 +339,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `device_kind.py` | тип карты: имена AD (`BN***` = ноутбук, `n…`/`w…`/…), WMI-серийник, fingerprint, PTR/OUI; флаги `kind_shows_accounts` / `mac` / `serial` / `hardware` / `commands` («Прочее» ≈ ноутбук) |
 | `discovery_service.py` | reverse DNS, ARP MAC, WMI (impacket): serial / MAC / hostname / logged_on_user для опроса сети. Для bAD — `lookup_badagent`: служба `badagent` и, только если она есть, `device_id` из конфига агента (только это поле; ключ агента отбрасывается) либо MachineGuid. Имя карточки: WMI `DNSHostName`/`Name`, PTR только если WMI пустой. Учётка: Настройки → Опрос сети или `DISCOVERY_*` |
 | `hardware_info.py` | чистый разбор снимка: ГБ (ОЗУ — ГиБ/планки, диски — этикетка 1000³ + номинал), семейство 10/11/Server, редакция Pro/Enterprise, 25H2/26H2 |
-| `hardware_poll_service.py` | кнопка на карточке: ping + служба badagent + lookup bAD. Снимок на `devices` только если серийник снимка bAD совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs` через `run_journal`. Пока связь не «подключено», проход не стартует. WMI CPU/ОЗУ/дисков/ОС нет. Расписания и CLI нет |
+| `hardware_poll_service.py` | кнопка на карточке: ping + служба badagent + lookup bAD. Снимок на `devices` только если серийник снимка bAD совпадает с карточкой (иначе remap на владельца SN или skip — VPN/DHCP). История при изменении. Mutex + `hardware_poll_runs` через `run_journal`. Пока связь не «подключено», проход не стартует. WMI CPU/ОЗУ/дисков/ОС нет. Расписания и CLI нет. Шаги кнопки — `on_progress` |
 | `run_journal.py` | общий замок прогона: незавершённая строка, зависший прогон, count/limit по id |
 | `device_sweep.py` | `DeviceSweepTarget` и `map_pool` для прохода по уже известным карточкам |
 | `bad_integration.py` | адрес bAD, заявка, poll секрета, одноразовый `token`. Секреты — Fernet в `app_settings`. `BAD_ADMIN_TOKEN` не используется |
@@ -430,14 +430,14 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/api/command-presets` | Пресеты (вошедший) |
 | GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа, иконка VNC. Учётные записи — история. Команды — запуск и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
 | GET | `/devices/<id>/vnc` | Экспериментальный noVNC: билет 90 с, цель только `Device.ip` + порт 5900–5999 |
-| POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. Без связи «подключено» WMI железа не вызывается |
+| POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. `Accept: application/x-ndjson` стримит шаги (ping, badagent, lookup). Без связи «подключено» проход не стартует |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
 ### Diagnostics — `diagnostics.py`
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/devices/<id>/check` | diagnostics — адрес карточки отвечает её серийником → `device_history`. `Accept: application/x-ndjson` стримит шаги поиска; обычная форма — редирект |
+| POST | `/devices/<id>/check` | diagnostics — адрес карточки отвечает её серийником → `device_history`. `Accept: application/x-ndjson` стримит шаги поиска (`app/live_progress.py`); обычная форма — редирект |
 | POST | `/devices/<id>/ping` | diagnostics — diagnostic run в `script_runs` |
 | POST | `/devices/<id>/tracert` | diagnostics |
 | POST | `/devices/<id>/command` | вошедший |
@@ -697,7 +697,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
 - **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё и пишет адрес в `device_addresses` (несколько интерфейсов: Ethernet + Wi‑Fi). На карточке в UI — **один актуальный IP на MAC** (по `last_seen`). Hostname и PTR не ключи: PTR бывает общим и отстаёт, имя можно сменить, а чтение имени с машины — тот же админский WMI, что и серийник. Без SN можно переиспользовать только запись с тем же IP и пустым SN. Призрак без SN на старом IP после появления SN на новом (или совпадения WMI-hostname) сливается в карточку с SN (`absorb_ghosts`). Один IP у разных SN — разные машины (история аренды), не дубль.
-- **Команда на карточку:** `confirm_device_address` перед скриптом, командой, ping/tracert, проверкой «сейчас» и билетом VNC. ICMP по последнему IP без сверки серийника не означает «этот компьютер доступен». Если последний адрес молчит или занят чужим SN, карточка с серийником ищется на своих прежних адресах и по DNS-имени; совпадение переносит `devices.ip`. Обход всех CIDR сектора на кнопку не делается — это по-прежнему опрос сети. Чужую карточку функция не переписывает, кроме пометки offline у того, кто ещё числится на найденном адресе. Без SN достаточно ICMP. Учётка сверки — WMI опроса, иначе учётка запуска. Кнопка «Проверить сейчас» при живом клиенте читает шаги этого же поиска (`on_progress` → NDJSON) и затем открывает вкладку опросов с тем же текстом итога. Ping, tracert и запуск скрипта этот поток не используют.
+- **Команда на карточку:** `confirm_device_address` перед скриптом, командой, ping/tracert, проверкой «сейчас» и билетом VNC. ICMP по последнему IP без сверки серийника не означает «этот компьютер доступен». Если последний адрес молчит или занят чужим SN, карточка с серийником ищется на своих прежних адресах и по DNS-имени; совпадение переносит `devices.ip`. Обход всех CIDR сектора на кнопку не делается — это по-прежнему опрос сети. Чужую карточку функция не переписывает, кроме пометки offline у того, кто ещё числится на найденном адресе. Без SN достаточно ICMP. Учётка сверки — WMI опроса, иначе учётка запуска. Кнопки «Проверить сейчас» и «Опросить сейчас» при живом клиенте читают шаги той же работы (`on_progress` → `app/live_progress.py`, один `static/js/live_progress.js`) и затем открывают свою вкладку с тем же текстом итога. Ping, tracert и запуск скрипта этот поток не используют.
 - **Опрос железа:** только кнопка на карточке. Сетевой опрос новые карточки железом не дополняет.
 - **Дубли (UI):** Настройки → Удаление дублей. Уверенные — одинаковый SN; призраки — IP с SN + без SN; история IP — разные SN на одном адресе (без авто-галочек); предположительно — MAC/hostname без авто-удаления.
 - **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames` (чужой SN на том же IP имя не пишет).
@@ -734,7 +734,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/css/app.css` | стили; `.entity-link` — единый вид ссылок на устройство / УЗ |
 | `static/favicon.ico`, `favicon.svg` | иконка вкладки (`base.html`) |
 | `static/js/http.js` | общий fetch/CSRF helper |
-| `static/js/device_check.js` | шаги «Проверить сейчас» на вкладке опросов |
+| `static/js/live_progress.js` | шаги «Проверить сейчас» и «Опросить сейчас» |
 | `static/js/map.js` | карта сети (сайдбар поиск/фильтры); автообновление опционально (localStorage) |
 | `static/js/search.js` | живой фильтр карты (без suggest-dropdown); поиск по УЗ |
 | `static/js/live_search.js` | живой поиск списков Действия и аудит / Обнаруженные УЗ |
