@@ -47,6 +47,12 @@ smoke_*.py
 harness_*.py
 scratch_*.py
 
+# Кэш graphify; отчёт и graph.json остаются в git
+graphify-out/cache/
+graphify-out/.graphify_analysis.json
+graphify-out/.graphify_build.json
+graphify-out/.graphify_root
+
 # Логи и мусор вне runtime-каталога
 *.log
 *.bak
