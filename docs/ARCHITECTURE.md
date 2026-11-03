@@ -55,7 +55,7 @@ HTTP / CLI / scheduler
 | --- | --- | --- |
 | Веб (prod) | `wsgi.py` → `create_app()` → Gunicorn `wsgi:app` | Только HTTP. Опрос здесь **запрещён**. |
 | Веб (dev) | `python wsgi.py` (:8000) или `flask --app wsgi run` | То же. |
-| Планировщик | `python -m app.scheduler_worker` | `run_scheduler_process(start_scheduler)`: опрос сети, заявка bAD, архив логов. Железо не по расписанию. |
+| Планировщик | `python -m app.scheduler_worker` | `run_scheduler_process(start_scheduler)`: опрос сети, железо известных компьютеров по интервалу, заявка bAD, архив логов. |
 | Отчёты паролей | `python -m app.password_report_worker` | Тот же `run_scheduler_process`, старт `start_password_report_scheduler`: cron отчёта и cron проверки отпусков. |
 | VNC-прокси | `python -m app.vnc_worker` | WebSocket→TCP, без Flask/БД; билет `SECRET_KEY`. Свой цикл, не APScheduler. |
 | Flask CLI | `flask --app wsgi …` | `poll`, `archive-logs`, `password-expiry [--dry-run]`, `password-vacation [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
@@ -83,7 +83,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.0)
+  VERSION                      # semver (2.7)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -96,6 +96,7 @@ bAWH/                          # на сервере = /opt/bawh
     extensions.py              # db, login_manager, csrf
     schema.py                  # ensure_schema (вместо Alembic)
     authz.py
+    live_progress.py             # NDJSON шагов долгих кнопок + cookie итога
     utils.py
     logging_config.py
     version.py
@@ -133,6 +134,7 @@ flowchart TB
     CREATE["create_app()"]
     SCHEMA["schema.ensure_schema()"]
     AUTH["authz.py"]
+    LIVE["live_progress.py<br/>NDJSON + cookie итога"]
     UTILS["utils.py"]
   end
 
@@ -174,6 +176,8 @@ flowchart TB
   CREATE --> SCHEMA
   CREATE --> http
   CREATE --> AUTH
+  http --> LIVE
+  LIVE --> services
   http --> services
   http --> AUTH
   SCHED --> S_POLL
@@ -186,7 +190,7 @@ flowchart TB
   SCHEMA --> data
 ```
 
-Кнопка «Опросить сейчас» на карточке идёт из `routes/devices.py` в `hardware_poll_service`. Планировщик вызывает `poll_due_hardware`, опрос сети — `poll_fresh_hardware`.
+Кнопка «Опросить сейчас» на карточке идёт из `routes/devices.py` в `hardware_poll_service`. Планировщик вызывает `poll_due_hardware`, опрос сети — `poll_fresh_hardware`. Живые шаги трёх кнопок (проверка, железо, ручной опрос сети) идут через `live_progress.py`, не через отдельный прогресс у каждой кнопки.
 
 Настройки — один префикс `/admin`. Сектора, библиотека скриптов, пачки запусков, обнаруженные УЗ и лента действий живут там же, что Общие, HTTPS, почта и опрос сети. LDAP модуля паролей — `/admin/settings/ldap`, пороги отчёта — `/admin/settings/passwords`. Операционный отчёт остаётся `/password-expiry`. Старые `/scripts`, `/sectors`, `/accounts`, `/actions`, `/password-expiry/settings` и `/password-expiry/report-settings` отвечают **308** (`routes/legacy.py`), метод запроса сохраняется.
 
@@ -292,7 +296,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR). `sector_access` в схеме остаётся и больше не фильтрует карту. |
 | `Device`, `DeviceAddress`, `DeviceHistory` | `devices`, `device_addresses`, `device_history` | `device.py` | Машины + адреса интерфейсов + журнал опросов. Идентичность: **только** `serial_number` (WMI инвентаря сети). `hostname` — отображение, не ключ. `devices.ip` — основной (последний онлайн); `device_addresses` — все виденные IP/MAC (Wi‑Fi + Ethernet). Без SN — заглушка на текущем IP. Снимок железа (CPU/ОЗУ/диск/ОС, `bad_id`) пишет lookup bAD: кнопка, первое появление серийника и интервал известных машин. `device_id` в таблицу не кладётся. |
 | `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов ICMP-опроса. |
-| `HardwarePollRun`, `DeviceHardwareHistory` | `hardware_poll_runs`, `device_hardware_history` | `hardware.py` | Замок одного прогона кнопки «Опросить сейчас» и история смены CPU/ОЗУ/дисков/ОС. Страницы журнала прогонов нет. |
+| `HardwarePollRun`, `DeviceHardwareHistory` | `hardware_poll_runs`, `device_hardware_history` | `hardware.py` | Замок одного прогона железа (кнопка, новые серийники, интервал) и история смены CPU/ОЗУ/дисков/ОС. Страницы журнала прогонов нет. |
 | `EndpointAccount`, `DeviceAccountHistory` | `endpoint_accounts`, `device_account_history` | `account.py` | УЗ на конечных точках (**не** путать с `users`). |
 | `ActionKind` | `action_kinds` | `action.py` | Справочник типов (`ACTION_KIND_SEED` / `seed_action_kinds`). |
 | `Script`, `ScriptRun` | `scripts`, `script_runs` | `script.py` | Библиотека и журнал запусков. У скрипта: `run_as`, `is_published`. У run: `run_type`, `batch_id`, статус. |
@@ -430,14 +434,14 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | GET | `/api/command-presets` | Пресеты (вошедший) |
 | GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа, иконка VNC. Учётные записи — история. Команды — запуск и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
 | GET | `/devices/<id>/vnc` | Экспериментальный noVNC: билет 90 с, цель только `Device.ip` + порт 5900–5999 |
-| POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. `Accept: application/x-ndjson` стримит шаги (ping, badagent, lookup). Без связи «подключено» проход не стартует |
+| POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. `Accept: application/x-ndjson` — те же шаги в рамке лога (`live_progress`). Без связи «подключено» проход не стартует |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
 ### Diagnostics — `diagnostics.py`
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/devices/<id>/check` | diagnostics — адрес карточки отвечает её серийником → `device_history`. `Accept: application/x-ndjson` стримит шаги поиска (`app/live_progress.py`); обычная форма — редирект |
+| POST | `/devices/<id>/check` | diagnostics — адрес карточки отвечает её серийником → `device_history`. `Accept: application/x-ndjson` стримит шаги поиска (`app/live_progress.py`); обычная форма — редирект. После окончания лог остаётся на вкладке «Опросы» |
 | POST | `/devices/<id>/ping` | diagnostics — diagnostic run в `script_runs` |
 | POST | `/devices/<id>/tracert` | diagnostics |
 | POST | `/devices/<id>/command` | вошедший |
@@ -475,7 +479,7 @@ List, `export.csv`, detail (все учётки). Старый `/accounts/…` �
 | GET/POST | `/admin/settings/ldap` | bind модуля паролей (бывший `/password-expiry/settings`) |
 | GET/POST | `/admin/settings/passwords` | пороги, cron, IMAP отпуска (бывший `/password-expiry/report-settings`) |
 | GET | `/admin/poll-runs/export.csv` | журнал ICMP |
-| POST | `/admin/poll-run` | ручной опрос сети |
+| POST | `/admin/poll-run` | ручной опрос сети. `Accept: application/x-ndjson` — шаги секторов и адресов (`timeout` потока 600 с); обычная форма — редирект на Опрос сети |
 | POST | `/admin/refresh-hostnames` | |
 | GET/POST | `/admin/duplicates` | Настройки → Удаление дублей |
 | GET/POST | `/admin/updates` | |
@@ -586,8 +590,9 @@ systemd-unit `bawh-password-reports` (sudo-учётка: Настройки → 
 | `ThreadPoolExecutor` | `ping_service` | параллельный ICMP+discovery; запись в БД — в главном потоке |
 | `ThreadPoolExecutor` | `script_service.enqueue_run` | фоновый PsExec/ping/tracert; UI поллит `/admin/scripts/runs/<id>/status` (~1.5 с, `run_log.js`) |
 | `threading.Thread` | `update_service.begin_update` / `begin_rollback` | фон, чтобы Gunicorn не упёрся в таймаут; поток с `app.app_context()` — sudo-учётка из Настройки → Общие / `UPDATE_SUDO_USER` |
+| `threading.Thread` + NDJSON | `live_progress.stream_live_progress` | шаги проверки, железа и ручного опроса сети. Не SSE: одна строка JSON на шаг, `Cache-Control: no-cache`, `X-Accel-Buffering: no` |
 
-**Нет** WebSocket / SSE / Celery / общей очереди сообщений.
+**Нет** WebSocket во Flask, SSE, Celery и общей очереди сообщений. Веб-VNC — отдельный процесс. Долгие кнопки не поллируют статус: клиент читает тело ответа, пока работа идёт.
 
 ---
 
@@ -611,6 +616,7 @@ sequenceDiagram
   participant Ping as ping_service
   participant Disc as discovery_service
   participant Acc as account_service
+  participant HW as hardware_poll_service
   participant DB as PostgreSQL
 
   Sch->>Ping: run_network_poll()
@@ -632,6 +638,8 @@ sequenceDiagram
   else offline
     Ping->>DB: обновить известный IP / статус
   end
+  Ping->>HW: poll_fresh_hardware
+  Note over HW: онлайн, серийник есть,<br/>hardware_poll_at ещё пустой.<br/>bAD не подключён — пропуск, опрос сети не падает
 ```
 
 ### C. Скрипт / команда
@@ -680,6 +688,33 @@ CLI `hardware-poll` и вкладки «Отчёт о ПК» нет. Пока с
 держит замок прогона (`run_journal`); отдельного списка прогонов в настройках нет.
 Текст последней попытки — `devices.hardware_poll_note` на вкладке «Оборудование».
 ICMP-опрос сети поля CPU/ОЗУ не пишет сам: после записи серийника он один раз вызывает тот же `run_hardware_poll`.
+
+### D4. Живой лог опроса
+
+Один путь на три кнопки: «Проверить сейчас», «Опросить сейчас», «Запустить опрос сейчас».
+
+```mermaid
+sequenceDiagram
+  participant UI as live_progress.js
+  participant R as маршрут
+  participant L as live_progress.py
+  participant S as сервис
+
+  UI->>R: POST, Accept application/x-ndjson
+  R->>L: stream_live_progress
+  L-->>UI: step «первая строка» сразу
+  L->>S: work(on_progress) в своём потоке и app context
+  S-->>L: on_progress(текст)
+  L-->>UI: step
+  Note over UI: рамка ~8 строк, scroll к последней,<br/>старые строки остаются
+  S-->>L: category, message
+  L-->>UI: done + подписанная cookie bawh_check_notice
+  UI->>UI: sessionStorage bawh-live-progress
+  UI->>R: GET карточки или Настройки → Опрос сети
+  R-->>UI: flash из cookie, лог восстановлен без крутилки
+```
+
+Форма без скрипта делает обычный POST и редирект, лог не рисуется. Таймаут тишины между шагами — 180 с, у ручного опроса сети — 600 с. Пошаговый текст одной машины железа уходит в лог; пачка новых серийников в конце опроса сети пишет сводку, не строку на каждый IP. Следующее обычное обновление страницы лог не возвращает: ключ в `sessionStorage` снимается при восстановлении. Ping, tracert и запуск скрипта этот поток не используют.
 
 ### E. Self-update
 
@@ -782,7 +817,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | `deploy/install-debian12.sh` | Установка одной командой → PG, venv, `flask init-db`, nginx, systemd |
 | `deploy/bawh-web.service` | Gunicorn `127.0.0.1:8000`, `EnvironmentFile=/opt/bawh/.env` |
-| `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` (опрос сети, заявка bAD, архив) |
+| `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` (опрос сети, железо по интервалу, заявка bAD, архив) |
 | `deploy/bawh-password-reports.service` | `python -m app.password_report_worker` |
 | `deploy/bawh-vnc.service` | `python -m app.vnc_worker` (127.0.0.1:6080) |
 | `deploy/sync-systemd-units.sh` | cp unit'ов + sudoers + `daemon-reload` |
@@ -823,7 +858,8 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
 | Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
-| Опрос железа Windows | карточка → `hardware_poll_service` → служба badagent → `bad_integration.lookup_device` → `bad_hardware`. Снимок привязан к серийнику bAD, не к IP. Адрес bAD и тумблер — Настройки → Опрос сети. Подтверждение заявки — панель bAD, Параметры → Интеграции |
+| Опрос железа Windows | карточка → `hardware_poll_service` → служба badagent → `bad_integration.lookup_device` → `bad_hardware`. Тот же проход: конец опроса сети (`poll_fresh_hardware`) и `bawh-scheduler` (`poll_due_hardware`, интервал `hardware_poll_interval_seconds`). Снимок привязан к серийнику bAD, не к IP. Адрес bAD, тумблер и интервал — Настройки → Опрос сети. Подтверждение заявки — панель bAD, Параметры → Интеграции |
+| Живой лог проверки / железа / сети | `app/live_progress.py`, `static/js/live_progress.js`, `.live-progress-log` в `app.css`. Кнопки с `data-live-progress` |
 | Идентичность устройств | `ping_service._find_existing_device`: только SN; hostname display-only; при занятии IP другим SN предыдущий владелец → offline |
 | Имена с машин (не PTR) | `hostname_sweep_service`, `flask refresh-hostnames`, POST `/admin/refresh-hostnames` |
 | Дубли устройств | `device_dedup_service` (SN / призраки / история IP / suspected), GET/POST `/admin/duplicates` |
