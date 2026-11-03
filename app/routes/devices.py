@@ -1,6 +1,16 @@
 """Карта сети и карточка устройства."""
 
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    abort,
+    flash,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
@@ -528,29 +538,39 @@ def detail(device_id: int):
         ),
     )
 
-    return render_template(
-        "devices/detail.html",
-        device=device,
-        device_addresses=device_addresses,
-        tab=tab,
-        show_all=show_all,
-        has_more=has_more,
-        list_limit=preview_limit if not show_all else per_page,
-        list_page=page,
-        list_per_page=per_page,
-        list_total=list_total,
-        history=history,
-        launches=launches,
-        device_batches=device_batches,
-        account_rows=account_rows,
-        hardware_rows=hardware_rows,
-        command_presets=command_presets,
-        scripts=scripts,
-        can_open_batches=user_can_run_scripts(current_user)
-        or user_can_run_diagnostics(current_user),
-        can_run_diagnostics=user_can_run_diagnostics(current_user),
-        can_connect_vnc=user_can_connect_vnc(current_user) and device.shows_commands,
+    from app.routes.diagnostics import CHECK_NOTICE_COOKIE, pop_check_notice
+
+    notice = pop_check_notice(device.id)
+    if notice is not None:
+        flash(notice[1], notice[0])
+    response = make_response(
+        render_template(
+            "devices/detail.html",
+            device=device,
+            device_addresses=device_addresses,
+            tab=tab,
+            show_all=show_all,
+            has_more=has_more,
+            list_limit=preview_limit if not show_all else per_page,
+            list_page=page,
+            list_per_page=per_page,
+            list_total=list_total,
+            history=history,
+            launches=launches,
+            device_batches=device_batches,
+            account_rows=account_rows,
+            hardware_rows=hardware_rows,
+            command_presets=command_presets,
+            scripts=scripts,
+            can_open_batches=user_can_run_scripts(current_user)
+            or user_can_run_diagnostics(current_user),
+            can_run_diagnostics=user_can_run_diagnostics(current_user),
+            can_connect_vnc=user_can_connect_vnc(current_user) and device.shows_commands,
+        )
     )
+    if CHECK_NOTICE_COOKIE in request.cookies:
+        response.delete_cookie(CHECK_NOTICE_COOKIE, path="/")
+    return response
 
 
 @bp.get("/devices/<int:device_id>/vnc")

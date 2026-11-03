@@ -296,6 +296,7 @@ def confirm_device_address(
     *,
     user_id: int | None = None,
     timeout_s: int = 1,
+    on_progress=None,
 ) -> str:
     """Вернуть IP, на котором сейчас отвечает эта карточка.
 
@@ -311,9 +312,16 @@ def confirm_device_address(
     tried: list[str] = []
     stranger: tuple[str, str | None] | None = None
     saw_unproven = False
-    for ip in _candidate_ips(device):
+    for ip in _candidate_ips(device, on_progress=on_progress):
         tried.append(ip)
-        hit = _probe_candidate(device, ip, creds=creds, timeout_s=timeout_s)
+        _note(on_progress, f"Проверяю {ip}")
+        hit = _probe_candidate(
+            device,
+            ip,
+            creds=creds,
+            timeout_s=timeout_s,
+            on_progress=on_progress,
+        )
         if hit.verdict in {"match", "no_serial"}:
             if ip != (device.ip or "").strip():
                 logger.info(
@@ -323,13 +331,22 @@ def confirm_device_address(
                     device.ip,
                 )
                 _move_primary_ip(device, ip, hit.mac)
+                _note(on_progress, f"Нашёл компьютер на {ip}")
+            else:
+                _note(on_progress, f"{ip} — это этот компьютер")
             _remember_endpoint(device, DeviceStatus.ONLINE, hit.response_time_ms)
             db.session.commit()
             return ip
-        if hit.verdict == "mismatch" and stranger is None:
+        if hit.verdict == "offline":
+            _note(on_progress, f"{ip} не отвечает")
+        elif hit.verdict == "mismatch" and stranger is None:
             stranger = (ip, hit.live_name)
-        if hit.verdict == "unproven":
+            _note(on_progress, f"На {ip} другой компьютер")
+        elif hit.verdict == "mismatch":
+            _note(on_progress, f"На {ip} другой компьютер")
+        elif hit.verdict == "unproven":
             saw_unproven = True
+            _note(on_progress, f"На {ip} серийник не прочитался")
 
     _remember_endpoint(device, DeviceStatus.OFFLINE, None)
     db.session.commit()
@@ -359,21 +376,29 @@ class _CandidateHit:
         self.mac = mac
 
 
-def _candidate_ips(device: Device) -> list[str]:
+def _note(on_progress, text: str) -> None:
+    if on_progress is not None and text:
+        on_progress(text)
+
+
+def _candidate_ips(device: Device, *, on_progress=None) -> list[str]:
     """Последний IP, затем прежние адреса и DNS-имя — только если есть серийник."""
     from app.services.net_utils import NetworkInputError, assert_public_ipv4, resolve_to_ipv4
 
     ordered: list[str] = []
 
-    def add(raw: str | None) -> None:
+    def add(raw: str | None) -> str:
+        """``added`` — новый адрес, ``known`` — уже в списке, ``skip`` — пусто или не IPv4."""
         if not raw or len(ordered) >= 8:
-            return
+            return "skip"
         try:
             ip = assert_public_ipv4(raw)
         except NetworkInputError:
-            return
-        if ip not in ordered:
-            ordered.append(ip)
+            return "skip"
+        if ip in ordered:
+            return "known"
+        ordered.append(ip)
+        return "added"
 
     add(device.ip)
     if not discovery_service.normalize_serial(device.serial_number):
@@ -388,10 +413,17 @@ def _candidate_ips(device: Device) -> list[str]:
         add(row.ip)
 
     for name in _dns_names(device.hostname):
+        _note(on_progress, f"Ищу имя {name} в DNS")
         try:
-            add(resolve_to_ipv4(name, timeout_s=2))
+            resolved = resolve_to_ipv4(name, timeout_s=2)
         except NetworkInputError:
+            _note(on_progress, f"Имя {name} в DNS не нашлось")
             continue
+        outcome = add(resolved)
+        if outcome == "added":
+            _note(on_progress, f"{name} → {resolved}")
+        elif outcome == "known":
+            _note(on_progress, f"{name} → {resolved}, этот адрес уже в списке")
     return ordered
 
 
@@ -415,7 +447,14 @@ def _dns_names(hostname: str | None) -> list[str]:
     return names
 
 
-def _probe_candidate(device: Device, ip: str, *, creds, timeout_s: int) -> _CandidateHit:
+def _probe_candidate(
+    device: Device,
+    ip: str,
+    *,
+    creds,
+    timeout_s: int,
+    on_progress=None,
+) -> _CandidateHit:
     from app.services.ping_service import ping_host
 
     ping = ping_host(ip, timeout_s=timeout_s)
@@ -427,6 +466,7 @@ def _probe_candidate(device: Device, ip: str, *, creds, timeout_s: int) -> _Cand
     live_name = None
     mac = None
     if creds is not None:
+        _note(on_progress, f"Читаю серийник на {ip}")
         inventory = discovery_service.lookup_wmi_inventory(ip, creds=creds)
         live_serial = inventory.serial_number
         live_name = inventory.hostname
