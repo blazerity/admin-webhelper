@@ -1,10 +1,11 @@
 # Архитектура bAWH (актуально для v2.7)
 
 > **Для ИИ и разработчиков:** это каноническая карта слоёв и договорённостей.
-> Таблица узлов и связей, которую строит graphify, лежит в
-> [`graphify-out/GRAPH_REPORT.md`](../graphify-out/GRAPH_REPORT.md)
-> (полный граф — `graphify-out/graph.json`). После изменений кода её обновляют
-> `graphify update .` и `graphify cluster-only . --no-label`.
+> Таблица узлов и связей — [`graphify-out/GRAPH_REPORT.md`](../graphify-out/GRAPH_REPORT.md),
+> сам граф — `graphify-out/graph.json`. Оба файла в git, чтобы другой агент
+> читал их без повторной сборки. Кэш, `manifest.json` и `.graphify_analysis.json`
+> локальные. После изменений кода: `graphify update .`, затем
+> `graphify cluster-only . --no-label`.
 > Перед поиском по репозиторию прочитай этот файл целиком — здесь слои, точки входа,
 > модели, сервисы, маршруты, authz, фоновые задачи и соглашения.
 > Установка и ops — в [README.md](../README.md).
@@ -902,7 +903,9 @@ backup → git → pip → `flask init-db` → опциональный restart
 ## 19. Что коммитить и что оставлять локально / в Cloud
 
 **В git (канон):** `app/`, `deploy/`, `docs/`,
-`VERSION`, `requirements.txt`, `wsgi.py`, `.env.example`, `Dockerfile`, `README.md`.
+`VERSION`, `requirements.txt`, `wsgi.py`, `.env.example`, `Dockerfile`, `README.md`,
+граф graphify: `graphify-out/graph.json`, `graphify-out/GRAPH_REPORT.md`,
+`graphify-out/.graphify_build.json`, `graphify-out/.graphify_root`.
 
 **Не коммитить** (остаются на машине разработчика или в рабочей среде Cloud Agent;
 прописано в [`.gitignore`](../.gitignore)):
@@ -917,6 +920,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `tests/` | локальные unittest, в поставку не входят |
 | `/scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики в корне. `app/templates/scripts/` в git |
 | `debug_*`, `diagnose_*`, `diag_*`, `*_manual.py`, `smoke_*.py`, `harness_*.py`, `scratch_*.py` | диагностика и ручные прогоны |
+| `graphify-out/cache/`, `manifest.json`, `.graphify_analysis.json`, `memory/`, `reflections/`, `graph.html` | кэш, mtime манифеста и диагностика graphify. Сам граф и отчёт в git |
 
 Установщик (`deploy/install-debian12.sh`) и self-update (`update_service._SKIP_DIRS`)
 тоже пропускают эти каталоги — в `/opt/bawh` они не попадут.
