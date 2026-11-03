@@ -12,8 +12,11 @@
 не требует и как раз поэтому не доказывает, кто ответил на пинг.
 
 ``confirm_device_address`` — единственная проверка перед командой,
-скриптом, ping/tracert и билетом VNC: адрес карточки сейчас отвечает
-этим серийником. Без серийника карточка и есть адрес, хватает ICMP.
+скриптом, ping/tracert и билетом VNC. У карточки с серийником молчание
+последнего IP ещё не значит, что машина недоступна: ищем тот же
+серийник на прежних адресах карточки и по DNS-имени. Полный обход
+диапазонов сектора остаётся опросу сети. Без серийника карточка и
+есть адрес, хватает ICMP.
 """
 
 from __future__ import annotations
@@ -294,65 +297,196 @@ def confirm_device_address(
     user_id: int | None = None,
     timeout_s: int = 1,
 ) -> str:
-    """Вернуть IP, только если по нему отвечает эта карточка.
+    """Вернуть IP, на котором сейчас отвечает эта карточка.
 
-    Пишет статус и строку истории и делает commit до возврата или
-    исключения: отказ не должен потеряться, если вызывающий потом
-    откатит свою транзакцию запуска.
+    С серийником перебираем последний адрес, прежние адреса карточки
+    и DNS-имя. Совпадение серийника переносит основной IP. Пишет статус
+    и строку истории и делает commit до возврата или исключения.
     """
-    from app.services.net_utils import assert_public_ipv4
-    from app.services.ping_service import ping_host
-
     if device is None or not getattr(device, "id", None):
         raise DeviceTargetError("Устройство не задано.")
-    ip = assert_public_ipv4(device.ip or "")
-    ping = ping_host(ip, timeout_s=timeout_s)
-    if ping.status != DeviceStatus.ONLINE:
-        _remember_endpoint(device, DeviceStatus.OFFLINE, None)
-        db.session.commit()
-        raise DeviceTargetError(f"{ip} не отвечает.")
 
-    live_name = None
-    creds = None
-    if discovery_service.normalize_serial(device.serial_number):
-        creds = _wmi_creds_for_target(user_id)
-        live_serial = None
-        if creds is not None:
-            inventory = discovery_service.lookup_wmi_inventory(ip, creds=creds)
-            live_serial = inventory.serial_number
-            live_name = inventory.hostname
-        verdict = machine_matches_card(device.serial_number, live_serial)
-    else:
-        verdict = "no_serial"
-
-    if verdict in {"match", "no_serial"}:
-        _remember_endpoint(device, DeviceStatus.ONLINE, ping.response_time_ms)
-        db.session.commit()
-        return ip
+    has_serial = bool(discovery_service.normalize_serial(device.serial_number))
+    creds = _wmi_creds_for_target(user_id) if has_serial else None
+    tried: list[str] = []
+    stranger: tuple[str, str | None] | None = None
+    saw_unproven = False
+    for ip in _candidate_ips(device):
+        tried.append(ip)
+        hit = _probe_candidate(device, ip, creds=creds, timeout_s=timeout_s)
+        if hit.verdict in {"match", "no_serial"}:
+            if ip != (device.ip or "").strip():
+                logger.info(
+                    "Устройство id=%s найдено на %s вместо %s",
+                    device.id,
+                    ip,
+                    device.ip,
+                )
+                _move_primary_ip(device, ip, hit.mac)
+            _remember_endpoint(device, DeviceStatus.ONLINE, hit.response_time_ms)
+            db.session.commit()
+            return ip
+        if hit.verdict == "mismatch" and stranger is None:
+            stranger = (ip, hit.live_name)
+        if hit.verdict == "unproven":
+            saw_unproven = True
 
     _remember_endpoint(device, DeviceStatus.OFFLINE, None)
     db.session.commit()
     raise DeviceTargetError(
-        _refusal_text(ip, verdict, live_name, creds_missing=creds is None)
+        _not_found_text(
+            device,
+            tried,
+            stranger=stranger,
+            creds_missing=has_serial and creds is None,
+            unproven=saw_unproven,
+        )
     )
 
 
-def _refusal_text(ip: str, verdict: str, live_name: str | None, *, creds_missing: bool) -> str:
-    if verdict == "mismatch":
-        who = f" ({live_name})" if live_name else ""
-        return (
-            f"На {ip} отвечает другой компьютер{who}. "
-            "Серийник не совпал с карточкой, команда не выполнена."
-        )
+class _CandidateHit:
+    def __init__(
+        self,
+        *,
+        verdict: str,
+        response_time_ms: int | None = None,
+        live_name: str | None = None,
+        mac: str | None = None,
+    ):
+        self.verdict = verdict
+        self.response_time_ms = response_time_ms
+        self.live_name = live_name
+        self.mac = mac
+
+
+def _candidate_ips(device: Device) -> list[str]:
+    """Последний IP, затем прежние адреса и DNS-имя — только если есть серийник."""
+    from app.services.net_utils import NetworkInputError, assert_public_ipv4, resolve_to_ipv4
+
+    ordered: list[str] = []
+
+    def add(raw: str | None) -> None:
+        if not raw or len(ordered) >= 8:
+            return
+        try:
+            ip = assert_public_ipv4(raw)
+        except NetworkInputError:
+            return
+        if ip not in ordered:
+            ordered.append(ip)
+
+    add(device.ip)
+    if not discovery_service.normalize_serial(device.serial_number):
+        return ordered
+
+    rows = sorted(
+        list(device.addresses or []),
+        key=lambda row: row.last_seen.timestamp() if row.last_seen is not None else 0,
+        reverse=True,
+    )
+    for row in rows:
+        add(row.ip)
+
+    for name in _dns_names(device.hostname):
+        try:
+            add(resolve_to_ipv4(name, timeout_s=2))
+        except NetworkInputError:
+            continue
+    return ordered
+
+
+def _dns_names(hostname: str | None) -> list[str]:
+    """Короткое имя и, если домен в LDAP_DOMAIN — ещё FQDN."""
+    name = (hostname or "").strip().rstrip(".")
+    if not name:
+        return []
+    names = [name]
+    if "." in name:
+        return names
+    domain = ""
+    try:
+        from flask import current_app
+
+        domain = str(current_app.config.get("LDAP_DOMAIN") or "").strip().rstrip(".")
+    except RuntimeError:
+        domain = ""
+    if "." in domain:
+        names.append(f"{name}.{domain}")
+    return names
+
+
+def _probe_candidate(device: Device, ip: str, *, creds, timeout_s: int) -> _CandidateHit:
+    from app.services.ping_service import ping_host
+
+    ping = ping_host(ip, timeout_s=timeout_s)
+    if ping.status != DeviceStatus.ONLINE:
+        return _CandidateHit(verdict="offline")
+    if not discovery_service.normalize_serial(device.serial_number):
+        return _CandidateHit(verdict="no_serial", response_time_ms=ping.response_time_ms)
+    live_serial = None
+    live_name = None
+    mac = None
+    if creds is not None:
+        inventory = discovery_service.lookup_wmi_inventory(ip, creds=creds)
+        live_serial = inventory.serial_number
+        live_name = inventory.hostname
+        mac = inventory.mac
+    verdict = machine_matches_card(device.serial_number, live_serial)
+    return _CandidateHit(
+        verdict=verdict,
+        response_time_ms=ping.response_time_ms,
+        live_name=live_name,
+        mac=mac,
+    )
+
+
+def _move_primary_ip(device: Device, ip: str, mac: str | None) -> None:
+    """Перенести карточку на адрес, где ответил её серийник."""
+    old = (device.ip or "").strip()
+    if old and old != ip:
+        for row in list(device.addresses or []):
+            if row.ip == old:
+                row.last_status = DeviceStatus.OFFLINE
+    device.ip = ip
+    upsert_device_address(device, ip=ip, mac=mac, status=DeviceStatus.ONLINE)
+    from app.services.ping_service import _displace_other_ip_holders
+
+    _displace_other_ip_holders(device, ip)
+
+
+def _not_found_text(
+    device: Device,
+    tried: list[str],
+    *,
+    stranger: tuple[str, str | None] | None,
+    creds_missing: bool,
+    unproven: bool,
+) -> str:
+    last = tried[0] if tried else (device.ip or "")
     if creds_missing:
         return (
-            f"Адрес {ip} отвечает, но серийник прочитать нечем: "
+            f"Адрес {last} проверен, но серийник прочитать нечем: "
             "не задана учётка WMI (Настройки → Опрос сети) и нет учётки запуска. "
             "Команда не выполнена."
         )
+    if unproven and stranger is None:
+        return (
+            f"Адрес {last} отвечает, но серийник компьютера прочитать не удалось. "
+            "Команда не выполнена."
+        )
+    if stranger is not None:
+        ip, live_name = stranger
+        who = f" ({live_name})" if live_name else ""
+        return (
+            f"На {ip} отвечает другой компьютер{who}. "
+            "Этот серийник на прежних адресах и по DNS-имени не найден, "
+            "команда не выполнена."
+        )
+    name = (device.hostname or "").strip()
+    where = f" и по имени {name}" if name else ""
     return (
-        f"Адрес {ip} отвечает, но серийник компьютера прочитать не удалось. "
-        "Команда не выполнена."
+        f"{last} не отвечает. Этот компьютер{where} на других известных адресах "
+        "сейчас не находится. Команда не выполнена."
     )
 
 
