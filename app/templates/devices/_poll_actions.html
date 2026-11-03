@@ -3,12 +3,17 @@
 <div class="device-actions">
   <div class="device-actions-group">
     <p class="device-actions-label">Статус в инвентаре</p>
-    <form method="post" action="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}">
+    <form method="post"
+          action="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}"
+          data-device-check
+          data-redirect="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="tab" value="polls">
-      <button class="btn btn-primary" type="submit" title="Проверить, что по адресу отвечает этот компьютер">Проверить сейчас</button>
+      <button class="btn btn-primary" type="submit" data-check-button title="Проверить, что по адресу отвечает этот компьютер">Проверить сейчас</button>
     </form>
+    <ol class="device-check-log" data-check-log hidden aria-live="polite"></ol>
     <p class="small text-muted mb-0">Если последний адрес молчит, ищем этот серийник на прежних адресах карточки и по DNS-имени. Чужой ответ не считается доступностью.</p>
+    <script src="{{ url_for('static', filename='js/device_check.js') }}"></script>
   </div>
   <div class="device-actions-group">
     <p class="device-actions-label">Журнал запуска</p>

@@ -729,7 +729,7 @@ def _displace_other_ip_holders(owner: Device, ip: str) -> None:
         )
 
 
-def check_device(device: Device, *, timeout_s: int = 1) -> dict:
+def check_device(device: Device, *, timeout_s: int = 1, on_progress=None) -> dict:
     """Проверка, что по адресу карточки отвечает она сама.
 
     История и статус пишет ``confirm_device_address``: ICMP для адреса
@@ -744,7 +744,11 @@ def check_device(device: Device, *, timeout_s: int = 1) -> dict:
     previous_ip = device.ip
     detail = ""
     try:
-        found = confirm_device_address(device, timeout_s=timeout_s)
+        found = confirm_device_address(
+            device,
+            timeout_s=timeout_s,
+            on_progress=on_progress,
+        )
     except DeviceTargetError as exc:
         detail = str(exc)
     else:

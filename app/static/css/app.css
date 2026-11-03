@@ -1833,6 +1833,51 @@ code {
   text-transform: uppercase;
 }
 
+.device-check-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.875rem;
+}
+
+.device-check-log li {
+  color: var(--muted);
+}
+
+.device-check-log li.is-current {
+  color: inherit;
+  font-weight: 600;
+}
+
+.device-check-log li.is-current::before {
+  content: "";
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.4rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.05rem;
+  animation: device-check-spin 0.7s linear infinite;
+}
+
+@keyframes device-check-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .device-check-log li.is-current::before {
+    animation: none;
+    border-right-color: currentColor;
+  }
+}
+
 .device-actions-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
