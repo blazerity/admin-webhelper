@@ -55,16 +55,24 @@
       <div class="device-object-media">
         {{ device_portrait(device) }}
         {% if show_hardware %}
-        <p class="device-object-media-hardware mb-0">
+        <div class="device-object-media-hardware">
           {% if device.hardware_checked_at %}
-          {{ device.cpu_name or 'процессор не записан' }}{% if device.ram_gb is not none %}, {{ device.ram_gb }} ГБ ОЗУ{% endif %}{% if device.os_label or device.os_caption %}, {{ device.os_label or device.os_caption }}{% endif %}.
+          <p class="device-object-media-hardware-lines mb-0">
+            <span class="d-block">{{ device.cpu_name or 'процессор не записан' }}</span>
+            {% if device.ram_gb is not none %}
+            <span class="d-block">{{ device.ram_gb }} ГБ ОЗУ</span>
+            {% endif %}
+            {% if device.os_label or device.os_caption %}
+            <span class="d-block">{{ device.os_label or device.os_caption }}</span>
+            {% endif %}
+          </p>
           {% elif device.bad_agent_status == 'unregistered' %}
-          Агент bAD не зарегистрирован.
+          <p class="mb-0">Агент bAD не зарегистрирован.</p>
           {% else %}
-          Снимка железа ещё нет.
+          <p class="mb-0">Снимка железа ещё нет.</p>
           {% endif %}
-          <a href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>
-        </p>
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>
+        </div>
         {% endif %}
       </div>
       <div class="device-object-body">
