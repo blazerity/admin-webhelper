@@ -15,7 +15,7 @@
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.11.2` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.11.3` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -86,7 +86,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.11.2)
+  VERSION                      # semver (2.11.3)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -423,7 +423,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | POST | `/api/map/bulk/script` | Bulk script (любой вошедший, любой скрипт) |
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
-| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа. История — пачки машины, запуски, появления УЗ, опросы и смены железа. Команды — CMD и PowerShell, выбор учётки, плитки скриптов и «Добавить скрипт». Оборудование — снимок bAD и «Опросить сейчас». Опросы — «Проверить сейчас», Ping и Tracert |
+| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа, CMD, PowerShell и ссылка «Скрипты». История — пачки машины, запуски, появления УЗ, опросы и смены железа. Скрипты — плитки, «Добавить скрипт», выбор учётки в модальном окне. Оборудование — снимок bAD и «Опросить сейчас». Опросы — «Проверить сейчас», Ping и Tracert |
 | POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. `Accept: application/x-ndjson` — те же шаги в рамке лога (`live_progress`). Без связи «подключено» проход не стартует |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 

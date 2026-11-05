@@ -36,7 +36,7 @@
       <div>
         <h1 class="page-title">
           {% if tab == 'history' %}История
-          {% elif tab == 'commands' %}Команды
+          {% elif tab == 'commands' %}Скрипты
           {% elif tab == 'hardware' %}Оборудование
           {% else %}Опросы
           {% endif %}
@@ -161,25 +161,32 @@
         {% endif %}
       </div>
     </article>
+    {% if show_commands %}
+    <div class="panel content-card mb-3 mt-3">
+      {% set device_command_view = 'overview' %}
+      {% include "devices/_command_actions.html" %}
+    </div>
+    {% endif %}
 
     {% elif tab == 'commands' and show_commands %}
     <div class="panel content-card device-actions-panel mb-3">
-      <h2 class="panel-title mb-3">Командная строка</h2>
+      {% set device_command_view = 'scripts' %}
       {% include "devices/_command_actions.html" %}
     </div>
 
     {% elif tab == 'history' %}
+    <div class="panel content-card device-history mb-3">
     {% if can_open_batches %}
-    <div class="panel content-card p-0 overflow-hidden mb-3">
-      <div class="px-3 pt-3 pb-2 d-flex flex-wrap justify-content-between gap-2">
+    <section class="device-history-section">
+      <header class="device-history-section-head d-flex flex-wrap justify-content-between gap-2">
         <div>
           <h2 class="panel-title">Пачки с этим устройством</h2>
           <p class="panel-hint mb-0">Групповой ping и скрипт. Открытая пачка продолжает обновляться.</p>
         </div>
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('scripts.list_batches', device=device.id) }}">Все пачки</a>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm mb-0">
+      </header>
+      <div class="device-history-rows">
+        <table class="table table-sm device-history-table mb-0">
           <thead><tr><th>Начало</th><th>Пачка</th><th>Итог</th></tr></thead>
           <tbody>
           {% for batch in device_batches|default([]) %}
@@ -194,16 +201,16 @@
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
     {% endif %}
 
-    <div class="panel content-card p-0 overflow-hidden mb-3">
-      <div class="px-3 pt-3 pb-2">
+    <section class="device-history-section">
+      <header class="device-history-section-head">
         <h2 class="panel-title">Недавние запуски</h2>
         <p class="panel-hint mb-0">Последние {{ list_limit }}</p>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm mb-0">
+      </header>
+      <div class="device-history-rows">
+        <table class="table table-sm device-history-table mb-0">
           <thead><tr><th>Время</th><th>Запуск</th><th>Статус</th></tr></thead>
           <tbody>
           {% for item in launches %}
@@ -220,16 +227,16 @@
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
 
     {% if show_accounts %}
-    <div class="panel content-card p-0 overflow-hidden mb-3">
-      <div class="px-3 pt-3 pb-2">
+    <section class="device-history-section">
+      <header class="device-history-section-head">
         <h2 class="panel-title">История УЗ</h2>
         <p class="panel-hint mb-0">Последние {{ list_limit }}</p>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm mb-0">
+      </header>
+      <div class="device-history-rows">
+        <table class="table table-sm device-history-table mb-0">
           <thead><tr><th>Время</th><th>Учётка</th><th>Сырое значение</th></tr></thead>
           <tbody>
           {% for row in account_rows %}
@@ -248,16 +255,16 @@
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
     {% endif %}
 
-    <div class="panel content-card p-0 overflow-hidden mb-3">
-      <div class="px-3 pt-3 pb-2">
+    <section class="device-history-section">
+      <header class="device-history-section-head">
         <h2 class="panel-title">Результаты опросов</h2>
         <p class="panel-hint mb-0">Последние {{ list_limit }}</p>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm mb-0">
+      </header>
+      <div class="device-history-rows">
+        <table class="table table-sm device-history-table mb-0">
           <thead><tr><th>Время</th><th>Статус</th><th>Отклик, мс</th></tr></thead>
           <tbody>
           {% for row in history %}
@@ -272,16 +279,16 @@
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
 
     {% if show_hardware %}
-    <div class="panel content-card p-0 overflow-hidden mb-3">
-      <div class="px-3 pt-3 pb-2">
+    <section class="device-history-section">
+      <header class="device-history-section-head">
         <h2 class="panel-title">Изменения оборудования</h2>
         <p class="panel-hint mb-0">Последние {{ list_limit }} изменений</p>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm mb-0">
+      </header>
+      <div class="device-history-rows">
+        <table class="table table-sm device-history-table mb-0">
           <thead><tr><th>Время</th><th>Windows</th><th>Процессор</th><th>ОЗУ</th><th>Диски</th></tr></thead>
           <tbody>
           {% for row in hardware_rows %}
@@ -298,8 +305,9 @@
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
     {% endif %}
+    </div>
 
     {% elif tab == 'polls' %}
     <div class="panel content-card device-actions-panel mb-3">
@@ -401,11 +409,9 @@
     <nav class="settings-nav">
       <a class="settings-nav-link{% if tab == 'overview' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='overview') }}">Обзор</a>
-      <a class="settings-nav-link{% if tab == 'history' %} active{% endif %}"
-         href="{{ url_for('devices.detail', device_id=device.id, tab='history') }}">История</a>
       {% if show_commands %}
       <a class="settings-nav-link{% if tab == 'commands' %} active{% endif %}"
-         href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Команды</a>
+         href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Скрипты</a>
       {% endif %}
       {% if show_hardware %}
       <a class="settings-nav-link{% if tab == 'hardware' %} active{% endif %}"
@@ -413,9 +419,17 @@
       {% endif %}
       <a class="settings-nav-link{% if tab == 'polls' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">Опросы</a>
+      <a class="settings-nav-link{% if tab == 'history' %} active{% endif %}"
+         href="{{ url_for('devices.detail', device_id=device.id, tab='history') }}">История</a>
     </nav>
   </aside>
 </div>
+{% endif %}
+{% endblock %}
+
+{% block body_end %}
+{% if device and device.shows_commands %}
+{% include "devices/_device_account_modal.html" %}
 {% endif %}
 {% endblock %}
 

@@ -191,8 +191,16 @@
           </span>
           <span class="sector-toggle-chevron" aria-hidden="true"></span>
         </button>
-        <button type="button" class="sector-plaque-action" data-sector-select-online>Выделить все ОНЛАЙН</button>
-        <button type="button" class="sector-plaque-action" data-sector-clear-selection>Сбросить выделение</button>
+        <button type="button" class="sector-plaque-action sector-plaque-action-icon" data-sector-select-online aria-label="Выделить все ОНЛАЙН" title="Выделить все ОНЛАЙН">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+          </svg>
+        </button>
+        <button type="button" class="sector-plaque-action sector-plaque-action-icon" data-sector-clear-selection aria-label="Сбросить выделение" title="Сбросить выделение">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.3 10.59 10.6l6.3-6.3 1.41 1.41z"/>
+          </svg>
+        </button>
         </div>
         <div class="collapse" id="{{ panel_id }}">
           <div class="sector-devices">

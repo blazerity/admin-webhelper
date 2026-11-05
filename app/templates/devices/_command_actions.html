@@ -2,17 +2,18 @@
 {% set available_scripts = scripts if scripts is defined and scripts else [] %}
 {% set can_scripts = current_user.is_authenticated %}
 {% set can_command = current_user.is_authenticated %}
+{% set actions_view = device_command_view|default('scripts') %}
 <div class="device-actions">
-  {% if can_command %}
+  {% if actions_view == 'overview' and can_command %}
   <div class="device-actions-group">
     <p class="device-actions-label">На устройстве</p>
-    <div class="d-flex flex-wrap gap-2">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
       <button type="button" class="btn btn-warning" data-shell-kind="cmd" data-bs-toggle="modal" data-bs-target="#device-shell-modal">CMD</button>
       <button type="button" class="btn btn-warning" data-shell-kind="powershell" data-bs-toggle="modal" data-bs-target="#device-shell-modal">PowerShell</button>
+      <a class="btn btn-outline-primary" href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Скрипты</a>
     </div>
   </div>
-  {% endif %}
-
+  {% elif actions_view == 'scripts' %}
   {% if can_scripts %}
   <div class="device-actions-group">
     <p class="device-actions-label">Скрипты</p>
@@ -45,15 +46,8 @@
     Произвольная команда — только администратору.
   </p>
   {% endif %}
+  {% endif %}
 
-  <div class="device-run-as-picker mt-2" id="device-run-as-picker" hidden>
-    <p class="small mb-2 mb-md-1" id="device-run-as-picker-label">Учётная запись процесса</p>
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-      <button type="button" class="btn btn-sm btn-outline-secondary" data-run-as="psexec">Учётка веб-панели</button>
-      <button type="button" class="btn btn-sm btn-outline-secondary" data-run-as="system">NT AUTHORITY\SYSTEM</button>
-      <button type="button" class="btn btn-sm btn-link text-muted" id="device-run-as-cancel">Отмена</button>
-    </div>
-  </div>
   <form
     method="post"
     action="{{ url_for('devices.run_script_on_device', device_id=device.id) }}"
@@ -66,52 +60,20 @@
   </form>
 </div>
 
-{% if can_command %}
-<div class="modal fade" id="device-shell-modal" tabindex="-1" aria-labelledby="device-shell-modal-title" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2 class="modal-title fs-5" id="device-shell-modal-title">Командная строка</h2>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
-      </div>
-      <div class="modal-body">
-        <p class="small text-muted mb-3" id="device-shell-modal-hint">Учётная запись процесса</p>
-        <div class="d-flex flex-wrap gap-2">
-          <button type="button" class="btn btn-outline-secondary" data-shell-run-as="psexec">Учётка веб-панели</button>
-          <button type="button" class="btn btn-outline-secondary" data-shell-run-as="system">NT AUTHORITY\SYSTEM</button>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Отмена</button>
-      </div>
-    </div>
-  </div>
-</div>
-{% endif %}
-
 <script>
 (() => {
-  const picker = document.getElementById("device-run-as-picker");
-  const cancelBtn = document.getElementById("device-run-as-cancel");
   const scriptForm = document.getElementById("device-script-run-form");
   const scriptIdField = document.getElementById("device-script-id-field");
   const scriptRunAsField = document.getElementById("device-script-run-as-field");
   const commandBase = {{ url_for('diagnostics.device_command', device_id=device.id)|tojson }};
-  const shellModal = document.getElementById("device-shell-modal");
+  const shellModalEl = document.getElementById("device-shell-modal");
   const shellModalHint = document.getElementById("device-shell-modal-hint");
   let pendingShell = null;
   let pendingScriptId = null;
 
-  function hidePicker() {
+  function resetPending() {
+    pendingShell = null;
     pendingScriptId = null;
-    if (picker) picker.hidden = true;
-  }
-
-  function showPicker({ scriptId, label }) {
-    pendingScriptId = scriptId || null;
-    const labelEl = document.getElementById("device-run-as-picker-label");
-    if (labelEl) labelEl.textContent = label || "Учётная запись процесса";
-    if (picker) picker.hidden = false;
   }
 
   function confirmScriptRunAs(runAs) {
@@ -119,7 +81,7 @@
       scriptIdField.value = String(pendingScriptId);
       scriptRunAsField.value = runAs;
       scriptForm.submit();
-      hidePicker();
+      resetPending();
     }
   }
 
@@ -131,17 +93,29 @@
     window.location.href = url.toString();
   }
 
+  function showRunAsModal() {
+    if (!shellModalEl || !window.bootstrap) return;
+    window.bootstrap.Modal.getOrCreateInstance(shellModalEl).show();
+  }
+
   document.querySelectorAll("[data-shell-kind]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      pendingScriptId = null;
       pendingShell = btn.dataset.shellKind || "cmd";
       const label = pendingShell === "powershell" ? "PowerShell" : "CMD";
       if (shellModalHint) shellModalHint.textContent = `Открыть ${label} от`;
     });
   });
 
-  shellModal?.querySelectorAll("[data-shell-run-as]").forEach((btn) => {
+  shellModalEl?.querySelectorAll("[data-shell-run-as]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      openShell(btn.dataset.shellRunAs || "psexec");
+      const runAs = btn.dataset.shellRunAs || "psexec";
+      if (pendingScriptId) {
+        confirmScriptRunAs(runAs);
+        window.bootstrap?.Modal.getInstance(shellModalEl)?.hide();
+        return;
+      }
+      openShell(runAs);
     });
   });
 
@@ -149,18 +123,14 @@
     btn.addEventListener("click", () => {
       const scriptId = btn.dataset.scriptId;
       if (!scriptId) return;
-      showPicker({ scriptId, label: "Запустить скрипт от" });
+      pendingShell = null;
+      pendingScriptId = scriptId;
+      if (shellModalHint) shellModalHint.textContent = "Запустить скрипт от";
+      showRunAsModal();
     });
   });
 
-  if (picker) {
-    picker.querySelectorAll("[data-run-as]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        confirmScriptRunAs(btn.dataset.runAs || "psexec");
-      });
-    });
-  }
-  cancelBtn?.addEventListener("click", hidePicker);
+  shellModalEl?.addEventListener("hidden.bs.modal", resetPending);
 })();
 </script>
 {% endif %}

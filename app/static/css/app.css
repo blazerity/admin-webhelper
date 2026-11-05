@@ -1212,6 +1212,16 @@ code {
   color: var(--accent-ink);
 }
 
+.sector-plaque-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  flex-shrink: 0;
+}
+
 .sector-toggle {
   display: flex;
   flex: 1;
@@ -1856,6 +1866,45 @@ code {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.device-history {
+  padding: 0;
+  overflow: hidden;
+}
+
+.device-history-section {
+  padding: 0.85rem 1rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.device-history-section:first-child {
+  border-top: 0;
+}
+
+.device-history-section-head {
+  margin-bottom: 0.55rem;
+}
+
+.device-history-section-head .panel-title {
+  margin-bottom: 0.15rem;
+}
+
+.device-history-rows {
+  margin: 0 -0.35rem;
+}
+
+.device-history-table thead th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom-width: 1px;
+  white-space: nowrap;
+}
+
+.device-history-table tbody tr:nth-child(even) {
+  background: rgba(244, 248, 250, 0.65);
 }
 
 .live-progress-log {
