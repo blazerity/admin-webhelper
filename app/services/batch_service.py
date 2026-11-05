@@ -17,7 +17,7 @@ from app.models import Device, RunStatus, Script, ScriptRun
 from app.run_display import run_launch_label, run_type_label
 from app.services.script_service import start_ping_on_devices, start_script_on_devices
 
-MAX_BULK_DEVICES = 100
+MAX_BULK_DEVICES = 500
 RUN_PAGE_PREFIX = "/admin/scripts/runs"
 
 

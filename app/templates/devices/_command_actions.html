@@ -3,62 +3,41 @@
 {% set can_scripts = current_user.is_authenticated %}
 {% set can_command = current_user.is_authenticated %}
 <div class="device-actions">
-  {% if can_command or can_scripts %}
-  <div class="device-actions-group">
-    <p class="device-actions-label">Учётная запись процесса</p>
-    <div class="mb-2" id="device-run-as-group" role="radiogroup" aria-label="Учётная запись процесса">
-      <div class="form-check">
-        <input class="form-check-input" type="radio" name="device_run_as" id="device-run-as-psexec" value="psexec" checked>
-        <label class="form-check-label" for="device-run-as-psexec">Учётка веб-панели</label>
-      </div>
-      <div class="form-check">
-        <input class="form-check-input" type="radio" name="device_run_as" id="device-run-as-system" value="system">
-        <label class="form-check-label" for="device-run-as-system">NT AUTHORITY\SYSTEM</label>
-      </div>
-    </div>
-    <p class="small text-muted mb-0">Запустить от пользователя, который сидит за ПК, нельзя.</p>
-  </div>
-  {% endif %}
-
   {% if can_command %}
   <div class="device-actions-group">
     <p class="device-actions-label">На устройстве</p>
-    <form method="post" action="{{ url_for('diagnostics.command_device', device_id=device.id) }}" class="device-command-form" id="device-command-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="run_as" id="command-run-as" value="psexec">
-      <input type="hidden" name="shell" id="command-shell" value="cmd">
-      <label class="form-label" for="command">Команда</label>
-      <textarea class="form-control font-monospace mb-2" id="command" name="command" rows="5" placeholder="whoami&#10;ipconfig /all"></textarea>
-      <div class="d-flex flex-wrap gap-2">
-        <button class="btn btn-warning" type="submit" data-command-shell="cmd">CMD</button>
-        <button class="btn btn-warning" type="submit" data-command-shell="powershell">PowerShell</button>
-      </div>
-    </form>
+    <div class="d-flex flex-wrap gap-2">
+      <button type="button" class="btn btn-warning" data-shell-kind="cmd">CMD</button>
+      <button type="button" class="btn btn-warning" data-shell-kind="powershell">PowerShell</button>
+    </div>
   </div>
   {% endif %}
 
   {% if can_scripts %}
   <div class="device-actions-group">
     <p class="device-actions-label">Скрипты</p>
-    <div class="d-flex flex-wrap gap-2 mb-2">
+    <div class="d-flex flex-wrap gap-2 align-items-stretch">
       {% for script in available_scripts %}
-      <form
-        method="post"
-        action="{{ url_for('devices.run_script_on_device', device_id=device.id) }}"
-        class="device-script-tile-form d-inline"
+      <button
+        type="button"
+        class="btn btn-outline-primary device-script-tile"
+        data-script-id="{{ script.id }}"
+        title="{{ script.interpreter }}"
       >
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="script_id" value="{{ script.id }}">
-        <input type="hidden" name="run_as" value="psexec" class="script-run-as-field">
-        <button type="submit" class="btn btn-sm btn-outline-primary" title="{{ script.interpreter }}">
-          {{ script.name }} <span class="text-muted">({{ script.interpreter }})</span>
-        </button>
-      </form>
-      {% else %}
-      <span class="text-muted small">В библиотеке нет скриптов.</span>
+        {{ script.name }} <span class="text-muted">({{ script.interpreter }})</span>
+      </button>
       {% endfor %}
+      <a
+        class="btn btn-outline-primary d-inline-flex align-items-center gap-1"
+        href="{{ url_for('scripts.new_script') }}"
+        title="Добавить скрипт"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path fill="currentColor" d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4z"/>
+        </svg>
+        Добавить скрипт
+      </a>
     </div>
-    <a class="btn btn-sm btn-primary" href="{{ url_for('scripts.new_script') }}">Добавить скрипт</a>
   </div>
   {% elif can_command %}
   <p class="small text-muted mb-0">
@@ -66,41 +45,90 @@
     Произвольная команда — только администратору.
   </p>
   {% endif %}
+
+  <div class="device-run-as-picker mt-2" id="device-run-as-picker" hidden>
+    <p class="small mb-2 mb-md-1" id="device-run-as-picker-label">Учётная запись процесса</p>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-run-as="psexec">Учётка веб-панели</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-run-as="system">NT AUTHORITY\SYSTEM</button>
+      <button type="button" class="btn btn-sm btn-link text-muted" id="device-run-as-cancel">Отмена</button>
+    </div>
+  </div>
+  <form
+    method="post"
+    action="{{ url_for('devices.run_script_on_device', device_id=device.id) }}"
+    id="device-script-run-form"
+    class="d-none"
+  >
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="script_id" id="device-script-id-field" value="">
+    <input type="hidden" name="run_as" id="device-script-run-as-field" value="psexec">
+  </form>
 </div>
 <script>
 (() => {
-  const runAsGroup = document.getElementById("device-run-as-group");
-  if (!runAsGroup) return;
+  const picker = document.getElementById("device-run-as-picker");
+  const cancelBtn = document.getElementById("device-run-as-cancel");
+  const scriptForm = document.getElementById("device-script-run-form");
+  const scriptIdField = document.getElementById("device-script-id-field");
+  const scriptRunAsField = document.getElementById("device-script-run-as-field");
+  const shellBase = {{ url_for('diagnostics.device_shell', device_id=device.id)|tojson }};
+  let pendingShell = null;
+  let pendingScriptId = null;
 
-  function selectedRunAs() {
-    const checked = runAsGroup.querySelector('input[name="device_run_as"]:checked');
-    return checked ? checked.value : "psexec";
+  function hidePicker() {
+    pendingShell = null;
+    pendingScriptId = null;
+    if (picker) picker.hidden = true;
   }
 
-  function syncRunAsFields() {
-    const value = selectedRunAs();
-    const commandField = document.getElementById("command-run-as");
-    if (commandField) commandField.value = value;
-    document.querySelectorAll(".script-run-as-field").forEach((input) => {
-      input.value = value;
+  function showPicker({ shell, scriptId, label }) {
+    pendingShell = shell || null;
+    pendingScriptId = scriptId || null;
+    const labelEl = document.getElementById("device-run-as-picker-label");
+    if (labelEl) labelEl.textContent = label || "Учётная запись процесса";
+    if (picker) picker.hidden = false;
+  }
+
+  function confirmRunAs(runAs) {
+    if (pendingShell) {
+      const url = new URL(shellBase, window.location.origin);
+      url.searchParams.set("shell", pendingShell);
+      url.searchParams.set("run_as", runAs);
+      window.open(url.toString(), "_blank", "noopener");
+      hidePicker();
+      return;
+    }
+    if (pendingScriptId && scriptForm && scriptIdField && scriptRunAsField) {
+      scriptIdField.value = String(pendingScriptId);
+      scriptRunAsField.value = runAs;
+      scriptForm.submit();
+      hidePicker();
+    }
+  }
+
+  document.querySelectorAll("[data-shell-kind]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      showPicker({ shell: btn.dataset.shellKind || "cmd", label: "Открыть командную строку от" });
     });
-  }
-
-  runAsGroup.querySelectorAll('input[name="device_run_as"]').forEach((input) => {
-    input.addEventListener("change", syncRunAsFields);
   });
-  syncRunAsFields();
 
-  const commandForm = document.getElementById("device-command-form");
-  const shellField = document.getElementById("command-shell");
-  if (commandForm && shellField) {
-    commandForm.querySelectorAll("[data-command-shell]").forEach((btn) => {
+  document.querySelectorAll(".device-script-tile").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const scriptId = btn.dataset.scriptId;
+      if (!scriptId) return;
+      showPicker({ scriptId, label: "Запустить скрипт от" });
+    });
+  });
+
+  if (picker) {
+    picker.querySelectorAll("[data-run-as]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        shellField.value = btn.dataset.commandShell || "cmd";
-        syncRunAsFields();
+        confirmRunAs(btn.dataset.runAs || "psexec");
       });
     });
   }
+  cancelBtn?.addEventListener("click", hidePicker);
 })();
 </script>
 {% endif %}

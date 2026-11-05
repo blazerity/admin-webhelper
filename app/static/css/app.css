@@ -1184,9 +1184,38 @@ code {
   overflow: hidden;
 }
 
+.sector-plaque {
+  display: flex;
+  align-items: stretch;
+  gap: 0.45rem;
+}
+
+.sector-plaque-action {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-right: 0.35rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sector-plaque-action:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
 .sector-toggle {
   display: flex;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;

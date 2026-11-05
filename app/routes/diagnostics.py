@@ -11,7 +11,7 @@ application/x-ndjson, тот же поиск отдаёт шаги по мере
 В script_runs.command_text пишется сама команда, без пароля PsExec.
 """
 
-from flask import Blueprint, abort, current_app, flash, redirect, request, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app.extensions import db
@@ -106,6 +106,35 @@ def tracert_device(device_id: int):
     return redirect(url_for("scripts.run_detail", run_id=run.id))
 
 
+def _shell_url(device_id: int, *, shell: str, run_as: str):
+    return url_for(
+        "diagnostics.device_shell",
+        device_id=device_id,
+        shell=shell,
+        run_as=run_as,
+    )
+
+
+@bp.get("/devices/<int:device_id>/shell")
+@login_required
+def device_shell(device_id: int):
+    device = _device_or_404(device_id)
+    if not device.shows_commands:
+        abort(404)
+    shell = (request.args.get("shell") or "cmd").strip().lower()
+    if shell not in {"cmd", "powershell"}:
+        shell = "cmd"
+    run_as = parse_run_as(request.args.get("run_as"))
+    pc_name = device.hostname or device.ip or "компьютер"
+    return render_template(
+        "devices/shell.html",
+        device=device,
+        shell=shell,
+        run_as=run_as,
+        pc_name=pc_name,
+    )
+
+
 @bp.post("/devices/<int:device_id>/command")
 @login_required
 def command_device(device_id: int):
@@ -118,12 +147,13 @@ def command_device(device_id: int):
         shell = "cmd"
     run_as = parse_run_as(request.form.get("run_as"))
     limit = int(current_app.config.get("MAX_REMOTE_COMMAND_CHARS", 4_000))
+    shell_back = _shell_url(device.id, shell=shell, run_as=run_as)
     if not command:
         flash("Введите команду.", "warning")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+        return redirect(shell_back)
     if len(command) > limit:
         flash(f"Команда длиннее {limit} символов.", "warning")
-        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+        return redirect(shell_back)
     run = start_run(
         RunType.COMMAND,
         current_user,

@@ -17,14 +17,10 @@ from sqlalchemy.orm import selectinload
 from app.extensions import db
 from app.models import Device, DeviceHistory, RunType, Script, ScriptRun, Sector
 from app.run_display import run_launch_label, run_status_label, run_when_label
-from app.services.account_service import (
-    count_device_account_sightings,
-    device_account_sightings,
-)
+from app.services.account_service import device_account_sightings
 from app.services.hardware_poll_service import (
     HardwarePollError,
     HardwarePollInProgressError,
-    count_device_hardware_history,
     hardware_poll_message,
     load_device_hardware_history,
     poll_one_device,
@@ -35,13 +31,12 @@ from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
 from app.services import script_service
 from app.services.net_utils import normalize_mac
-from app.utils import as_utc, normalize_page, parse_optional_int, utcnow
+from app.utils import as_utc, parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
 
-_DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls", "hardware"})
+_DETAIL_TABS = frozenset({"overview", "history", "commands", "polls", "hardware"})
 _DEFAULT_LIST_LIMIT = 5
-_HISTORY_PER_PAGE = 20
 
 
 def _device_or_404(device_id: int) -> Device:
@@ -89,9 +84,7 @@ def _latest_address_per_mac(addresses, primary_ip: str | None):
 
 def _allowed_detail_tabs(device) -> frozenset[str]:
     """Вкладки карточки зависят от типа устройства."""
-    tabs = {"overview", "polls"}
-    if device.shows_accounts:
-        tabs.add("accounts")
+    tabs = {"overview", "polls", "history"}
     if device.shows_commands:
         tabs.add("commands")
     if device.shows_hardware:
@@ -101,6 +94,8 @@ def _allowed_detail_tabs(device) -> frozenset[str]:
 
 def _detail_tab_for(device) -> str:
     tab = (request.args.get("tab") or "overview").strip().lower()
+    if tab == "accounts":
+        tab = "history"
     if tab not in _DETAIL_TABS or tab not in _allowed_detail_tabs(device):
         return "overview"
     return tab
@@ -387,23 +382,6 @@ def network_summary():
     return jsonify(get_network_summary(current_user))
 
 
-
-def _history_paging() -> tuple[bool, int, int, int]:
-    """(show_all, page, per_page, offset) для журналов карточки устройства.
-
-    По умолчанию — 5 последних. При all=1 — постраничный просмотр.
-    """
-    show_all = (request.args.get("all") or "").strip() in {"1", "true", "yes"}
-    if not show_all:
-        return False, 1, _DEFAULT_LIST_LIMIT, 0
-    page, per_page = normalize_page(
-        parse_optional_int(request.args.get("page")),
-        parse_optional_int(request.args.get("per_page")) or _HISTORY_PER_PAGE,
-        max_per_page=100,
-    )
-    return True, page, per_page, (page - 1) * per_page
-
-
 def _launch_history(
     device_id: int,
     run_types: tuple[str, ...],
@@ -445,7 +423,6 @@ def detail(device_id: int):
         abort(404)
 
     tab = _detail_tab_for(device)
-    show_all, page, per_page, offset = _history_paging()
     preview_limit = _DEFAULT_LIST_LIMIT
 
     history = []
@@ -453,67 +430,29 @@ def detail(device_id: int):
     account_rows = []
     hardware_rows = []
     device_batches = []
-    has_more = False
-    list_total = 0
-    if tab == "polls":
-        list_total = DeviceHistory.query.filter_by(device_id=device.id).count()
-        if show_all:
-            history = (
-                DeviceHistory.query.filter_by(device_id=device.id)
-                .order_by(DeviceHistory.timestamp.desc())
-                .offset(offset)
-                .limit(per_page)
-                .all()
-            )
-        else:
-            history = (
-                DeviceHistory.query.filter_by(device_id=device.id)
-                .order_by(DeviceHistory.timestamp.desc())
-                .limit(preview_limit)
-                .all()
-            )
-            has_more = list_total > preview_limit
-    elif tab == "commands" and device.shows_commands:
-        if show_all:
-            launches, list_total = _launch_history(
-                device.id,
-                (RunType.COMMAND, RunType.SCRIPT, RunType.VNC_ENSURE),
-                limit=per_page,
-                offset=offset,
-            )
-        else:
-            launches, list_total = _launch_history(
-                device.id,
-                (RunType.COMMAND, RunType.SCRIPT, RunType.VNC_ENSURE),
-                limit=preview_limit,
-            )
-            has_more = list_total > preview_limit
-        if True:
-            device_batches, _batch_total = batch_service.list_batch_summaries(
-                current_user,
-                limit=preview_limit,
-                device_id=device.id,
-            )
-    elif tab == "accounts" and device.shows_accounts:
-        list_total = count_device_account_sightings(device.id)
-        if show_all:
-            account_rows = device_account_sightings(
-                device.id, limit=per_page, offset=offset
-            )
-        else:
+    if tab == "history":
+        launches, _launch_total = _launch_history(
+            device.id,
+            (RunType.COMMAND, RunType.SCRIPT, RunType.VNC_ENSURE),
+            limit=preview_limit,
+        )
+        device_batches, _batch_total = batch_service.list_batch_summaries(
+            current_user,
+            limit=preview_limit,
+            device_id=device.id,
+        )
+        history = (
+            DeviceHistory.query.filter_by(device_id=device.id)
+            .order_by(DeviceHistory.timestamp.desc())
+            .limit(preview_limit)
+            .all()
+        )
+        if device.shows_accounts:
             account_rows = device_account_sightings(device.id, limit=preview_limit)
-            has_more = list_total > preview_limit
-    elif tab == "hardware" and device.shows_hardware:
-        list_total = count_device_hardware_history(device.id)
-        if show_all:
-            hardware_rows = load_device_hardware_history(
-                device.id, limit=per_page, offset=offset
-            )
-        else:
+        if device.shows_hardware:
             hardware_rows = load_device_hardware_history(
                 device.id, limit=preview_limit
             )
-            has_more = list_total > preview_limit
 
     # Скрипты только если вкладка команд доступна этому типу.
     scripts = (
@@ -541,12 +480,7 @@ def detail(device_id: int):
             device=device,
             device_addresses=device_addresses,
             tab=tab,
-            show_all=show_all,
-            has_more=has_more,
-            list_limit=preview_limit if not show_all else per_page,
-            list_page=page,
-            list_per_page=per_page,
-            list_total=list_total,
+            list_limit=preview_limit,
             history=history,
             launches=launches,
             device_batches=device_batches,

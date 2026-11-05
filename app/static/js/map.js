@@ -977,15 +977,37 @@
     updateBulkBar();
   }
 
-  function bindSectorSelectOnline(panel) {
+  function clearSelectionInSector(panel) {
     if (!panel) return;
-    const btn = panel.querySelector("[data-sector-select-online]");
-    if (!btn || btn.dataset.bound) return;
-    btn.dataset.bound = "1";
-    btn.addEventListener("click", (event) => {
-      event.preventDefault();
-      selectVisibleOnlineInSector(panel);
+    panel.querySelectorAll("[data-device-card]").forEach((card) => {
+      const id = String(card.dataset.deviceId || "");
+      if (!id) return;
+      selectedIds.delete(id);
+      syncSelectUi(card);
     });
+    updateBulkBar();
+  }
+
+  function bindSectorSelectionActions(panel) {
+    if (!panel) return;
+    const onlineBtn = panel.querySelector("[data-sector-select-online]");
+    const clearBtn = panel.querySelector("[data-sector-clear-selection]");
+    if (onlineBtn && !onlineBtn.dataset.bound) {
+      onlineBtn.dataset.bound = "1";
+      onlineBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectVisibleOnlineInSector(panel);
+      });
+    }
+    if (clearBtn && !clearBtn.dataset.bound) {
+      clearBtn.dataset.bound = "1";
+      clearBtn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        clearSelectionInSector(panel);
+      });
+    }
   }
 
   function toggleSelect(card) {
@@ -1342,7 +1364,7 @@
   }
 
   mapRoot.querySelectorAll("[data-device-card]").forEach(bindCardControls);
-  mapRoot.querySelectorAll(".sector-panel").forEach(bindSectorSelectOnline);
+  mapRoot.querySelectorAll(".sector-panel").forEach(bindSectorSelectionActions);
 
   mapRoot.addEventListener("click", (event) => {
     const link = event.target.closest("[data-device-link]");

@@ -158,6 +158,7 @@
       {% set total_count = sector.visible_devices|length %}
       {% set panel_id = 'sector-panel-' ~ sector.id %}
       <section class="sector-panel" data-sector-id="{{ sector.id }}">
+        <div class="sector-plaque">
         <button
           class="sector-toggle collapsed"
           type="button"
@@ -190,11 +191,11 @@
           </span>
           <span class="sector-toggle-chevron" aria-hidden="true"></span>
         </button>
+        <button type="button" class="sector-plaque-action" data-sector-select-online>Выделить все ОНЛАЙН</button>
+        <button type="button" class="sector-plaque-action" data-sector-clear-selection>Сбросить выделение</button>
+        </div>
         <div class="collapse" id="{{ panel_id }}">
           <div class="sector-devices">
-            <p class="px-1 pt-2 mb-1">
-              <button type="button" class="btn btn-sm btn-outline-success" data-sector-select-online>Выделить все ОНЛАЙН</button>
-            </p>
             <div class="device-card-grid" data-sector-devices data-layout="cards">
               {% for device in sector.visible_devices %}
               {% set account = device.current_account if device.shows_accounts else none %}

@@ -15,7 +15,7 @@
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.11` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.11.1` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -86,7 +86,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.11)
+  VERSION                      # semver (2.11.1)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -190,7 +190,7 @@ flowchart TB
 
 Настройки — один префикс `/admin`. Сектора, библиотека скриптов, пачки запусков, обнаруженные УЗ и лента действий живут там же, что Общие, HTTPS, почта и опрос сети. LDAP модуля паролей — `/admin/settings/ldap`, пороги отчёта — `/admin/settings/passwords`. Операционный отчёт остаётся `/password-expiry`. Старые `/scripts`, `/sectors`, `/accounts`, `/actions`, `/password-expiry/settings` и `/password-expiry/report-settings` отвечают **308** (`routes/legacy.py`), метод запроса сохраняется.
 
-Карточка устройства не повторяет одни и те же блоки на вкладках. Обзор — паспорт и одна строка железа. Полный снимок и кнопка bAD — вкладка «Оборудование». Ping, Tracert и «Проверить сейчас» — вкладка «Опросы». Пачки, в которых была эта машина, — вкладка «Команды» и список `/admin/scripts/batches`.
+Карточка устройства не повторяет одни и те же блоки на вкладках. Обзор — паспорт и одна строка железа. Полный снимок и кнопка bAD — вкладка «Оборудование». Ping, Tracert и «Проверить сейчас» — вкладка «Опросы». Пачки этой машины — вкладка «История» и список `/admin/scripts/batches`.
 
 ### 4.1. Одинаковый смысл
 
@@ -313,7 +313,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | --- | --- | --- | --- |
 | Оператор сайта | `users` | `ldap_service` | auth, маршруты с `@login_required` |
 | УЗ на ПК | `endpoint_accounts` | `account_service` | `/admin/accounts`, карточка устройства |
-| Появление УЗ | `device_account_history` | `account_service` | `/admin/actions`, вкладка accounts |
+| Появление УЗ | `device_account_history` | `account_service` | `/admin/actions`; на карточке — вкладка «История» |
 | Типы действий | `action_kinds` | `ensure_schema` / seed | `/admin/actions` |
 | Запуски | `script_runs` | `script_service` | `/admin/scripts/runs`, `/admin/actions` |
 | Пачки | `script_runs.batch_id` | `batch_service.list_batch_summaries` | `/admin/scripts/batches` |
@@ -423,7 +423,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | POST | `/api/map/bulk/script` | Bulk script (любой вошедший, любой скрипт) |
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
-| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа. Учётные записи — история. Команды — CMD и PowerShell, учётка веб-панели или SYSTEM, плитки скриптов и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
+| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа. История — пачки машины, запуски, появления УЗ, опросы и смены железа. Команды — CMD и PowerShell, выбор учётки, плитки скриптов и «Добавить скрипт». Оборудование — снимок bAD и «Опросить сейчас». Опросы — «Проверить сейчас», Ping и Tracert |
 | POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. `Accept: application/x-ndjson` — те же шаги в рамке лога (`live_progress`). Без связи «подключено» проход не стартует |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
@@ -857,7 +857,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
 | HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Настройки → HTTPS |
-| Пачки запусков | `batch_service.list_batch_summaries`, `/admin/scripts/batches`, карточка → Команды. Прогресс одной пачки — `batch.js` |
+| Пачки запусков | `batch_service.list_batch_summaries`, `/admin/scripts/batches`, карточка → «История». Прогресс одной пачки — `batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
 | Пароль перед отпуском | `vacation_password_service`, `vacation_notice_parser`, `vacation_imap`; настройки в «Отчёт о паролях» |
