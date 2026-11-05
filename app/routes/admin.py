@@ -129,7 +129,7 @@ _FORM_TO_SECTION = {
     "test_smtp": "mail",
     "psexec": "general",
     "update": "general",
-    "discovery": "polls",
+    "discovery": "general",
     "poll": "polls",
     "bad_integration": "polls",
     "tls": "tls",
@@ -189,6 +189,10 @@ def _poll_history_context() -> dict:
 @bp.route("/settings/<section>", methods=["GET", "POST"])
 @login_required
 def settings(section: str | None = None):
+    if section is None:
+        qsection = (request.args.get("section") or "").strip().lower()
+        if qsection in _SETTINGS_SECTIONS:
+            section = qsection
     section = (section or "general").strip().lower() or "general"
     if section not in _SETTINGS_SECTIONS:
         abort(404)
@@ -225,7 +229,7 @@ def settings(section: str | None = None):
                 )
             except (DiscoveryCredentialsError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
-                return redirect(_settings_redirect("polls"))
+                return redirect(_settings_redirect("general", anchor="wmi"))
             if saved.username:
                 flash("Учётка WMI для опроса сохранена.", "success")
             else:
@@ -235,7 +239,7 @@ def settings(section: str | None = None):
                     "success",
                 )
             audit_service.log(current_user, "update", "admin_settings", "discovery")
-            return redirect(_settings_redirect("polls"))
+            return redirect(_settings_redirect("general", anchor="wmi"))
         if kind == "poll":
             raw = (request.form.get("poll_interval") or "").strip()
             try:
@@ -328,7 +332,7 @@ def settings(section: str | None = None):
                 )
             except (UpdateSudoUserError, CryptoNotConfigured, CryptoError) as exc:
                 flash(str(exc), "danger")
-                return redirect(_settings_redirect("general", anchor="service-control"))
+                return redirect(url_for("admin.updates") + "#service-control")
             if saved.username:
                 if saved.password_set:
                     flash(
@@ -345,7 +349,7 @@ def settings(section: str | None = None):
             else:
                 flash("Учётка управления службами очищена.", "success")
             audit_service.log(current_user, "update", "admin_settings", "update_sudo")
-            return redirect(_settings_redirect("general", anchor="service-control"))
+            return redirect(url_for("admin.updates") + "#service-control")
         if kind == "tls":
             action = (request.form.get("tls_action") or "save").strip()
             server_name = request.form.get("tls_server_name", "")
@@ -418,13 +422,14 @@ def settings(section: str | None = None):
     ctx: dict = {"settings_section": section}
     if section == "general":
         username, domain, password_set = _credential_view(current_user.id)
-        update_sudo = get_update_sudo_view()
+        discovery = get_discovery_credential_view()
         ctx.update(
             username=username,
             domain=domain,
             password_set=password_set,
-            update_sudo_user=update_sudo.username,
-            update_sudo_password_set=update_sudo.password_set,
+            discovery_username=discovery.username,
+            discovery_domain=discovery.domain,
+            discovery_password_set=discovery.password_set,
             login_services=load_login_services(),
         )
     elif section == "polls":
@@ -435,11 +440,7 @@ def settings(section: str | None = None):
         except Exception:
             logger.exception("bAD: не удалось обновить статус заявки")
             db.session.rollback()
-        discovery = get_discovery_credential_view()
         ctx.update(
-            discovery_username=discovery.username,
-            discovery_domain=discovery.domain,
-            discovery_password_set=discovery.password_set,
             poll_interval=get_poll_interval_seconds(),
             hardware_poll_hours=get_hardware_poll_interval_seconds() // 3600,
             bad_integration=integration_view(),
@@ -654,7 +655,13 @@ def updates():
             flash(str(exc), "danger")
         return redirect(url_for("admin.updates"))
 
-    return render_template("admin/updates.html", status=build_page())
+    update_sudo = get_update_sudo_view()
+    return render_template(
+        "admin/updates.html",
+        status=build_page(),
+        update_sudo_user=update_sudo.username,
+        update_sudo_password_set=update_sudo.password_set,
+    )
 
 
 @bp.get("/audit")
@@ -667,7 +674,7 @@ def audit_log():
 @bp.route("/settings/ldap", methods=["GET", "POST"])
 @login_required
 def ldap_settings():
-    """LDAP модуля паролей. Живёт в /admin, рядом с остальными настройками."""
+    """Старый URL LDAP → отчёт о паролях (#ldap)."""
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
         if kind == "ldap_bind":
@@ -678,9 +685,9 @@ def ldap_settings():
                 )
             except ValueError as exc:
                 flash(str(exc), "danger")
-                return redirect(url_for("admin.ldap_settings"))
+                return redirect(url_for("admin.password_report_settings") + "#ldap")
             flash("Учётка LDAP для модуля сохранена.", "success")
-            return redirect(url_for("admin.ldap_settings"))
+            return redirect(url_for("admin.password_report_settings") + "#ldap")
 
         if kind == "test_ldap":
             try:
@@ -689,15 +696,12 @@ def ldap_settings():
                 flash(str(exc), "danger")
             else:
                 flash(message, "success")
-            return redirect(url_for("admin.ldap_settings"))
+            return redirect(url_for("admin.password_report_settings") + "#ldap")
 
         flash("Неизвестная форма.", "danger")
-        return redirect(url_for("admin.ldap_settings"))
+        return redirect(url_for("admin.password_report_settings") + "#ldap")
 
-    return render_template(
-        "password_expiry/settings.html",
-        ldap=get_ldap_bind_settings(),
-    )
+    return redirect(url_for("admin.password_report_settings") + "#ldap")
 
 
 @bp.route("/settings/passwords", methods=["GET", "POST"])
@@ -710,6 +714,25 @@ def password_report_settings():
             return save_password_report_settings()
         if kind == "vacation":
             return save_vacation_settings()
+        if kind == "ldap_bind":
+            try:
+                set_ldap_bind_settings(
+                    bind_dn=request.form.get("ldap_bind_dn", ""),
+                    bind_password=request.form.get("ldap_bind_password"),
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.password_report_settings") + "#ldap")
+            flash("Учётка LDAP для модуля сохранена.", "success")
+            return redirect(url_for("admin.password_report_settings") + "#ldap")
+        if kind == "test_ldap":
+            try:
+                message = verify_password_directory_access()
+            except PasswordAdError as exc:
+                flash(str(exc), "danger")
+            else:
+                flash(message, "success")
+            return redirect(url_for("admin.password_report_settings") + "#ldap")
         if kind == "test_imap":
             try:
                 message = test_imap_connection(get_vacation_check_settings())

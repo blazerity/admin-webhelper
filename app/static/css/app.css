@@ -4,9 +4,9 @@
   --line: #d7e0e7;
   --surface: rgba(255, 255, 255, 0.86);
   --surface-solid: #ffffff;
-  --accent: #ABCB58;
-  --accent-ink: #1A1B26;
-  --accent-soft: rgba(171, 203, 88, 0.18);
+  --accent: #0f766e;
+  --accent-ink: #0b4f49;
+  --accent-soft: #d9f3ef;
   --ok: #15803d;
   --bad: #b91c1c;
   --warn: #b45309;
@@ -15,7 +15,15 @@
   --entity-account: #1d4ed8;
   --entity-account-soft: rgba(29, 78, 216, 0.1);
   --shadow: 0 10px 30px rgba(24, 33, 43, 0.08);
-  --radius: 14px;
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+  --radius-md: 8px;
+  --radius: 12px;
   /* Offline-friendly: system stack first; Manrope optional if operator adds local fonts. */
   --font: "Manrope", "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -41,8 +49,8 @@ body {
   color: var(--ink);
   font-family: var(--font);
   background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(171, 203, 88, 0.16), transparent 55%),
-    radial-gradient(900px 420px at 100% 0%, rgba(171, 203, 88, 0.08), transparent 50%),
+    radial-gradient(1200px 500px at 10% -10%, rgba(15, 118, 110, 0.16), transparent 55%),
+    radial-gradient(900px 420px at 100% 0%, rgba(15, 118, 110, 0.08), transparent 50%),
     linear-gradient(180deg, #eef3f6 0%, #e7eef2 48%, #e9eef1 100%);
 }
 
@@ -106,7 +114,7 @@ code {
   margin: 0;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface-solid);
   color: var(--accent-ink);
   cursor: pointer;
@@ -116,7 +124,7 @@ code {
 .app-icon-btn[aria-expanded="true"],
 .app-notifications.is-open .app-icon-btn {
   background: var(--accent-soft);
-  border-color: #82C241;
+  border-color: #b7ddd7;
   color: var(--accent);
 }
 
@@ -149,7 +157,7 @@ code {
   align-items: center;
   min-height: 2.5rem;
   padding: 0.55rem 0.9rem;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--muted);
   text-decoration: none;
   font-weight: 600;
@@ -157,7 +165,7 @@ code {
 }
 
 .app-nav-link:hover {
-  background: rgba(171, 203, 88, 0.08);
+  background: rgba(15, 118, 110, 0.08);
   color: var(--accent-ink);
 }
 
@@ -168,7 +176,7 @@ code {
 
 .app-nav-link.active:hover {
   color: #fff;
-  background: #82C241;
+  background: #0d6b64;
 }
 
 .app-user-name {
@@ -255,7 +263,7 @@ code {
     display: inline-flex;
     min-height: 0;
     padding: 0.45rem 0.8rem;
-    border-radius: 999px;
+    border-radius: var(--radius-md);
     font-size: 0.92rem;
   }
 
@@ -267,7 +275,7 @@ code {
 .app-main {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 3rem;
+  padding: var(--space-lg) var(--space-lg) var(--space-xxl);
   min-width: 0;
   width: 100%;
 }
@@ -289,7 +297,7 @@ code {
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 0.75rem 1rem;
+  gap: var(--space-sm) var(--space-md);
   margin-bottom: 1.1rem;
 }
 
@@ -323,21 +331,21 @@ code {
 
 .btn {
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 
 .btn-primary {
   --bs-btn-bg: var(--accent);
   --bs-btn-border-color: var(--accent);
-  --bs-btn-hover-bg: #82C241;
-  --bs-btn-hover-border-color: #82C241;
-  --bs-btn-active-bg: #82C241;
-  --bs-btn-active-border-color: #82C241;
+  --bs-btn-hover-bg: #0d6b64;
+  --bs-btn-hover-border-color: #0d6b64;
+  --bs-btn-active-bg: #0b5b55;
+  --bs-btn-active-border-color: #0b5b55;
 }
 
 .btn-outline-primary {
   --bs-btn-color: var(--accent-ink);
-  --bs-btn-border-color: rgba(171, 203, 88, 0.45);
+  --bs-btn-border-color: #9ec9c3;
   --bs-btn-hover-bg: var(--accent);
   --bs-btn-hover-border-color: var(--accent);
   --bs-btn-hover-color: #fff;
@@ -354,21 +362,21 @@ code {
 
 .btn-ghost:hover {
   background: var(--accent-soft);
-  border-color: #82C241;
+  border-color: #b7ddd7;
   color: var(--accent-ink);
 }
 
 .form-control,
 .form-select {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border-color: #c9d4dd;
   background-color: rgba(255, 255, 255, 0.92);
 }
 
 .form-control:focus,
 .form-select:focus {
-  border-color: #ABCB58;
-  box-shadow: 0 0 0 0.2rem rgba(171, 203, 88, 0.12);
+  border-color: #6ea8a1;
+  box-shadow: 0 0 0 0.2rem rgba(15, 118, 110, 0.12);
 }
 
 .table {
@@ -420,7 +428,7 @@ code {
 .settings-layout {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  gap: 1.25rem;
+  gap: var(--space-lg);
   align-items: start;
   min-width: 0;
 }
@@ -434,7 +442,7 @@ code {
 .settings-sidebar {
   position: sticky;
   top: calc(var(--topbar-h) + 1rem);
-  padding: 1rem 0.85rem;
+  padding: var(--space-lg);
   background: var(--surface);
   border: 1px solid rgba(215, 224, 231, 0.95);
   border-radius: var(--radius);
@@ -470,7 +478,7 @@ code {
 .settings-nav-link {
   display: block;
   padding: 0.55rem 0.7rem;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--ink);
   text-decoration: none;
   font-weight: 600;
@@ -478,7 +486,7 @@ code {
 }
 
 .settings-nav-link:hover {
-  background: rgba(171, 203, 88, 0.08);
+  background: rgba(15, 118, 110, 0.08);
   color: var(--accent-ink);
 }
 
@@ -493,7 +501,15 @@ code {
 }
 
 .content-card {
-  padding: 1.15rem 1.25rem;
+  padding: var(--space-lg);
+}
+
+.settings-content .panel.content-card.mb-3 {
+  margin-bottom: var(--space-md);
+}
+
+.settings-content .panel.content-card.mt-3 {
+  margin-top: var(--space-md);
 }
 
 @media (max-width: 900px) {
@@ -1052,8 +1068,8 @@ code {
 
 [data-device-card].is-selected .device-card {
   border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 2px rgba(171, 203, 88, 0.2);
+  background: #f3faf8;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.2);
 }
 
 [data-device-card].is-selected .device-card-head {
@@ -1076,9 +1092,9 @@ code {
   align-items: center;
   gap: 0.65rem 1rem;
   padding: 0.75rem 1rem;
-  border: 1px solid rgba(171, 203, 88, 0.28);
+  border: 1px solid rgba(15, 118, 110, 0.28);
   border-radius: var(--radius);
-  background: color-mix(in srgb, #ABCB58 8%, rgba(255, 255, 255, 0.96));
+  background: rgba(248, 252, 251, 0.96);
   box-shadow: 0 12px 28px rgba(24, 33, 43, 0.14);
   backdrop-filter: blur(10px);
 }
@@ -1180,7 +1196,7 @@ code {
 }
 
 .sector-toggle:hover {
-  background: var(--accent-soft);
+  background: #f3f8f7;
 }
 
 .sector-toggle:not(.collapsed) {
@@ -1562,12 +1578,12 @@ code {
 }
 
 [data-device-card].is-returned .device-card {
-  box-shadow: 0 0 0 2px rgba(171, 203, 88, 0.45);
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.45);
   animation: map-card-return 2.4s ease;
 }
 
 @keyframes map-card-return {
-  0% { box-shadow: 0 0 0 3px rgba(171, 203, 88, 0.55); }
+  0% { box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.55); }
   100% { box-shadow: 0 8px 18px rgba(24, 33, 43, 0.08); }
 }
 
@@ -2269,7 +2285,7 @@ code {
   gap: 0.5rem;
   padding: 0.7rem 0.85rem;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(171, 203, 88, 0.55), rgba(255, 255, 255, 0.9));
+  background: linear-gradient(180deg, rgba(217, 243, 239, 0.55), rgba(255, 255, 255, 0.9));
 }
 
 .notif-panel-title {
@@ -2293,12 +2309,12 @@ code {
 }
 
 .notif-item:hover {
-  background: rgba(171, 203, 88, 0.06);
+  background: rgba(15, 118, 110, 0.06);
   color: inherit;
 }
 
 .notif-item.is-unread {
-  background: rgba(171, 203, 88, 0.08);
+  background: rgba(15, 118, 110, 0.08);
 }
 
 .notif-item-title {
@@ -2339,10 +2355,10 @@ code {
   --bs-pagination-border-color: var(--line);
   --bs-pagination-hover-color: var(--accent);
   --bs-pagination-hover-bg: var(--accent-soft);
-  --bs-pagination-hover-border-color: #82C241;
+  --bs-pagination-hover-border-color: #b7ddd7;
   --bs-pagination-focus-color: var(--accent-ink);
   --bs-pagination-focus-bg: var(--accent-soft);
-  --bs-pagination-focus-box-shadow: 0 0 0 0.15rem rgba(171, 203, 88, 0.15);
+  --bs-pagination-focus-box-shadow: 0 0 0 0.15rem rgba(15, 118, 110, 0.15);
   --bs-pagination-active-color: #fff;
   --bs-pagination-active-bg: var(--accent);
   --bs-pagination-active-border-color: var(--accent);
@@ -2421,8 +2437,8 @@ code {
 }
 
 .service-control-panel {
-  border: 1px solid rgba(171, 203, 88, 0.28);
-  box-shadow: 0 0 0 1px rgba(171, 203, 88, 0.04);
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.04);
 }
 
 .settings-submenu {

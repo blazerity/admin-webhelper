@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Общие</h1>
-    <p class="page-subtitle">PsExec, экран входа и управление службами</p>
+    <p class="page-subtitle">PsExec, учётка WMI для опроса и экран входа</p>
   </div>
 </div>
 
@@ -34,37 +34,31 @@
   </form>
 </div>
 
-<div class="panel content-card mb-3 service-control-panel" id="service-control">
-  <h2 class="h5 mb-1">Управление службами</h2>
+<div class="panel content-card mb-3" id="wmi">
+  <h2 class="h5 mb-2">Учётка WMI (опрос)</h2>
   <p class="text-muted mb-3">
-    Учётная запись Linux для systemctl (отчёты, HTTPS, обновления).
+    Глобальная учётная запись для чтения серийника, имени машины, MAC и текущей УЗ по WMI. Пароль хранится в зашифрованном виде. Пустые поля — WMI не вызывается (если нет DISCOVERY_* в .env). Та же учётка нужна кнопке «Опросить сейчас» на карточке: она проверяет службу badagent и читает device_id. Процессор, память и диски приходят из bAD.
   </p>
-  <form method="post" class="mb-0" autocomplete="off">
+  <form method="post" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="form" value="update">
+    <input type="hidden" name="form" value="discovery">
     <div class="row">
       <div class="col-md-4 mb-3">
-        <label class="form-label" for="update_sudo_user">Sudo-пользователь</label>
-        <input class="form-control" id="update_sudo_user" name="update_sudo_user" value="{{ update_sudo_user|default('') }}" placeholder="root" autocomplete="off" spellcheck="false">
+        <label class="form-label" for="discovery_username">Пользователь</label>
+        <input class="form-control" id="discovery_username" name="discovery_username" value="{{ discovery_username|default('') }}" autocomplete="off">
       </div>
       <div class="col-md-4 mb-3">
-        <label class="form-label" for="update_sudo_password">Пароль</label>
-        <input class="form-control" id="update_sudo_password" name="update_sudo_password" type="password" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if update_sudo_password_set else 'пароль Linux-учётки' }}">
+        <label class="form-label" for="discovery_domain">Домен</label>
+        <input class="form-control" id="discovery_domain" name="discovery_domain" value="{{ discovery_domain|default('') }}" autocomplete="off">
       </div>
-      <div class="col-md-auto mb-3 d-flex align-items-end">
-        <button class="btn btn-primary" type="submit">Сохранить</button>
+      <div class="col-md-4 mb-3">
+        <label class="form-label" for="discovery_password">Пароль</label>
+        <input class="form-control" id="discovery_password" name="discovery_password" type="password" autocomplete="new-password" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if discovery_password_set else 'введите пароль' }}">
       </div>
     </div>
+    <button class="btn btn-primary" type="submit">Сохранить учётку WMI</button>
   </form>
 </div>
 
 {% include "login_services/_panel.html" %}
-
-<div class="panel content-card mb-0">
-  <h2 class="h5 mb-2">Обновления</h2>
-  <p class="text-muted mb-3">
-    Загрузка релиза из git, откат и перезапуск служб — на отдельной странице.
-  </p>
-  <a class="btn btn-outline-primary" href="{{ url_for('admin.updates') }}">Открыть обновления</a>
-</div>
 {% endblock %}

@@ -6,7 +6,7 @@
     <h1 class="page-title">Отчёт о паролях</h1>
     <p class="page-subtitle">
       Пороги, поиск в каталоге и получатели админ-отчёта.
-      Подключение к каталогу — в <a href="{{ url_for('admin.ldap_settings') }}">LDAP</a>.
+      Подключение к каталогу — ниже в разделе LDAP.
       Почта — в <a href="{{ url_for('admin.settings', section='mail') }}">Настройки → Почта (SMTP)</a>.
       Включение расписания — на <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
     </p>
@@ -122,6 +122,47 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form" value="test_imap">
     <button class="btn btn-outline-secondary" type="submit">Проверить IMAP</button>
+  </form>
+</div>
+
+<div class="panel content-card mt-3 mb-0" id="ldap">
+  {% if not ldap.configured %}
+  <div class="alert alert-danger">
+    Для чтения каталога укажите DN и пароль сервисной учётки ниже
+    (или <code>LDAP_BIND_DN</code> / <code>LDAP_BIND_PASSWORD</code> в <code>.env</code>).
+  </div>
+  {% endif %}
+  <h2 class="h5 mb-2">LDAP</h2>
+  <p class="text-muted mb-3">
+    Host, base DN и домен берутся из общего <code>.env</code>.
+    Учётку bind для модуля можно задать здесь — пароль хранится зашифрованным (Fernet).
+  </p>
+  <dl class="row mb-3">
+    <dt class="col-sm-3">LDAP_HOST</dt><dd class="col-sm-9"><code>{{ ldap.host or "—" }}</code></dd>
+    <dt class="col-sm-3">LDAP_BASE_DN</dt><dd class="col-sm-9"><code>{{ ldap.base_dn or "—" }}</code></dd>
+    <dt class="col-sm-3">LDAP_DOMAIN</dt><dd class="col-sm-9"><code>{{ ldap.domain or "—" }}</code></dd>
+  </dl>
+  <form method="post" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="ldap_bind">
+    <div class="col-md-8">
+      <label class="form-label" for="ldap_bind_dn">Bind DN (сервисная учётка)</label>
+      <input class="form-control" id="ldap_bind_dn" name="ldap_bind_dn" value="{{ ldap.bind_dn_override }}" placeholder="{{ ldap.bind_dn or 'CN=svc-bawh,OU=...,DC=...' }}">
+      <div class="form-text">Пусто — fallback на <code>LDAP_BIND_DN</code> из .env.</div>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="ldap_bind_password">Пароль bind</label>
+      <input class="form-control" type="password" id="ldap_bind_password" name="ldap_bind_password" value="" autocomplete="new-password" placeholder="{{ 'задан' if ldap.has_bind_password else 'не задан' }}">
+      <div class="form-text">Пустое поле сохраняет прежний пароль.</div>
+    </div>
+    <div class="col-12 d-flex gap-2 flex-wrap">
+      <button class="btn btn-primary" type="submit">Сохранить учётку AD</button>
+    </div>
+  </form>
+  <form method="post" class="mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="form" value="test_ldap">
+    <button class="btn btn-outline-primary" type="submit" {% if not ldap.configured %}disabled{% endif %}>Проверить доступ к search_base</button>
   </form>
 </div>
 {% endblock %}
