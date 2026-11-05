@@ -7,8 +7,8 @@
   <div class="device-actions-group">
     <p class="device-actions-label">На устройстве</p>
     <div class="d-flex flex-wrap gap-2">
-      <button type="button" class="btn btn-warning" data-shell-kind="cmd">CMD</button>
-      <button type="button" class="btn btn-warning" data-shell-kind="powershell">PowerShell</button>
+      <button type="button" class="btn btn-warning" data-shell-kind="cmd" data-bs-toggle="modal" data-bs-target="#device-shell-modal">CMD</button>
+      <button type="button" class="btn btn-warning" data-shell-kind="powershell" data-bs-toggle="modal" data-bs-target="#device-shell-modal">PowerShell</button>
     </div>
   </div>
   {% endif %}
@@ -65,6 +65,30 @@
     <input type="hidden" name="run_as" id="device-script-run-as-field" value="psexec">
   </form>
 </div>
+
+{% if can_command %}
+<div class="modal fade" id="device-shell-modal" tabindex="-1" aria-labelledby="device-shell-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="device-shell-modal-title">Командная строка</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3" id="device-shell-modal-hint">Учётная запись процесса</p>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-shell-run-as="psexec">Учётка веб-панели</button>
+          <button type="button" class="btn btn-outline-secondary" data-shell-run-as="system">NT AUTHORITY\SYSTEM</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Отмена</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
 (() => {
   const picker = document.getElementById("device-run-as-picker");
@@ -72,33 +96,25 @@
   const scriptForm = document.getElementById("device-script-run-form");
   const scriptIdField = document.getElementById("device-script-id-field");
   const scriptRunAsField = document.getElementById("device-script-run-as-field");
-  const shellBase = {{ url_for('diagnostics.device_shell', device_id=device.id)|tojson }};
+  const commandBase = {{ url_for('diagnostics.device_command', device_id=device.id)|tojson }};
+  const shellModal = document.getElementById("device-shell-modal");
+  const shellModalHint = document.getElementById("device-shell-modal-hint");
   let pendingShell = null;
   let pendingScriptId = null;
 
   function hidePicker() {
-    pendingShell = null;
     pendingScriptId = null;
     if (picker) picker.hidden = true;
   }
 
-  function showPicker({ shell, scriptId, label }) {
-    pendingShell = shell || null;
+  function showPicker({ scriptId, label }) {
     pendingScriptId = scriptId || null;
     const labelEl = document.getElementById("device-run-as-picker-label");
     if (labelEl) labelEl.textContent = label || "Учётная запись процесса";
     if (picker) picker.hidden = false;
   }
 
-  function confirmRunAs(runAs) {
-    if (pendingShell) {
-      const url = new URL(shellBase, window.location.origin);
-      url.searchParams.set("shell", pendingShell);
-      url.searchParams.set("run_as", runAs);
-      window.open(url.toString(), "_blank", "noopener");
-      hidePicker();
-      return;
-    }
+  function confirmScriptRunAs(runAs) {
     if (pendingScriptId && scriptForm && scriptIdField && scriptRunAsField) {
       scriptIdField.value = String(pendingScriptId);
       scriptRunAsField.value = runAs;
@@ -107,9 +123,25 @@
     }
   }
 
+  function openShell(runAs) {
+    if (!pendingShell) return;
+    const url = new URL(commandBase, window.location.origin);
+    url.searchParams.set("shell", pendingShell);
+    url.searchParams.set("run_as", runAs);
+    window.location.href = url.toString();
+  }
+
   document.querySelectorAll("[data-shell-kind]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      showPicker({ shell: btn.dataset.shellKind || "cmd", label: "Открыть командную строку от" });
+      pendingShell = btn.dataset.shellKind || "cmd";
+      const label = pendingShell === "powershell" ? "PowerShell" : "CMD";
+      if (shellModalHint) shellModalHint.textContent = `Открыть ${label} от`;
+    });
+  });
+
+  shellModal?.querySelectorAll("[data-shell-run-as]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openShell(btn.dataset.shellRunAs || "psexec");
     });
   });
 
@@ -124,7 +156,7 @@
   if (picker) {
     picker.querySelectorAll("[data-run-as]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        confirmRunAs(btn.dataset.runAs || "psexec");
+        confirmScriptRunAs(btn.dataset.runAs || "psexec");
       });
     });
   }

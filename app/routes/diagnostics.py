@@ -19,6 +19,7 @@ from app.live_progress import stream_live_progress, wants_live_progress
 from app.models import Device, RunType
 from app.services.net_utils import NetworkInputError
 from app.services.ping_service import check_device
+from app.routes.scripts import _device_history
 from app.services.script_service import parse_run_as, start_run
 
 bp = Blueprint("diagnostics", __name__)
@@ -106,18 +107,18 @@ def tracert_device(device_id: int):
     return redirect(url_for("scripts.run_detail", run_id=run.id))
 
 
-def _shell_url(device_id: int, *, shell: str, run_as: str):
+def _command_page_url(device_id: int, *, shell: str, run_as: str):
     return url_for(
-        "diagnostics.device_shell",
+        "diagnostics.device_command",
         device_id=device_id,
         shell=shell,
         run_as=run_as,
     )
 
 
-@bp.get("/devices/<int:device_id>/shell")
+@bp.get("/devices/<int:device_id>/command")
 @login_required
-def device_shell(device_id: int):
+def device_command(device_id: int):
     device = _device_or_404(device_id)
     if not device.shows_commands:
         abort(404)
@@ -126,12 +127,18 @@ def device_shell(device_id: int):
         shell = "cmd"
     run_as = parse_run_as(request.args.get("run_as"))
     pc_name = device.hostname or device.ip or "компьютер"
+    shell_label = "PowerShell" if shell == "powershell" else "CMD"
     return render_template(
-        "devices/shell.html",
+        "scripts/run.html",
+        run=None,
         device=device,
         shell=shell,
         run_as=run_as,
+        command_shell=shell,
         pc_name=pc_name,
+        shell_label=shell_label,
+        history=_device_history(device.id),
+        finished=True,
     )
 
 
@@ -147,7 +154,7 @@ def command_device(device_id: int):
         shell = "cmd"
     run_as = parse_run_as(request.form.get("run_as"))
     limit = int(current_app.config.get("MAX_REMOTE_COMMAND_CHARS", 4_000))
-    shell_back = _shell_url(device.id, shell=shell, run_as=run_as)
+    shell_back = _command_page_url(device.id, shell=shell, run_as=run_as)
     if not command:
         flash("Введите команду.", "warning")
         return redirect(shell_back)

@@ -2144,6 +2144,39 @@ code {
   margin: 0;
 }
 
+.log-view.log-view--cmd {
+  background: #000;
+}
+
+.log-view.log-view--powershell {
+  background: #012456;
+}
+
+.run-page-row {
+  align-items: stretch;
+}
+
+.run-page-row .terminal-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 24rem;
+}
+
+.run-page-row .terminal-panel .log-view {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 12rem;
+}
+
+details.panel > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+details.panel > summary::-webkit-details-marker {
+  display: none;
+}
+
 .log-view.is-waiting {
   color: #808080;
 }

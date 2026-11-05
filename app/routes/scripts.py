@@ -17,7 +17,7 @@ from app.run_display import (
     run_when_label,
 )
 from app.services import audit_service, batch_service, script_service
-from app.services.script_service import command_text_body
+from app.services.script_service import command_text_body, command_text_shell
 from app.services.credential_service import get_stored_credential
 from app.utils import parse_optional_int
 
@@ -123,12 +123,12 @@ def _account_label(run: ScriptRun) -> str | None:
     return None
 
 
-def _device_history(run: ScriptRun) -> list[dict]:
-    if not run.device_id:
+def _device_history(device_id: int | None) -> list[dict]:
+    if not device_id:
         return []
     rows = (
         ScriptRun.query.options(selectinload(ScriptRun.script))
-        .filter(ScriptRun.device_id == run.device_id)
+        .filter(ScriptRun.device_id == device_id)
         .order_by(ScriptRun.started_at.desc(), ScriptRun.id.desc())
         .limit(30)
         .all()
@@ -343,11 +343,14 @@ def run_detail(run_id: int):
     finished = run.status in RunStatus.FINISHED
     state = script_service.run_session_state(run.id, finished)
     preview = run.command_text or ""
+    command_shell = "cmd"
     if run.run_type == RunType.COMMAND:
         preview = command_text_body(preview)
+        command_shell = command_text_shell(run.command_text or "")
     return render_template(
         "scripts/run.html",
         run=run,
+        command_shell=command_shell,
         command_preview=preview,
         status_label=run_status_label(run.status),
         run_type_label=run_type_label(run.run_type),
@@ -360,7 +363,7 @@ def run_detail(run_id: int):
         started_label=run_when_label(run.started_at),
         finished_label=run_when_label(run.finished_at),
         account_label=_account_label(run),
-        history=_device_history(run),
+        history=_device_history(run.device_id),
         launched_by=_launched_by(run),
     )
 
