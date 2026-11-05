@@ -15,7 +15,7 @@
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.10` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.11` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -86,7 +86,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.10)
+  VERSION                      # semver (2.11)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -369,7 +369,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Модуль | Роль |
 | --- | --- |
-| `psexec_service.py` | pypsexec-сессии, cancel/close через флаги `script_runs`. PowerShell: файл в `ADMIN$\Temp` + `cmd.exe -File` (не `-EncodedCommand`, иначе `STATUS_PIPE_BROKEN`); stdout в канал сразу (`on_output` → живой журнал); CLIXML вырезается |
+| `psexec_service.py` | pypsexec-сессии, cancel/close через флаги `script_runs`. Файл скрипта в `ADMIN$\Temp` без изменений текста. PowerShell: `_host.ps1` задаёт AutoFlush и вызывает файл пользователя; `cmd.exe` запускает host через `powershell.exe -File`, не `-EncodedCommand` (иначе `STATUS_PIPE_BROKEN`). CMD: файл без BOM; launcher ставит `chcp 65001` и вызывает файл. stdout в живой журнал через `on_output`; CLIXML вырезается |
 | `tls_pem.py` / `tls_settings.py` / `tls_service.py` | PEM из Настройки → HTTPS, файлы в `certs/`, `apply-nginx-tls.sh` |
 | `script_service.py` | CRUD/тело скриптов; enqueue на ThreadPoolExecutor в веб-процессе |
 | `batch_service.py` | bulk ping/script, статус одной пачки и список `list_batch_summaries` |

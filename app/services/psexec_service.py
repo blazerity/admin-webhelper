@@ -13,8 +13,6 @@ import logging
 import threading
 import uuid
 
-from flask import current_app
-
 from app.services.credential_service import get_remote_admin_credentials
 from app.services.net_utils import assert_public_ipv4
 
@@ -192,34 +190,6 @@ def _cancel_idle(session: _RemoteSession) -> None:
         timer.cancel()
 
 
-def run_remote_command(
-    ip: str,
-    command: str,
-    timeout: int = 120,
-    user_id: int | None = None,
-    on_output=None,
-    run_id: int | None = None,
-) -> tuple[int, str]:
-    """Запускает cmd.exe /c на одной Windows-машине. Возвращает (код, вывод)."""
-    checked_ip = assert_public_ipv4(ip)
-    text = (command or "").strip()
-    if not text:
-        raise RemoteExecError("Команда пустая.")
-    limit = int(current_app.config.get("MAX_REMOTE_COMMAND_CHARS", 4_000))
-    if len(text) > limit:
-        raise RemoteExecError(f"Команда длиннее {limit} символов.")
-    # Строка — аргумент удалённого cmd.exe, не локальной оболочки.
-    return _run(
-        checked_ip,
-        "cmd.exe",
-        f"/c {text}",
-        timeout,
-        user_id=user_id,
-        on_output=on_output,
-        run_id=run_id,
-    )
-
-
 def run_remote_script(
     ip: str,
     interpreter: str,
@@ -252,10 +222,23 @@ def run_remote_script(
     if kind == "powershell":
         stem = f"bawh_{uuid.uuid4().hex[:12]}"
         remote_ps1 = rf"Temp\{stem}.ps1"
+        remote_host = rf"Temp\{stem}_host.ps1"
         payload = script.encode("utf-8-sig")
+        host_ps1 = (
+            "$ProgressPreference = 'SilentlyContinue'\n"
+            "try {\n"
+            "  $enc = New-Object System.Text.UTF8Encoding $false\n"
+            "  [Console]::OutputEncoding = $enc\n"
+            "  $sw = New-Object System.IO.StreamWriter([Console]::OpenStandardOutput(), $enc, 16)\n"
+            "  $sw.AutoFlush = $true\n"
+            "  [Console]::SetOut($sw)\n"
+            "} catch {}\n"
+            f"& 'C:\\Windows\\Temp\\{stem}.ps1'\n"
+        )
 
         def prepare(client) -> None:
             _write_admin_file(client, remote_ps1, payload)
+            _write_admin_file(client, remote_host, host_ps1.encode("utf-8"))
             for relative, data in (extra_files or {}).items():
                 _write_admin_file(client, relative, data)
 
@@ -273,7 +256,7 @@ def run_remote_script(
     if kind == "cmd":
         stem = f"bawh_{uuid.uuid4().hex[:12]}"
         remote_cmd = rf"Temp\{stem}.cmd"
-        payload = script.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8-sig")
+        payload = script.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8")
 
         def prepare_cmd(client) -> None:
             _write_admin_file(client, remote_cmd, payload)
@@ -298,7 +281,7 @@ def _cmd_file_cmd(stem: str) -> str:
     bat = rf"C:\Windows\Temp\{stem}.cmd"
     return (
         "/v:on /c "
-        f"call {bat} <nul 2>&1 "
+        f"chcp 65001>nul & call {bat} <nul 2>&1 "
         "& set BAWHR=!ERRORLEVEL! "
         f"& del /f /q {bat} "
         "& exit /b !BAWHR!"
@@ -306,14 +289,16 @@ def _cmd_file_cmd(stem: str) -> str:
 
 
 def _powershell_file_cmd(stem: str) -> str:
-    """cmd держит канал PAExec; powershell -File пишет stdout сразу в pipe."""
-    ps1 = rf"C:\Windows\Temp\{stem}.ps1"
+    """cmd держит канал PAExec; powershell -File на host, stdout сразу в pipe."""
+    host = rf"C:\Windows\Temp\{stem}_host.ps1"
+    user = rf"C:\Windows\Temp\{stem}.ps1"
     return (
         "/v:on /c "
         "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass "
-        f"-File {ps1} <nul 2>&1 "
+        f"-File {host} <nul 2>&1 "
         "& set BAWHR=!ERRORLEVEL! "
-        f"& del /f /q {ps1} "
+        f"& del /f /q {host} "
+        f"& del /f /q {user} "
         "& exit /b !BAWHR!"
     )
 
