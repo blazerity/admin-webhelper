@@ -24,7 +24,7 @@ PowerShell, stdin закрыт.
 | Интерпретатор | `powershell` |
 | От чьего имени | `NT AUTHORITY\SYSTEM` |
 | Где хранить | `в базе` |
-| Опубликован | да, если операторам можно запускать; нет — только admin |
+| Опубликован | поле остаётся в форме; на доступ не влияет |
 | Текст | тело ниже; без обёртки `powershell.exe -EncodedCommand` |
 
 Другие комбинации — §2.
@@ -118,7 +118,9 @@ cmd.exe /c {весь текст}
 Статус «успешно» смотрит **только exit code**, не на текст «OK» в логе.
 В конце тела — явный `exit 0` или `exit 1` (`2`, `4`… для разных отказов).
 
-Отмена в UI рвёт сессию. Не полагаться на `finally` с сетью после Kill.
+Отмена и «Завершить сессию» пишут `cancel_requested` и `close_requested` в `script_runs`.
+Флаг применяет воркер Gunicorn, который держит сессию PsExec.
+Не полагайтесь на `finally` с сетью сразу после Kill.
 
 ---
 
@@ -191,7 +193,7 @@ cmd.exe /c {весь текст}
 8. Нет секретов в теле (пароли, внутренние URL с кредами). Ключи KMS-клиента
    (GVLK) — только официальные Microsoft, плюс **свой** KMS-хост или DNS SRV.
 9. Название уникально; описание говорит оператору, что будет на машине.
-10. Опасное (reboot, logoff, удаление SCCM) — не публиковать операторам.
+10. Опасное (reboot, logoff, удаление SCCM) — пометьте это в описании.
 
 ---
 
@@ -239,10 +241,6 @@ echo Старт & gpupdate.exe /force & echo Код %ERRORLEVEL%
 | Живой журнал в UI | `app/static/js/run_log.js`, `templates/scripts/run.html`. Адрес `/admin/scripts/runs/<id>` |
 | Пачки | `app/services/batch_service.py` (`list_batch_summaries`), `templates/scripts/batches.html`, `/admin/scripts/batches` |
 | Пресеты карточки (не библиотека) | `app/services/command_presets.py` |
-| Слои и authz | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
-
-Готовый пример для библиотеки: тихое удаление TightVNC — [`VNC.md`](VNC.md)
-(`app/services/tightvnc_install_script.py`, сид при старте). Установка агента
-идёт при «Подключить» на карточке, не из библиотеки.
+| Слои и доступ | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 
 Меняете запуск (интерпретатор, pipe, SYSTEM) — обновите этот файл в том же PR.

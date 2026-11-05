@@ -11,7 +11,10 @@ if [[ ! -d "$DEPLOY_DIR" ]]; then
   exit 1
 fi
 
-for unit in bawh-web bawh-scheduler bawh-password-reports bawh-vnc; do
+systemctl disable --now bawh-vnc.service 2>/dev/null || true
+rm -f /etc/systemd/system/bawh-vnc.service
+
+for unit in bawh-web bawh-scheduler bawh-password-reports; do
   src="$DEPLOY_DIR/${unit}.service"
   if [[ ! -f "$src" ]]; then
     echo "Нет unit-файла $src" >&2

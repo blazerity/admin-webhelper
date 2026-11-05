@@ -18,7 +18,6 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
-from app.authz import accessible_sectors, admin_required, get_visible_sector_or_404
 from app.extensions import db
 from app.models import Sector, SectorRange
 from app.services import audit_service
@@ -34,7 +33,7 @@ bp = Blueprint("sectors", __name__, url_prefix="/admin/sectors")
 @bp.get("/")
 @login_required
 def list_sectors():
-    sectors = accessible_sectors(current_user)
+    sectors = Sector.query.order_by(Sector.name).all()
     if sectors:
         # ranges нужны для |length в шаблоне — без N+1 lazy-load.
         loaded = (
@@ -51,13 +50,13 @@ def list_sectors():
 
 
 @bp.get("/new")
-@admin_required
+@login_required
 def new_sector():
     return render_template("sectors/form.html", sector=None)
 
 
 @bp.post("/")
-@admin_required
+@login_required
 def create_sector():
     return _save_from_form(None)
 
@@ -65,7 +64,7 @@ def create_sector():
 @bp.get("/<int:sector_id>")
 @login_required
 def detail(sector_id: int):
-    sector = get_visible_sector_or_404(sector_id)
+    sector = _existing_sector(sector_id)
     devices = sorted(
         sector.devices,
         key=lambda device: hostname_sort_key(device.hostname, device.ip),
@@ -74,21 +73,21 @@ def detail(sector_id: int):
 
 
 @bp.get("/<int:sector_id>/edit")
-@admin_required
+@login_required
 def edit_sector(sector_id: int):
     sector = _existing_sector(sector_id)
     return render_template("sectors/form.html", sector=sector)
 
 
 @bp.post("/<int:sector_id>")
-@admin_required
+@login_required
 def update_sector(sector_id: int):
     _existing_sector(sector_id)
     return _save_from_form(sector_id)
 
 
 @bp.post("/<int:sector_id>/delete")
-@admin_required
+@login_required
 def delete_sector(sector_id: int):
     sector = _existing_sector(sector_id)
     name = sector.name

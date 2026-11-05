@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import logging
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
-from flask_login import current_user, login_required
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask_login import login_required
 
-from app.authz import admin_required, user_can_view_password_expiry
-from app.services.password_ad_client import PasswordAdError, verify_password_directory_access
 from app.services.password_expiry_service import (
     RunInProgressError,
     load_last_report,
@@ -28,11 +26,9 @@ from app.services.password_expiry_settings import (
     get_password_expiry_settings,
     get_smtp_settings,
     get_vacation_check_settings,
-    set_ldap_bind_settings,
     set_password_expiry_settings,
     set_vacation_check_settings,
 )
-from app.services.vacation_imap import VacationImapError, test_imap_connection
 from app.services.vacation_password_service import (
     VacationRunInProgressError,
     load_recent_vacation_checks,
@@ -49,11 +45,47 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("password_expiry", __name__, url_prefix="/password-expiry")
 
 
+def save_password_report_settings():
+    try:
+        set_password_expiry_settings(
+            max_pwd_age_days=int(request.form.get("max_pwd_age_days") or 0),
+            first_warning_days=int(request.form.get("first_warning_days") or 0),
+            daily_warning_threshold=int(request.form.get("daily_warning_threshold") or 0),
+            instructions_url=request.form.get("instructions_url", ""),
+            excluded_ou=request.form.get("excluded_ou", ""),
+            search_base=request.form.get("search_base", ""),
+            schedule_cron=request.form.get("schedule_cron", ""),
+            admin_recipients=request.form.get("admin_recipients", ""),
+        )
+    except (ValueError, TypeError) as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("admin.password_report_settings"))
+    flash("Настройки отчёта о паролях сохранены.", "success")
+    return redirect(url_for("admin.password_report_settings"))
+
+
+def save_vacation_settings():
+    try:
+        set_vacation_check_settings(
+            schedule_cron=request.form.get("vacation_cron", ""),
+            vacation_days=int(request.form.get("vacation_days") or 0),
+            imap_host=request.form.get("imap_host", ""),
+            imap_port=request.form.get("imap_port", ""),
+            imap_use_ssl=request.form.get("imap_use_ssl") == "1",
+            imap_user=request.form.get("imap_user", ""),
+            imap_password=request.form.get("imap_password"),
+            imap_folder=request.form.get("imap_folder", ""),
+        )
+    except (ValueError, TypeError) as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("admin.password_report_settings"))
+    flash("Настройки проверки перед отпуском сохранены.", "success")
+    return redirect(url_for("admin.password_report_settings"))
+
+
 @bp.route("/", methods=["GET"])
 @login_required
 def dashboard():
-    if not user_can_view_password_expiry(current_user):
-        abort(403)
     report = load_last_report()
     run = load_last_run()
     settings = get_password_expiry_settings()
@@ -100,7 +132,7 @@ def dashboard():
 
 
 @bp.route("/toggle", methods=["POST"])
-@admin_required
+@login_required
 def toggle_schedule():
     """Сверх-тумблер: включить рассылку и службу bawh-password-reports."""
     enabled = request.form.get("schedule_enabled") == "1"
@@ -119,112 +151,8 @@ def toggle_schedule():
     return redirect(url_for("password_expiry.dashboard"))
 
 
-@admin_required
-def settings_page():
-    if request.method == "POST":
-        kind = (request.form.get("form") or "").strip()
-        if kind == "module":
-            return _save_report_settings()
-
-        if kind == "ldap_bind":
-            try:
-                set_ldap_bind_settings(
-                    bind_dn=request.form.get("ldap_bind_dn", ""),
-                    bind_password=request.form.get("ldap_bind_password"),
-                )
-            except ValueError as exc:
-                flash(str(exc), "danger")
-                return redirect(url_for("admin.ldap_settings"))
-            flash("Учётка LDAP для модуля сохранена.", "success")
-            return redirect(url_for("admin.ldap_settings"))
-
-        if kind == "test_ldap":
-            try:
-                message = verify_password_directory_access()
-            except PasswordAdError as exc:
-                flash(str(exc), "danger")
-            else:
-                flash(message, "success")
-            return redirect(url_for("admin.ldap_settings"))
-
-        flash("Неизвестная форма.", "danger")
-        return redirect(url_for("admin.ldap_settings"))
-
-    ldap = get_ldap_bind_settings()
-    return render_template(
-        "password_expiry/settings.html",
-        ldap=ldap,
-    )
-
-
-def _save_vacation_settings():
-    try:
-        set_vacation_check_settings(
-            schedule_cron=request.form.get("vacation_cron", ""),
-            vacation_days=int(request.form.get("vacation_days") or 0),
-            imap_host=request.form.get("imap_host", ""),
-            imap_port=request.form.get("imap_port", ""),
-            imap_use_ssl=request.form.get("imap_use_ssl") == "1",
-            imap_user=request.form.get("imap_user", ""),
-            imap_password=request.form.get("imap_password"),
-            imap_folder=request.form.get("imap_folder", ""),
-        )
-    except (ValueError, TypeError) as exc:
-        flash(str(exc), "danger")
-        return redirect(url_for("admin.password_report_settings"))
-    flash("Настройки проверки перед отпуском сохранены.", "success")
-    return redirect(url_for("admin.password_report_settings"))
-
-
-def _save_report_settings():
-    try:
-        set_password_expiry_settings(
-            max_pwd_age_days=int(request.form.get("max_pwd_age_days") or 0),
-            first_warning_days=int(request.form.get("first_warning_days") or 0),
-            daily_warning_threshold=int(request.form.get("daily_warning_threshold") or 0),
-            instructions_url=request.form.get("instructions_url", ""),
-            excluded_ou=request.form.get("excluded_ou", ""),
-            search_base=request.form.get("search_base", ""),
-            schedule_cron=request.form.get("schedule_cron", ""),
-            admin_recipients=request.form.get("admin_recipients", ""),
-        )
-    except (ValueError, TypeError) as exc:
-        flash(str(exc), "danger")
-        return redirect(url_for("admin.password_report_settings"))
-    flash("Настройки отчёта о паролях сохранены.", "success")
-    return redirect(url_for("admin.password_report_settings"))
-
-
-@admin_required
-def report_settings():
-    """Пороги, cron и получатели модуля паролей (без LDAP и SMTP)."""
-    if request.method == "POST":
-        kind = (request.form.get("form") or "").strip()
-        if kind == "module":
-            return _save_report_settings()
-        if kind == "vacation":
-            return _save_vacation_settings()
-        if kind == "test_imap":
-            try:
-                message = test_imap_connection(get_vacation_check_settings())
-            except VacationImapError as exc:
-                flash(str(exc), "danger")
-            else:
-                flash(message, "success")
-            return redirect(url_for("admin.password_report_settings"))
-        flash("Неизвестная форма.", "danger")
-        return redirect(url_for("admin.password_report_settings"))
-
-    return render_template(
-        "password_expiry/report_settings.html",
-        settings=get_password_expiry_settings(),
-        ldap=get_ldap_bind_settings(),
-        vacation=get_vacation_check_settings(),
-    )
-
-
 @bp.route("/run", methods=["POST"])
-@admin_required
+@login_required
 def run_now():
     dry_run = request.form.get("dry_run") == "1"
     try:
@@ -254,7 +182,7 @@ def run_now():
 
 
 @bp.route("/vacation-toggle", methods=["POST"])
-@admin_required
+@login_required
 def toggle_vacation():
     """Тумблер cron проверки отпусков. Служба bawh-password-reports общая с отчётом."""
     enabled = request.form.get("vacation_enabled") == "1"
@@ -271,7 +199,7 @@ def toggle_vacation():
 
 
 @bp.route("/vacation-run", methods=["POST"])
-@admin_required
+@login_required
 def run_vacation_now():
     dry_run = request.form.get("dry_run") == "1"
     try:
@@ -302,7 +230,7 @@ def run_vacation_now():
 
 
 @bp.route("/pause", methods=["POST"])
-@admin_required
+@login_required
 def pause_mail():
     clear = request.form.get("clear") == "1"
     until = (request.form.get("until") or "").strip()
@@ -322,7 +250,7 @@ def pause_mail():
 
 
 @bp.route("/notify", methods=["POST"])
-@admin_required
+@login_required
 def notify_selected():
     usernames = request.form.getlist("username")
     try:

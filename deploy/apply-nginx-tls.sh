@@ -37,23 +37,6 @@ if [[ "$SERVER_NAME" != "_" && ! "$SERVER_NAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
   die "Некорректный SERVER_NAME"
 fi
 
-vnc_location() {
-  cat <<'EOF'
-    location /vnc/ws {
-        proxy_pass http://127.0.0.1:6080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering off;
-    }
-EOF
-}
-
 proxy_root() {
   cat <<'EOF'
     location / {
@@ -77,8 +60,6 @@ write_http_only() {
 server {
     listen 80 default_server;
     server_name _ ${name};
-
-$(vnc_location)
 
 $(proxy_root)
 }
@@ -113,8 +94,6 @@ server {
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
 
-$(vnc_location)
-
 $(proxy_root)
 }
 EOF
@@ -125,8 +104,6 @@ EOF
 server {
     listen 80 default_server;
     server_name _ ${name};
-
-$(vnc_location)
 
 $(proxy_root)
 }
@@ -139,8 +116,6 @@ server {
     ssl_certificate_key ${SSL_DIR}/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
-
-$(vnc_location)
 
 $(proxy_root)
 }

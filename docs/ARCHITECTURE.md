@@ -7,25 +7,25 @@
 > локальные. После изменений кода: `graphify update .`, затем
 > `graphify cluster-only . --no-label`.
 > Перед поиском по репозиторию прочитай этот файл целиком — здесь слои, точки входа,
-> модели, сервисы, маршруты, authz, фоновые задачи и соглашения.
+> модели, сервисы, маршруты, доступ, фоновые задачи и соглашения.
 > Установка и ops — в [README.md](../README.md).
 > Текст скриптов для формы Настройки → Скрипты — в [SCRIPTS.md](SCRIPTS.md).
 
 **Продукт:** внутренний веб-помощник администратора сети (карта устройств,
 секторы/CIDR, ICMP+WMI+TCP/SNMP опрос, диагностика, скрипты на Windows через PsExec,
-веб-VNC (экспериментально), LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
+LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.7` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.8` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
 (отдельный процесс) · ldap3 · cryptography Fernet · pypsexec · impacket (WMI) ·
-Gunicorn + Nginx · Bootstrap 5 (vendorized) · noVNC + `websockets` (процесс `bawh-vnc`).
+Gunicorn + Nginx · Bootstrap 5 (vendorized).
 
 **Нет в репозитории:** Alembic / Flask-Migrate, Redis, Celery, WebSocket *в Flask*,
 Telegram, S3, SPA-фреймворка, Pydantic. Каталог `tests/` тоже не в git
-(локальный `unittest`, без pytest в requirements). Веб-VNC — отдельный процесс, не Gunicorn.
+(локальный `unittest`, без pytest в requirements).
 
 ---
 
@@ -47,7 +47,7 @@ HTTP / CLI / scheduler
 | Сервисы | `app/services/` | Вся логика: опрос, LDAP, WMI, PsExec, УЗ, экспорт. Вызываются из веба, планировщика и CLI. |
 | Модели | `app/models/` | Таблицы SQLAlchemy. Без HTML и сетевых вызовов. |
 | Схема БД | `app/schema.py` | `ensure_schema()`: `create_all` для недостающих таблиц + seed `action_kinds` + идемпотентные data-fix (флаг в `app_settings`). |
-| Authz | `app/authz.py` | Вошедший видит всё. Отдельных ролей и ACL секторов нет. |
+| Доступ | `@login_required`, `ldap_service` | Вошедший видит всё. Группа `LDAP_ADMIN_GROUP` решает вход. Отдельных ролей и ACL секторов нет. |
 | Утилиты | `app/utils.py` | `utcnow` / `as_utc` / `ilike_pattern` / `clip` / пагинация. |
 
 **Инвариант:** маршрут не делает side-effect сеть/LDAP; сервис не рендерит HTML.
@@ -62,7 +62,6 @@ HTTP / CLI / scheduler
 | Веб (dev) | `python wsgi.py` (:8000) или `flask --app wsgi run` | То же. |
 | Планировщик | `python -m app.scheduler_worker` | `run_scheduler_process(start_scheduler)`: опрос сети, железо известных компьютеров по интервалу, заявка bAD, архив логов. |
 | Отчёты паролей | `python -m app.password_report_worker` | Тот же `run_scheduler_process`, старт `start_password_report_scheduler`: cron отчёта и cron проверки отпусков. |
-| VNC-прокси | `python -m app.vnc_worker` | WebSocket→TCP, без Flask/БД; билет `SECRET_KEY`. Свой цикл, не APScheduler. |
 | Flask CLI | `flask --app wsgi …` | `poll`, `archive-logs`, `password-expiry [--dry-run]`, `password-vacation [--dry-run]`, `refresh-hostnames [--dry-run]`, `init-db`. |
 | Docker | `Dockerfile` | Опциональный web-only образ; scheduler/отчёты — отдельно. |
 
@@ -88,7 +87,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.7)
+  VERSION                      # semver (2.8)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -100,7 +99,6 @@ bAWH/                          # на сервере = /opt/bawh
     config.py
     extensions.py              # db, login_manager, csrf
     schema.py                  # ensure_schema (вместо Alembic)
-    authz.py
     live_progress.py             # NDJSON шагов долгих кнопок + cookie итога
     utils.py
     logging_config.py
@@ -115,7 +113,6 @@ bAWH/                          # на сервере = /opt/bawh
     templates/
     static/                    # css/, js/, vendor/bootstrap/
   deploy/                      # Debian 12: systemd, nginx, install
-  vnc-agents/                  # MSI TightVNC (файлы .msi не в git)
   tests/                       # локально, в gitignore
   logs/                        # runtime (в gitignore содержимое)
 ```
@@ -131,14 +128,12 @@ flowchart TB
     LOOP["process_main.run_scheduler_process"]
     SCHED["app.scheduler_worker<br/>bawh-scheduler"]
     PWD_W["app.password_report_worker<br/>bawh-password-reports"]
-    VNC["app.vnc_worker<br/>bawh-vnc"]
     CLI["flask CLI<br/>poll · archive-logs · password-expiry · password-vacation · refresh-hostnames · init-db"]
   end
 
   subgraph app_core["app/"]
     CREATE["create_app()"]
     SCHEMA["schema.ensure_schema()"]
-    AUTH["authz.py"]
     LIVE["live_progress.py<br/>NDJSON + cookie итога"]
     UTILS["utils.py"]
   end
@@ -180,16 +175,13 @@ flowchart TB
   CLI --> CREATE
   CREATE --> SCHEMA
   CREATE --> http
-  CREATE --> AUTH
   http --> LIVE
   LIVE --> services
   http --> services
-  http --> AUTH
   SCHED --> S_POLL
   PWD_W --> S_PWD
   S_POLL --> S_SHARE
   services --> data
-  services --> AUTH
   services --> UTILS
   S_POLL --> S_ACC
   SCHEMA --> data
@@ -244,7 +236,6 @@ flowchart LR
 | `run_service_restart` и `run_core_service_restart` | полный список unit'ов и запасной restart только `bawh-scheduler` + `bawh-web` для старого sudoers. |
 | `PollInProgressError` и `HardwarePollInProgressError` | разные экраны и тексты. Общая проверка строки — в `run_journal`, исключения остаются своими. |
 | `password_reports_status` | тонкая обёртка над `get_unit_status(PASSWORD_REPORTS_UNIT)`, чтобы маршрут не знал имя unit. |
-| `vnc_worker` | не планировщик: asyncio, без Flask и без БД. |
 
 ---
 
@@ -257,7 +248,7 @@ def ensure_schema() -> None:
     # 1) если в metadata есть таблицы, которых нет в БД → db.create_all()
     # 2) колонки из моделей, которых нет в существующих таблицах → ALTER TABLE ADD COLUMN
     # 3) data-fix: номиналы ОЗУ/ПЗУ v1.5.1 (флаг app_settings data_fix.hw_gb_nominal_v151)
-    # 4) скрипт TightVNC (удаление) в библиотеке (data_fix.seed_tightvnc_script_v176)
+    # 4) один раз удалить скрипты «TightVNC (тихая установка)» и «TightVNC (тихое удаление)» (data_fix.delete_tightvnc_scripts_v1)
     # 5) если action_kinds пуст → seed_action_kinds() + commit
 ```
 
@@ -283,11 +274,11 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 один раз приводит их к номиналу; маркер `data_fix.hw_gb_nominal_v151` в `app_settings`.
 Повторный WMI-опрос для этого не нужен.
 
-**Сид TightVNC:** при старте в библиотеку кладётся неопубликованное тело
-«TightVNC (тихое удаление)» из `app/services/tightvnc_install_script.py`.
-Старое «TightVNC (тихая установка)» заменяется. MSI админ кладёт в `vnc-agents/`;
-при «Подключить» на карточке агент ставится или обновляется (пароль/порт/файрвол).
-Маркер `data_fix.seed_tightvnc_script_v176`.
+**Удаление TightVNC из библиотеки:** при первом старте после обновления
+`ensure_schema` удаляет строки `scripts` с именами
+«TightVNC (тихая установка)» и «TightVNC (тихое удаление)».
+Маркер `data_fix.delete_tightvnc_scripts_v1` в `app_settings`.
+Колонки таблиц при этом не удаляются.
 
 ---
 
@@ -297,7 +288,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 
 | Модель | Таблица | Файл | Назначение |
 | --- | --- | --- | --- |
-| `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Люди после LDAP. Успешный вход ставит `is_admin=True` и сбрасывает старые флаги `is_viewer` / `is_operator` / `is_password_viewer`. Группы — снимок memberOf, на права не влияют. |
+| `User`, `UserLdapGroup` | `users`, `user_ldap_groups` | `user.py` | Люди после LDAP. Успешный вход ставит `is_admin=True` и сбрасывает старые флаги `is_viewer` / `is_operator` / `is_password_viewer`. Таблица `user_ldap_groups` остаётся; при входе строки не пишутся. |
 | `Sector`, `SectorRange`, `SectorAccess` | `sectors`, `sector_ranges`, `sector_access` | `sector.py` | Подсети (CIDR). `sector_access` в схеме остаётся и больше не фильтрует карту. |
 | `Device`, `DeviceAddress`, `DeviceHistory` | `devices`, `device_addresses`, `device_history` | `device.py` | Машины + адреса интерфейсов + журнал опросов. Идентичность: **только** `serial_number` (WMI инвентаря сети). `hostname` — отображение, не ключ. `devices.ip` — основной (последний онлайн); `device_addresses` — все виденные IP/MAC (Wi‑Fi + Ethernet). Без SN — заглушка на текущем IP. Снимок железа (CPU/ОЗУ/диск/ОС, `bad_id`) пишет lookup bAD: кнопка, первое появление серийника и интервал известных машин. `device_id` в таблицу не кладётся. |
 | `NetworkPollRun` | `network_poll_runs` | `poll_run.py` | Журнал полных прогонов ICMP-опроса. |
@@ -321,7 +312,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Сущность | Таблица | Пишет | Читает |
 | --- | --- | --- | --- |
-| Оператор сайта | `users` | `ldap_service` | auth, authz |
+| Оператор сайта | `users` | `ldap_service` | auth, маршруты с `@login_required` |
 | УЗ на ПК | `endpoint_accounts` | `account_service` | `/admin/accounts`, карточка устройства |
 | Появление УЗ | `device_account_history` | `account_service` | `/admin/actions`, вкладка accounts |
 | Типы действий | `action_kinds` | `ensure_schema` / seed | `/admin/actions` |
@@ -371,7 +362,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | Модуль | Роль |
 | --- | --- |
 | `account_service.py` | NetBIOS-нормализация домена, upsert УЗ, sightings, ACL-списки |
-| `action_service.py` | лента действий (script_runs + account history) с authz как у run_detail |
+| `action_service.py` | лента действий (script_runs + account history) |
 | `export_service.py` | CSV (accounts, actions, poll runs) |
 | `audit_service.py` | запись/чтение `admin_audit_log` |
 
@@ -379,9 +370,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Модуль | Роль |
 | --- | --- |
-| `psexec_service.py` | pypsexec-сессии, cancel/close. PowerShell: файл в `ADMIN$\Temp` + `cmd.exe -File` (не `-EncodedCommand`, иначе `STATUS_PIPE_BROKEN`); stdout в канал сразу (`on_output` → живой журнал); CLIXML вырезается |
-| `vnc_token.py` | itsdangerous-билет: IP/порт из инвентаря, TTL 90 с; прокси без БД |
-| `vnc_settings.py` | порт агента, общий пароль Fernet, тумблер шлюза |
+| `psexec_service.py` | pypsexec-сессии, cancel/close через флаги `script_runs`. PowerShell: файл в `ADMIN$\Temp` + `cmd.exe -File` (не `-EncodedCommand`, иначе `STATUS_PIPE_BROKEN`); stdout в канал сразу (`on_output` → живой журнал); CLIXML вырезается |
 | `tls_pem.py` / `tls_settings.py` / `tls_service.py` | PEM из Настройки → HTTPS, файлы в `certs/`, `apply-nginx-tls.sh` |
 | `script_service.py` | CRUD/тело скриптов; enqueue на ThreadPoolExecutor в веб-процессе |
 | `batch_service.py` | bulk ping/script, статус одной пачки и список `list_batch_summaries` |
@@ -432,13 +421,12 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | --- | --- | --- |
 | GET | `/` | Карта сети |
 | GET | `/map/status` | JSON статуса карты |
-| POST | `/api/map/bulk/ping` | Bulk ping (нужны права diagnostics) |
+| POST | `/api/map/bulk/ping` | Bulk ping (вошедший) |
 | POST | `/api/map/bulk/script` | Bulk script (любой вошедший, любой скрипт) |
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
 | GET | `/api/command-presets` | Пресеты (вошедший) |
-| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа, иконка VNC. Учётные записи — история. Команды — запуск и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
-| GET | `/devices/<id>/vnc` | Экспериментальный noVNC: билет 90 с, цель только `Device.ip` + порт 5900–5999 |
+| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа. Учётные записи — история. Команды — запуск и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
 | POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. `Accept: application/x-ndjson` — те же шаги в рамке лога (`live_progress`). Без связи «подключено» проход не стартует |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
@@ -446,14 +434,14 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/devices/<id>/check` | diagnostics — адрес карточки отвечает её серийником → `device_history`. `Accept: application/x-ndjson` стримит шаги поиска (`app/live_progress.py`); обычная форма — редирект. После окончания лог остаётся на вкладке «Опросы» |
-| POST | `/devices/<id>/ping` | diagnostics — diagnostic run в `script_runs` |
-| POST | `/devices/<id>/tracert` | diagnostics |
+| POST | `/devices/<id>/check` | вошедший — адрес карточки отвечает её серийником → `device_history`. `Accept: application/x-ndjson` стримит шаги поиска (`app/live_progress.py`); обычная форма — редирект. После окончания лог остаётся на вкладке «Опросы» |
+| POST | `/devices/<id>/ping` | вошедший — diagnostic run в `script_runs` |
+| POST | `/devices/<id>/tracert` | вошедший |
 | POST | `/devices/<id>/command` | вошедший |
 
 ### Sectors — prefix `/admin/sectors`
 
-CRUD: list, new, create, detail, edit, update, delete (mutating — `admin_required`, то есть любой вошедший). Старый `/sectors/…` → 308. Форма сектора — имя и CIDR, без списка пользователей и групп.
+CRUD: list, new, create, detail, edit, update, delete (mutating — `@login_required`). Старый `/sectors/…` → 308. Форма сектора — имя и CIDR, без списка пользователей и групп.
 
 ### Search — `search.py`
 
@@ -476,7 +464,7 @@ List, `export.csv`, detail (все учётки). Старый `/accounts/…` �
 
 Лента + `export.csv`. Старый `/actions/…` → 308.
 
-### Admin — prefix `/admin` (всё `admin_required` = вошедший)
+### Admin — prefix `/admin` (всё `@login_required`)
 
 | Method | Path | Примечание |
 | --- | --- | --- |
@@ -531,20 +519,21 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 - CSRF глобально (Flask-WTF); в `TestingConfig` выключен
 - Open-redirect guard: только относительные `next`
 
-### Authz (`app/authz.py`)
+### Доступ после входа
 
-Ролей нет. Единственная настройка доступа — `LDAP_ADMIN_GROUP` (CN, сравнение без регистра).
+Модуля `app/authz.py` нет. Ролей внутри сайта нет.
+Единственная настройка входа — `LDAP_ADMIN_GROUP` (CN, сравнение без регистра).
 
 - Группа задана: вход только если CN есть в `memberOf`.
 - Группа пустая: любой успешный bind.
-- Вошедший видит все сектора, устройства, скрипты, пачки, учётные записи, аудит и отчёт паролей и может запускать команды, ping, tracert, скрипты и VNC (если тумблер VNC включён).
-- `admin_required` означает «вошёл». Колонки `is_viewer`, `is_operator`, `is_password_viewer` и таблица `sector_access` в базе остаются, решения по ним не принимаются.
-- Проверка на маршруте остаётся: анонимный запрос не проходит `@login_required`.
+- Вошедший видит все сектора, устройства, скрипты, пачки, учётные записи, аудит и отчёт паролей.
+- Вошедший может запускать команды, ping, tracert и скрипты.
+- Маршруты защищены `@login_required`.
+- Колонки `is_viewer`, `is_operator`, `is_password_viewer` и таблица `sector_access` в базе остаются.
+- Решения по этим колонкам не принимаются.
+- Таблица `user_ldap_groups` при входе не обновляется.
 
-Хелперы: `admin_required`, `user_can_run_scripts`, `user_can_run_script`,
-`user_can_run_diagnostics`, `user_can_connect_vnc`, `user_can_view_password_expiry`,
-`accessible_sectors`, `accessible_sector_ids`, `user_can_access_device`,
-`get_visible_device_or_404`, `filter_accessible_devices`, `user_can_see_script_run`.
+Старый `run_type` `vnc_ensure` в журнале подписывается как «Агент VNC» (`run_display.py`).
 
 ### Секреты
 
@@ -553,7 +542,6 @@ CRUD `/login-services/…` (admin); публичный `GET /api/login-services/
 | `SECRET_KEY`, `FERNET_KEY`, LDAP/SMTP/DB пароли | только `.env` / EnvironmentFile |
 | Пароли PsExec / пароль входа | Fernet ciphertext в `remote_credentials` |
 | Учётка WMI discovery | `.env` `DISCOVERY_*` или Настройки → Опрос сети (`settings_service`) |
-| Пароль VNC (общий) | Fernet в `app_settings` (`vnc_password_encrypted`) |
 | Ключ интеграции bAD (`bad_in_…`) и секрет заявки (`bad_ps_…`) | Fernet в `app_settings`. На странице и в логах не показываются |
 | TLS ключ/сертификат | файлы `/opt/bawh/certs/` (не БД) |
 
@@ -593,11 +581,11 @@ systemd-unit `bawh-password-reports` (sudo-учётка: Настройки → 
 | Механизм | Где | Зачем |
 | --- | --- | --- |
 | `ThreadPoolExecutor` | `ping_service` | параллельный ICMP+discovery; запись в БД — в главном потоке |
-| `ThreadPoolExecutor` | `script_service.enqueue_run` | фоновый PsExec/ping/tracert; UI поллит `/admin/scripts/runs/<id>/status` (~1.5 с, `run_log.js`) |
+| `ThreadPoolExecutor` | `script_service.enqueue_run` | фоновый PsExec/ping/tracert; UI поллит `/admin/scripts/runs/<id>/status` (~0,8 с, `run_log.js`). Cancel и close-session пишут флаги в `script_runs`; применяет воркер с сессией PsExec |
 | `threading.Thread` | `update_service.begin_update` / `begin_rollback` | фон, чтобы Gunicorn не упёрся в таймаут; поток с `app.app_context()` — sudo-учётка из Настройки → Общие / `UPDATE_SUDO_USER` |
 | `threading.Thread` + NDJSON | `live_progress.stream_live_progress` | шаги проверки, железа и ручного опроса сети. Не SSE: одна строка JSON на шаг, `Cache-Control: no-cache`, `X-Accel-Buffering: no` |
 
-**Нет** WebSocket во Flask, SSE, Celery и общей очереди сообщений. Веб-VNC — отдельный процесс. Долгие кнопки не поллируют статус: клиент читает тело ответа, пока работа идёт.
+**Нет** WebSocket во Flask, SSE, Celery и общей очереди сообщений. Долгие кнопки не поллируют статус: клиент читает тело ответа, пока работа идёт.
 
 ---
 
@@ -608,7 +596,7 @@ systemd-unit `bawh-password-reports` (sudo-учётка: Настройки → 
 ```
 Nginx → Gunicorn (wsgi:app)
   → session / CSRF / Flask-Login
-  → blueprint (@login_required / @admin_required / authz)
+  → blueprint (`@login_required`)
   → service (DB / LDAP / ping / psexec)
   → Jinja template или jsonify
 ```
@@ -649,7 +637,7 @@ sequenceDiagram
 
 ### C. Скрипт / команда
 
-Форма/API → authz → `script_service.start_run(s)` (pending commit) →
+Форма/API → `@login_required` → `script_service.start_run(s)` (pending commit) →
 ThreadPool `execute_run` → `psexec_service` или локальный ping/tracert →
 обновление `script_runs` → JS поллит status. При ошибке — возможна `Notification` (`script_failed`).
 
@@ -727,12 +715,11 @@ Admin UI → `update_service` (фоновый поток + `app.app_context()`).
 Ветка: `app_settings.update_git_branch` (список через `git ls-remote --heads`),
 иначе `GIT_BRANCH`. Пустой выбор старт не заполняет. Дальше:
 backup → git → pip → `flask init-db` → опциональный restart
-`bawh-web` + `bawh-scheduler` + `bawh-password-reports` + `bawh-vnc`
+`bawh-web` + `bawh-scheduler` + `bawh-password-reports`
 (`systemd_service.run_service_restart`; sudo-учётка из Настройки → Общие / sudoers).
 Старый sudoers, где разрешены только scheduler и web, получает запасной
-`run_core_service_restart`. Службы отчётов паролей и VNC после этого
-поднимаются, если их тумблер включён.
-Перед restart — `deploy/sync-systemd-units.sh` (unit-файлы + sudoers).
+`run_core_service_restart`.
+Перед restart — `deploy/sync-systemd-units.sh` (unit-файлы, отключение `bawh-vnc`, sudoers).
 Ошибка перезапуска не должна помечать уже выполненную замену кода как failed.
 
 ---
@@ -741,7 +728,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 - **Домен УЗ** = NetBIOS upper-case (первая метка DNS/UPN): `CORP\alice` и `alice@corp.local` — одна запись.
 - **Идентичность устройства:** только `serial_number`. Один SN — одна строка `devices`; смена DHCP/VPN-адреса обновляет IP/сектор/MAC у неё и пишет адрес в `device_addresses` (несколько интерфейсов: Ethernet + Wi‑Fi). На карточке в UI — **один актуальный IP на MAC** (по `last_seen`). Hostname и PTR не ключи: PTR бывает общим и отстаёт, имя можно сменить, а чтение имени с машины — тот же админский WMI, что и серийник. Без SN можно переиспользовать только запись с тем же IP и пустым SN. Призрак без SN на старом IP после появления SN на новом (или совпадения WMI-hostname) сливается в карточку с SN (`absorb_ghosts`). Один IP у разных SN — разные машины (история аренды), не дубль.
-- **Команда на карточку:** `confirm_device_address` перед скриптом, командой, ping/tracert, проверкой «сейчас» и билетом VNC. ICMP по последнему IP без сверки серийника не означает «этот компьютер доступен». Если последний адрес молчит или занят чужим SN, карточка с серийником ищется на своих прежних адресах и по DNS-имени; совпадение переносит `devices.ip`. Обход всех CIDR сектора на кнопку не делается — это по-прежнему опрос сети. Чужую карточку функция не переписывает, кроме пометки offline у того, кто ещё числится на найденном адресе. Без SN достаточно ICMP. Учётка сверки — WMI опроса, иначе учётка запуска. Кнопки «Проверить сейчас», «Опросить сейчас» и «Запустить опрос сейчас» при живом клиенте читают шаги той же работы (`on_progress` → `app/live_progress.py`, один `static/js/live_progress.js`). Ping, tracert и запуск скрипта этот поток не используют.
+- **Команда на карточку:** `confirm_device_address` перед скриптом, командой, ping/tracert и проверкой «сейчас». ICMP по последнему IP без сверки серийника не означает «этот компьютер доступен». Если последний адрес молчит или занят чужим SN, карточка с серийником ищется на своих прежних адресах и по DNS-имени; совпадение переносит `devices.ip`. Обход всех CIDR сектора на кнопку не делается — это по-прежнему опрос сети. Чужую карточку функция не переписывает, кроме пометки offline у того, кто ещё числится на найденном адресе. Без SN достаточно ICMP. Учётка сверки — WMI опроса, иначе учётка запуска. Кнопки «Проверить сейчас», «Опросить сейчас» и «Запустить опрос сейчас» при живом клиенте читают шаги той же работы (`on_progress` → `app/live_progress.py`, один `static/js/live_progress.js`). Ping, tracert и запуск скрипта этот поток не используют.
 - **Опрос железа:** кнопка на карточке, сразу после появления серийника в опросе сети и повтор известных компьютеров по интервалу (по умолчанию сутки, Настройки → Опрос сети).
 - **Дубли (UI):** Настройки → Удаление дублей. Уверенные — одинаковый SN; призраки — IP с SN + без SN; история IP — разные SN на одном адресе (без авто-галочек); предположительно — MAC/hostname без авто-удаления.
 - **Hostname:** сначала `Win32_ComputerSystem.DNSHostName` / `Name` из WMI; PTR (`socket.gethostbyaddr`) — только если WMI имя не отдал и у строки ещё пусто. Устаревший PTR не затирает уже записанное OS-имя. Разовый проход по инвентарю: `flask --app wsgi refresh-hostnames` (чужой SN на том же IP имя не пишет).
@@ -764,10 +751,10 @@ backup → git → pip → `flask init-db` → опциональный restart
 
 **Шаблоны** (`app/templates/`): каркас `base.html` (topbar: карта, пароли AD,
 настройки). Сайдбар настроек (`layouts/settings.html`):
-Общие (туда же VNC и экран входа), Сектора, Скрипты, HTTPS, Почта (SMTP), LDAP;
+Общие (экран входа), Сектора, Скрипты, HTTPS, Почта (SMTP), LDAP;
 Опрос сети (там же адрес и тумблер bAD), Отчёт о паролях; Действия и аудит,
 Обнаруженные УЗ, Удаление дублей; Обновления. Домены: `accounts/`, `actions/`,
-`admin/` (`settings_general` / `settings_polls` / `settings_mail` / `settings_tls`, панель `_vnc_panel.html`),
+`admin/` (`settings_general` / `settings_polls` / `settings_mail` / `settings_tls`),
 `auth/`, `devices/`, `email/`, `errors/`, `layouts/`, `login_services/`,
 `macros/`, `password_expiry/`, `scripts/`, `sectors/`.
 
@@ -785,11 +772,10 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/js/batch.js` | bulk операции |
 | `static/js/notifications.js` | колокольчик |
 | `static/js/run_log.js` | поллинг лога запуска |
+| `static/js/pc_reports.js` | графики отчёта о ПК (dashboard) |
 | `static/js/login_status.js` | статус сервисов на `/login` |
-| `static/js/vnc_session.js` | подготовка агента + noVNC RFB на `/devices/<id>/vnc` |
 | `static/vendor/bootstrap/` | Bootstrap 5 offline (air-gap) |
 | `static/vendor/chart.js/` | Chart.js 4 UMD offline (air-gap) |
-| `static/vendor/novnc/` | noVNC 1.5.0 core (air-gap) |
 
 ---
 
@@ -801,14 +787,13 @@ backup → git → pip → `flask init-db` → опциональный restart
 | --- | --- |
 | App | `APP_CONFIG`, `SECRET_KEY`, `APP_NAME`, `LOG_*`, `LOG_ARCHIVE_*` |
 | DB | `DATABASE_URL` |
-| LDAP | `LDAP_HOST/PORT/USE_SSL/BASE_DN/BIND_*/USER_FILTER/ADMIN_GROUP/VIEWER_GROUP/OPERATOR_GROUP/PASSWORD_VIEWER_GROUP/DOMAIN` |
+| LDAP | `LDAP_HOST/PORT/USE_SSL/BASE_DN/BIND_*/USER_FILTER/ADMIN_GROUP/DOMAIN` |
 | SMTP | `SMTP_HOST/PORT/USE_STARTTLS/FROM/USER/PASSWORD` (UI: Настройки → Почта (SMTP), иначе `.env`) |
 | Poll | `POLL_INTERVAL_SECONDS`, `MIN_CIDR_PREFIX`, `MAX_HOSTS_PER_POLL`, `DISCOVERY_USERNAME/PASSWORD/DOMAIN` |
 | Crypto | `FERNET_KEY` |
 | Scripts | `SCRIPT_LIBRARY_DIR`, `SCRIPT_TIMEOUT_SECONDS` |
 | Updates | `GIT_REMOTE_URL`, `GIT_BRANCH` (запас, если в UI ветка не выбрана), `UPDATE_BACKUP_KEEP`, `UPDATE_RESTART`, `UPDATE_SUDO_USER` |
 | Cookies | `SESSION_COOKIE_SECURE` (также Настройки → HTTPS) |
-| VNC proxy | `VNC_LISTEN_HOST`, `VNC_LISTEN_PORT`, `VNC_MAX_SESSIONS` |
 
 Также в коде: `PROJECT_ROOT`, `MAX_LOG_CHARS`, `MAX_REMOTE_COMMAND_CHARS`.
 
@@ -824,17 +809,15 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `deploy/bawh-web.service` | Gunicorn `127.0.0.1:8000`, `EnvironmentFile=/opt/bawh/.env` |
 | `deploy/bawh-scheduler.service` | `python -m app.scheduler_worker` (опрос сети, железо по интервалу, заявка bAD, архив) |
 | `deploy/bawh-password-reports.service` | `python -m app.password_report_worker` |
-| `deploy/bawh-vnc.service` | `python -m app.vnc_worker` (127.0.0.1:6080) |
-| `deploy/sync-systemd-units.sh` | cp unit'ов + sudoers + `daemon-reload` |
-| `deploy/nginx-bawh.conf` | :80 → gunicorn + `/vnc/ws` → bawh-vnc |
+| `deploy/sync-systemd-units.sh` | cp unit'ов, отключение `bawh-vnc`, sudoers, `daemon-reload` |
+| `deploy/nginx-bawh.conf` | :80 → gunicorn |
 | `deploy/apply-nginx-tls.sh` | PEM из Настройки → HTTPS → listen 443, reload nginx |
-| `deploy/bawh-update.sudoers` | passwordless restart всех служб + start/enable/stop отчётов/VNC + sync + TLS |
+| `deploy/bawh-update.sudoers` | passwordless restart служб + start/enable/stop отчётов + sync + TLS |
 | `deploy/logrotate-bawh` | logrotate |
 | `Dockerfile` | опционально, только web |
 
-Обязательны **web**, **scheduler** и **bawh-vnc** (шлюз можно остановить тумблером
-в Настройки → Общие). Службы отчётов поднимаются тумблерами в UI. Один `.env` на все
-процессы (общий `FERNET_KEY` / `SECRET_KEY`).
+Обязательны **web** и **scheduler**. Служба отчётов поднимается тумблером в UI.
+Один `.env` на все процессы (общий `FERNET_KEY` / `SECRET_KEY`).
 
 ---
 
@@ -861,7 +844,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Задача | С чего начать |
 | --- | --- |
 | Новый HTTP endpoint | `app/routes/<domain>.py` → сервис → шаблон; blueprint уже в `__init__` |
-| Права доступа | `app/authz.py` + флаги `User` + LDAP groups в `ldap_service` |
+| Права доступа | `ldap_service` (`LDAP_ADMIN_GROUP`) + `@login_required` на маршрутах |
 | Опрос / ICMP / WMI / fingerprint | `ping_service` → `discovery_service` → `fingerprint_service` → `account_service` |
 | Опрос железа Windows | карточка → `hardware_poll_service` → служба badagent → `bad_integration.lookup_device` → `bad_hardware`. Тот же проход: конец опроса сети (`poll_fresh_hardware`) и `bawh-scheduler` (`poll_due_hardware`, интервал `hardware_poll_interval_seconds`). Снимок привязан к серийнику bAD, не к IP. Адрес bAD, тумблер и интервал — Настройки → Опрос сети. Подтверждение заявки — панель bAD, Параметры → Интеграции |
 | Живой лог проверки / железа / сети | `app/live_progress.py`, `static/js/live_progress.js`, `.live-progress-log` в `app.css`. Кнопки с `data-live-progress` |
@@ -872,14 +855,13 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
 | Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
-| Веб-VNC | `vnc_token`, `vnc_settings`, `app/vnc_worker.py`, `routes/devices.py` `vnc_session` / `vnc_prepare`, сид удаления `tightvnc_install_script`, раздача MSI `routes/vnc_agents.py` + `vnc-agents/`, [`VNC.md`](VNC.md) |
 | HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Настройки → HTTPS |
 | Пачки запусков | `batch_service.list_batch_summaries`, `/admin/scripts/batches`, карточка → Команды. Прогресс одной пачки — `batch.js` |
 | УЗ на ПК | `account_service`, `models/account.py`, `routes/accounts.py` |
 | Пароли AD | `password_expiry_service` + `password_*`, `routes/password_expiry.py` |
 | Пароль перед отпуском | `vacation_password_service`, `vacation_notice_parser`, `vacation_imap`; настройки в «Отчёт о паролях» |
 | Уведомления | `notification_service`, `routes/notifications.py` |
-| Настройки / опрос вручную | `routes/admin.py` (`section=general|polls|vnc|tls`), `settings_service` |
+| Настройки / опрос вручную | `routes/admin.py` (`section=general|polls|mail|tls`), `settings_service` |
 | Аудит админа | `audit_service`, лента в Настройки → Действия и аудит (`/admin/audit` → редирект) |
 | Новая таблица | модель в `models/` → `__all__` в `models/__init__.py` → `ensure_schema` на старте |
 | Конфиг / env | `config.py` + `.env.example` |
@@ -896,7 +878,6 @@ backup → git → pip → `flask init-db` → опциональный restart
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
 | [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
 | [SCRIPTS.md](SCRIPTS.md) | Требования к телу скрипта из формы Настройки → Скрипты (для агентов и авторов) |
-| [VNC.md](VNC.md) | Стол в браузере, агент TightVNC при подключении, тихое удаление, HTTPS из Настройки → HTTPS |
 
 ---
 
@@ -915,7 +896,6 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `.env`, `*.db`, `instance/`, `.venv/` | секреты и локальная БД |
 | `logs/*`, `backups/`, `*.log` | runtime |
 | `certs/` | PEM/ключи HTTPS из Настройки → HTTPS |
-| `vnc-agents/*.msi`, `vnc-agents/*.exe` | установщик TightVNC, который админ кладёт на сервер |
 | `.cursor/`, `.claude/`, `.scratch/` | scratch агентов и IDE |
 | `tests/` | локальные unittest, в поставку не входят |
 | `/scripts/`, `tools/`, `tmp/`, `temp/` | одноразовые черновики в корне. `app/templates/scripts/` в git |

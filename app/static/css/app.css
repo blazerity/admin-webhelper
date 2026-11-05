@@ -4,9 +4,9 @@
   --line: #d7e0e7;
   --surface: rgba(255, 255, 255, 0.86);
   --surface-solid: #ffffff;
-  --accent: #0f766e;
-  --accent-ink: #0b4f49;
-  --accent-soft: #d9f3ef;
+  --accent: #ABCB58;
+  --accent-ink: #1A1B26;
+  --accent-soft: rgba(171, 203, 88, 0.18);
   --ok: #15803d;
   --bad: #b91c1c;
   --warn: #b45309;
@@ -14,8 +14,6 @@
   --entity-device-soft: rgba(234, 88, 12, 0.1);
   --entity-account: #1d4ed8;
   --entity-account-soft: rgba(29, 78, 216, 0.1);
-  --vnc: #1d4f91;
-  --vnc-ink: #163e74;
   --shadow: 0 10px 30px rgba(24, 33, 43, 0.08);
   --radius: 14px;
   /* Offline-friendly: system stack first; Manrope optional if operator adds local fonts. */
@@ -43,8 +41,8 @@ body {
   color: var(--ink);
   font-family: var(--font);
   background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(15, 118, 110, 0.16), transparent 55%),
-    radial-gradient(900px 420px at 100% 0%, rgba(15, 118, 110, 0.08), transparent 50%),
+    radial-gradient(1200px 500px at 10% -10%, rgba(171, 203, 88, 0.16), transparent 55%),
+    radial-gradient(900px 420px at 100% 0%, rgba(171, 203, 88, 0.08), transparent 50%),
     linear-gradient(180deg, #eef3f6 0%, #e7eef2 48%, #e9eef1 100%);
 }
 
@@ -118,7 +116,7 @@ code {
 .app-icon-btn[aria-expanded="true"],
 .app-notifications.is-open .app-icon-btn {
   background: var(--accent-soft);
-  border-color: #b7ddd7;
+  border-color: #82C241;
   color: var(--accent);
 }
 
@@ -159,7 +157,7 @@ code {
 }
 
 .app-nav-link:hover {
-  background: rgba(15, 118, 110, 0.08);
+  background: rgba(171, 203, 88, 0.08);
   color: var(--accent-ink);
 }
 
@@ -170,7 +168,7 @@ code {
 
 .app-nav-link.active:hover {
   color: #fff;
-  background: #0d6b64;
+  background: #82C241;
 }
 
 .app-user-name {
@@ -331,15 +329,15 @@ code {
 .btn-primary {
   --bs-btn-bg: var(--accent);
   --bs-btn-border-color: var(--accent);
-  --bs-btn-hover-bg: #0d6b64;
-  --bs-btn-hover-border-color: #0d6b64;
-  --bs-btn-active-bg: #0b5b55;
-  --bs-btn-active-border-color: #0b5b55;
+  --bs-btn-hover-bg: #82C241;
+  --bs-btn-hover-border-color: #82C241;
+  --bs-btn-active-bg: #82C241;
+  --bs-btn-active-border-color: #82C241;
 }
 
 .btn-outline-primary {
   --bs-btn-color: var(--accent-ink);
-  --bs-btn-border-color: #9ec9c3;
+  --bs-btn-border-color: rgba(171, 203, 88, 0.45);
   --bs-btn-hover-bg: var(--accent);
   --bs-btn-hover-border-color: var(--accent);
   --bs-btn-hover-color: #fff;
@@ -356,7 +354,7 @@ code {
 
 .btn-ghost:hover {
   background: var(--accent-soft);
-  border-color: #b7ddd7;
+  border-color: #82C241;
   color: var(--accent-ink);
 }
 
@@ -369,8 +367,8 @@ code {
 
 .form-control:focus,
 .form-select:focus {
-  border-color: #6ea8a1;
-  box-shadow: 0 0 0 0.2rem rgba(15, 118, 110, 0.12);
+  border-color: #ABCB58;
+  box-shadow: 0 0 0 0.2rem rgba(171, 203, 88, 0.12);
 }
 
 .table {
@@ -480,7 +478,7 @@ code {
 }
 
 .settings-nav-link:hover {
-  background: rgba(15, 118, 110, 0.08);
+  background: rgba(171, 203, 88, 0.08);
   color: var(--accent-ink);
 }
 
@@ -1054,8 +1052,8 @@ code {
 
 [data-device-card].is-selected .device-card {
   border-color: var(--accent);
-  background: #f3faf8;
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.2);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px rgba(171, 203, 88, 0.2);
 }
 
 [data-device-card].is-selected .device-card-head {
@@ -1078,9 +1076,9 @@ code {
   align-items: center;
   gap: 0.65rem 1rem;
   padding: 0.75rem 1rem;
-  border: 1px solid rgba(15, 118, 110, 0.28);
+  border: 1px solid rgba(171, 203, 88, 0.28);
   border-radius: var(--radius);
-  background: rgba(248, 252, 251, 0.96);
+  background: color-mix(in srgb, #ABCB58 8%, rgba(255, 255, 255, 0.96));
   box-shadow: 0 12px 28px rgba(24, 33, 43, 0.14);
   backdrop-filter: blur(10px);
 }
@@ -1182,7 +1180,7 @@ code {
 }
 
 .sector-toggle:hover {
-  background: #f3f8f7;
+  background: var(--accent-soft);
 }
 
 .sector-toggle:not(.collapsed) {
@@ -1564,12 +1562,12 @@ code {
 }
 
 [data-device-card].is-returned .device-card {
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.45);
+  box-shadow: 0 0 0 2px rgba(171, 203, 88, 0.45);
   animation: map-card-return 2.4s ease;
 }
 
 @keyframes map-card-return {
-  0% { box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.55); }
+  0% { box-shadow: 0 0 0 3px rgba(171, 203, 88, 0.55); }
   100% { box-shadow: 0 8px 18px rgba(24, 33, 43, 0.08); }
 }
 
@@ -1731,25 +1729,6 @@ code {
 
 .device-quick-actions form {
   margin: 0;
-}
-
-.btn-vnc {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: var(--vnc);
-  color: #fff;
-}
-
-.btn-vnc:hover,
-.btn-vnc:focus-visible {
-  background: var(--vnc-ink);
-  color: #fff;
 }
 
 .device-object-status {
@@ -2123,64 +2102,6 @@ code {
   color: #808080;
 }
 
-.vnc-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem 1.5rem;
-}
-
-.vnc-toolbar-fields {
-  flex: 1 1 16rem;
-  min-width: 0;
-}
-
-.vnc-toolbar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.vnc-ensure-log {
-  margin: 0.75rem 0 0;
-  max-height: 12rem;
-  overflow: auto;
-  padding: 0.6rem 0.75rem;
-  font-size: 0.8rem;
-  line-height: 1.35;
-  white-space: pre-wrap;
-  background: #0f1418;
-  color: #d7e0e7;
-  border-radius: 8px;
-}
-
-.vnc-screen-shell {
-  margin-bottom: 1.5rem;
-}
-
-.vnc-screen {
-  min-height: min(70vh, 48rem);
-  height: min(70vh, 48rem);
-  background: #1e1e1e;
-}
-
-.vnc-screen canvas {
-  display: block;
-  margin: 0 auto;
-}
-
-#vnc-status[data-kind="ok"] { color: var(--ok); }
-#vnc-status[data-kind="bad"] { color: var(--bad); }
-#vnc-status[data-kind="warn"] { color: var(--warn); }
-
-@media (max-width: 640px) {
-  .vnc-screen {
-    min-height: 60vh;
-    height: 60vh;
-  }
-}
-
 .terminal-form {
   display: flex;
   gap: 0.5rem;
@@ -2348,7 +2269,7 @@ code {
   gap: 0.5rem;
   padding: 0.7rem 0.85rem;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(217, 243, 239, 0.55), rgba(255, 255, 255, 0.9));
+  background: linear-gradient(180deg, rgba(171, 203, 88, 0.55), rgba(255, 255, 255, 0.9));
 }
 
 .notif-panel-title {
@@ -2372,12 +2293,12 @@ code {
 }
 
 .notif-item:hover {
-  background: rgba(15, 118, 110, 0.06);
+  background: rgba(171, 203, 88, 0.06);
   color: inherit;
 }
 
 .notif-item.is-unread {
-  background: rgba(15, 118, 110, 0.08);
+  background: rgba(171, 203, 88, 0.08);
 }
 
 .notif-item-title {
@@ -2418,10 +2339,10 @@ code {
   --bs-pagination-border-color: var(--line);
   --bs-pagination-hover-color: var(--accent);
   --bs-pagination-hover-bg: var(--accent-soft);
-  --bs-pagination-hover-border-color: #b7ddd7;
+  --bs-pagination-hover-border-color: #82C241;
   --bs-pagination-focus-color: var(--accent-ink);
   --bs-pagination-focus-bg: var(--accent-soft);
-  --bs-pagination-focus-box-shadow: 0 0 0 0.15rem rgba(15, 118, 110, 0.15);
+  --bs-pagination-focus-box-shadow: 0 0 0 0.15rem rgba(171, 203, 88, 0.15);
   --bs-pagination-active-color: #fff;
   --bs-pagination-active-bg: var(--accent);
   --bs-pagination-active-border-color: var(--accent);
@@ -2500,8 +2421,8 @@ code {
 }
 
 .service-control-panel {
-  border: 1px solid rgba(15, 118, 110, 0.28);
-  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.04);
+  border: 1px solid rgba(171, 203, 88, 0.28);
+  box-shadow: 0 0 0 1px rgba(171, 203, 88, 0.04);
 }
 
 .settings-submenu {

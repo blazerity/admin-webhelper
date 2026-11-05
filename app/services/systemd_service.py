@@ -8,7 +8,6 @@
   bawh-web                 — Gunicorn
   bawh-scheduler           — опрос сети и архив логов
   bawh-password-reports    — рассылка отчётов о паролях AD
-  bawh-vnc                 — WebSocket-прокси для noVNC
 """
 
 from __future__ import annotations
@@ -26,14 +25,12 @@ logger = logging.getLogger(__name__)
 SCHEDULER_UNIT = "bawh-scheduler"
 WEB_UNIT = "bawh-web"
 PASSWORD_REPORTS_UNIT = "bawh-password-reports"
-VNC_UNIT = "bawh-vnc"
 
 # Порядок для systemctl restart — должен совпадать с sudoers.
 RESTART_UNITS = (
     SCHEDULER_UNIT,
     WEB_UNIT,
     PASSWORD_REPORTS_UNIT,
-    VNC_UNIT,
 )
 
 

@@ -100,6 +100,8 @@ class ScriptRun(db.Model):
     status = db.Column(db.String(16), nullable=False, default=RunStatus.PENDING, index=True)
     exit_code = db.Column(db.Integer, nullable=True)
     log_text = db.Column(db.Text, nullable=False, default="")
+    cancel_requested = db.Column(db.Boolean, nullable=False, default=False, server_default=false())
+    close_requested = db.Column(db.Boolean, nullable=False, default=False, server_default=false())
     started_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
 

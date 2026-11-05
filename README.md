@@ -1,10 +1,10 @@
 # bAWH
 
-Внутренний веб-помощник администратора сети: карта устройств, опрос, диагностика, скрипты на Windows (PsExec), рабочий стол в браузере (VNC, экспериментально), пароли AD, ACL по секторам.
+Внутренний веб-помощник администратора сети: карта устройств, опрос, диагностика, скрипты на Windows (PsExec), пароли AD.
 
 Рассчитан на корпоративную LAN. Не предназначен для публикации в интернет.
 
-Актуальная карта кода (слои, модели, сервисы, маршруты, authz) — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Перед навигацией по репозиторию или запросом к ИИ читайте этот файл. Требования к скриптам из веб-формы — [`docs/SCRIPTS.md`](docs/SCRIPTS.md). Веб-VNC — [`docs/VNC.md`](docs/VNC.md); MSI TightVNC кладите в [`vnc-agents/`](vnc-agents/README.md).
+Актуальная карта кода (слои, модели, сервисы, маршруты, доступ) — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Перед навигацией по репозиторию или запросом к ИИ читайте этот файл. Требования к скриптам из веб-формы — [`docs/SCRIPTS.md`](docs/SCRIPTS.md).
 
 ## Требования
 
@@ -31,7 +31,7 @@ sudo apt-get update && sudo apt-get install -y curl ca-certificates && curl -fsS
 После установки заполните LDAP в `/opt/bawh/.env` и перезапустите службы:
 
 ```bash
-sudo systemctl restart bawh-web bawh-scheduler bawh-vnc
+sudo systemctl restart bawh-web bawh-scheduler bawh-password-reports
 ```
 
 Проверка: `curl -s http://127.0.0.1:8000/health` → `{"status":"ok"}`.
@@ -56,7 +56,7 @@ sudo systemctl restart bawh-web bawh-scheduler bawh-vnc
 
 Вошедший пользователь видит всю систему. Отдельных ролей нет.
 
-Учётку PsExec и WMI, шлюз VNC и HTTPS-сертификат можно задать в веб-интерфейсе: **Настройки**.
+Учётку PsExec и WMI и HTTPS-сертификат можно задать в веб-интерфейсе: **Настройки**.
 
 ## Службы
 
@@ -64,12 +64,11 @@ sudo systemctl restart bawh-web bawh-scheduler bawh-vnc
 | --- | --- |
 | `bawh-web` | Gunicorn (`127.0.0.1:8000`), снаружи — Nginx :80 (443 после сертификата в Настройках → HTTPS) |
 | `bawh-scheduler` | опрос сети и архив логов |
-| `bawh-vnc` | WebSocket-прокси для noVNC (`127.0.0.1:6080`) |
 | `bawh-password-reports` | рассылка отчётов о паролях AD и проверка пароля перед отпуском (тумблеры в UI) |
 
 ```bash
-sudo systemctl status bawh-web bawh-scheduler bawh-vnc bawh-password-reports
-journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -f
+sudo systemctl status bawh-web bawh-scheduler bawh-password-reports
+journalctl -u bawh-web -u bawh-scheduler -u bawh-password-reports -f
 ```
 
 ## Обновление
@@ -78,7 +77,7 @@ journalctl -u bawh-web -u bawh-scheduler -u bawh-vnc -u bawh-password-reports -f
 
 Или повторный запуск установщика из каталога с кодом / через one-liner — обновит `/opt/bawh`, зависимости и юниты; существующий `.env` не перезаписывает.
 
-Версия релиза — файл [`VERSION`](VERSION) (сейчас `2.7`).
+Версия релиза — файл [`VERSION`](VERSION) (сейчас `2.8`).
 
 На странице **Обновления** можно выбрать ветку git (список с сервера).
 Выбор хранится в базе и важнее `GIT_BRANCH` в `.env`. Пока ветку там не

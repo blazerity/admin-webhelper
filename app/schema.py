@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 # Одноразовый пересчёт ram_gb/disk_gb после хотфикса номиналов v1.5.1.
 HARDWARE_GB_NOMINAL_FIX_KEY = "data_fix.hw_gb_nominal_v151"
+TIGHTVNC_SCRIPTS_DELETE_KEY = "data_fix.delete_tightvnc_scripts_v1"
+TIGHTVNC_INSTALL_SCRIPT_NAME = "TightVNC (тихая установка)"
+TIGHTVNC_UNINSTALL_SCRIPT_NAME = "TightVNC (тихое удаление)"
 
 
 def ensure_schema() -> None:
@@ -34,7 +37,7 @@ def ensure_schema() -> None:
 
     _ensure_columns(inspector)
     _migrate_hardware_gb_nominals(inspector)
-    _seed_tightvnc_install_script(inspector)
+    _delete_tightvnc_library_scripts(inspector)
 
     count = db.session.scalar(select(func.count()).select_from(ActionKind)) or 0
     if count == 0:
@@ -96,11 +99,30 @@ def _migrate_hardware_gb_nominals(inspector) -> None:
     )
 
 
-def _seed_tightvnc_install_script(inspector) -> None:
-    """Неопубликованный скрипт тихой установки TightVNC, если имени ещё нет."""
-    from app.services.tightvnc_install_script import seed_tightvnc_install_script
+def _delete_tightvnc_library_scripts(inspector) -> None:
+    from app.models import AppSetting, Script
 
-    seed_tightvnc_install_script(table_names=set(inspector.get_table_names()))
+    tables = set(inspector.get_table_names())
+    if "app_settings" not in tables or "scripts" not in tables:
+        return
+
+    marker = db.session.get(AppSetting, TIGHTVNC_SCRIPTS_DELETE_KEY)
+    if marker is not None and (marker.value or "").strip() == "1":
+        return
+
+    names = (TIGHTVNC_INSTALL_SCRIPT_NAME, TIGHTVNC_UNINSTALL_SCRIPT_NAME)
+    deleted = 0
+    for script in db.session.scalars(select(Script).where(Script.name.in_(names))).all():
+        db.session.delete(script)
+        deleted += 1
+
+    if marker is None:
+        db.session.add(AppSetting(key=TIGHTVNC_SCRIPTS_DELETE_KEY, value="1"))
+    else:
+        marker.value = "1"
+    db.session.commit()
+    if deleted:
+        logger.info("ensure_schema: removed %s TightVNC library script(s)", deleted)
 
 
 def _ensure_columns(inspector) -> None:

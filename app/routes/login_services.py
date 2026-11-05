@@ -14,7 +14,8 @@
 
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
 
-from app.authz import admin_required
+from flask_login import login_required
+
 from app.extensions import db
 from app.models import LoginService
 from app.services.login_service_status import LoginServiceError
@@ -27,26 +28,26 @@ bp = Blueprint("login_services", __name__)
 
 
 @bp.get("/login-services/")
-@admin_required
+@login_required
 def list_services():
     """Список переехал в Настройки → Общие."""
     return redirect(url_for("admin.settings", section="general") + "#login-services")
 
 
 @bp.get("/login-services/new")
-@admin_required
+@login_required
 def new_service():
     return render_template("login_services/form.html", service=None)
 
 
 @bp.post("/login-services/")
-@admin_required
+@login_required
 def create_service():
     return _save_from_form(None)
 
 
 @bp.get("/login-services/<int:service_id>/edit")
-@admin_required
+@login_required
 def edit_service(service_id: int):
     return render_template(
         "login_services/form.html",
@@ -55,14 +56,14 @@ def edit_service(service_id: int):
 
 
 @bp.post("/login-services/<int:service_id>")
-@admin_required
+@login_required
 def update_service(service_id: int):
     _existing(service_id)
     return _save_from_form(service_id)
 
 
 @bp.post("/login-services/<int:service_id>/delete")
-@admin_required
+@login_required
 def delete_service(service_id: int):
     service = _existing(service_id)
     name = service.name

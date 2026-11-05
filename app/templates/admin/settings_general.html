@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-title">Общие</h1>
-    <p class="page-subtitle">PsExec, VNC, экран входа и управление службами</p>
+    <p class="page-subtitle">PsExec, экран входа и управление службами</p>
   </div>
 </div>
 
@@ -37,7 +37,7 @@
 <div class="panel content-card mb-3 service-control-panel" id="service-control">
   <h2 class="h5 mb-1">Управление службами</h2>
   <p class="text-muted mb-3">
-    Учётная запись Linux для systemctl (отчёты, VNC, HTTPS, обновления).
+    Учётная запись Linux для systemctl (отчёты, HTTPS, обновления).
   </p>
   <form method="post" class="mb-0" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -58,7 +58,6 @@
   </form>
 </div>
 
-{% include "admin/_vnc_panel.html" %}
 {% include "login_services/_panel.html" %}
 
 <div class="panel content-card mb-0">

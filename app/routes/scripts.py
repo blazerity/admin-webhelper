@@ -8,20 +8,8 @@ from flask import Blueprint, abort, current_app, flash, jsonify, redirect, rende
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
-from app.authz import (
-    accessible_devices,
-    accessible_sectors,
-    admin_required,
-    get_visible_device_or_404,
-    get_visible_script_run_or_404,
-    get_visible_sector_or_404,
-    user_can_run_diagnostics,
-    user_can_run_script,
-    user_can_run_scripts,
-    user_can_see_script_run,
-)
 from app.extensions import db
-from app.models import Device, RunStatus, RunType, Script, ScriptRun
+from app.models import Device, RunStatus, RunType, Script, ScriptRun, Sector
 from app.run_display import (
     run_launch_label,
     run_status_label,
@@ -41,10 +29,30 @@ _SESSION_HINTS = {
 }
 
 
+def _sector_or_404(sector_id: int) -> Sector:
+    sector = db.session.get(Sector, sector_id)
+    if sector is None:
+        abort(404)
+    return sector
+
+
+def _device_or_404(device_id: int) -> Device:
+    device = db.session.get(Device, device_id)
+    if device is None:
+        abort(404)
+    return device
+
+
+def _run_or_404(run_id: int) -> ScriptRun:
+    run = db.session.get(ScriptRun, run_id)
+    if run is None:
+        abort(404)
+    return run
+
+
 def _render_form(script: Script | None):
-    # Селекты только по доступным устройствам/секторам (W3 harden).
-    devices = accessible_devices(current_user)
-    sectors = accessible_sectors(current_user)
+    devices = Device.query.order_by(Device.ip).all()
+    sectors = Sector.query.order_by(Sector.name).all()
     script_body = ""
     if script is not None:
         try:
@@ -129,7 +137,6 @@ def _device_history(run: ScriptRun) -> list[dict]:
             "when": run_when_label(item.started_at),
         }
         for item in rows
-        if user_can_see_script_run(current_user, item)
     ]
 
 
@@ -146,8 +153,6 @@ def _scripts_for_user():
 @bp.get("/")
 @login_required
 def list_scripts():
-    if not user_can_run_scripts(current_user):
-        abort(403)
     scripts = _scripts_for_user()
     return render_template(
         "scripts/list.html",
@@ -157,13 +162,13 @@ def list_scripts():
 
 
 @bp.get("/new")
-@admin_required
+@login_required
 def new_script():
     return _render_form(None)
 
 
 @bp.post("/")
-@admin_required
+@login_required
 def create_script():
     try:
         script = script_service.save_script(**_form_fields())
@@ -191,7 +196,7 @@ def edit_script(script_id: int):
 
 
 @bp.post("/<int:script_id>")
-@admin_required
+@login_required
 def update_script(script_id: int):
     script = db.session.get(Script, script_id)
     if script is None:
@@ -200,7 +205,6 @@ def update_script(script_id: int):
         script_service.save_script(
             **_form_fields(),
             script=script,
-            is_published=script.is_published,
         )
     except script_service.ScriptError as exc:
         flash(str(exc), "danger")
@@ -217,7 +221,7 @@ def update_script(script_id: int):
 
 
 @bp.post("/<int:script_id>/delete")
-@admin_required
+@login_required
 def delete_script(script_id: int):
     script = db.session.get(Script, script_id)
     if script is None:
@@ -241,8 +245,6 @@ def run_script(script_id: int):
     script = db.session.get(Script, script_id)
     if script is None:
         abort(404)
-    if not user_can_run_script(current_user, script):
-        abort(403)
     if script.target_os == "linux" or script.interpreter == "bash":
         flash(
             "Удалённый Linux в v1 не реализован: PsExec работает только с Windows.",
@@ -258,11 +260,11 @@ def run_script(script_id: int):
 
     chosen: dict[int, Device] = {}
     if sector_id is not None:
-        sector = get_visible_sector_or_404(sector_id)
+        sector = _sector_or_404(sector_id)
         for device in sector.devices:
             chosen[device.id] = device
     if device_id is not None:
-        device = get_visible_device_or_404(device_id)
+        device = _device_or_404(device_id)
         chosen[device.id] = device
     devices = sorted(chosen.values(), key=lambda item: (item.ip, item.id))
     if not devices:
@@ -283,17 +285,13 @@ def run_script(script_id: int):
 @login_required
 def list_batches():
     """История пачек: сюда возвращаются с карты, из скрипта и с карточки."""
-    if not (
-        user_can_run_scripts(current_user) or user_can_run_diagnostics(current_user)
-    ):
-        abort(403)
     device_id = parse_optional_int(request.args.get("device"))
     only_open = request.args.get("open") == "1"
     page = max(1, parse_optional_int(request.args.get("page")) or 1)
     per_page = 40
     device = None
     if device_id is not None:
-        device = get_visible_device_or_404(device_id)
+        device = _device_or_404(device_id)
     batches, total = batch_service.list_batch_summaries(
         current_user,
         limit=per_page,
@@ -337,7 +335,7 @@ def batch_detail(batch_id: str):
 @bp.get("/runs/<int:run_id>")
 @login_required
 def run_detail(run_id: int):
-    run = get_visible_script_run_or_404(run_id)
+    run = _run_or_404(run_id)
     finished = run.status in RunStatus.FINISHED
     state = script_service.run_session_state(run.id, finished)
     return render_template(
@@ -362,7 +360,7 @@ def run_detail(run_id: int):
 @bp.post("/runs/<int:run_id>/cancel")
 @login_required
 def cancel_run(run_id: int):
-    run = get_visible_script_run_or_404(run_id)
+    run = _run_or_404(run_id)
     script_service.cancel_run(run.id)
     return redirect(url_for("scripts.run_detail", run_id=run.id))
 
@@ -370,18 +368,18 @@ def cancel_run(run_id: int):
 @bp.post("/runs/<int:run_id>/close-session")
 @login_required
 def close_run_session(run_id: int):
-    run = get_visible_script_run_or_404(run_id)
-    if script_service.close_run_session(run.id):
-        flash("Сессия закрыта.", "success")
-    else:
-        flash("Открытой сессии нет.", "info")
+    run = _run_or_404(run_id)
+    if not script_service.close_run_session(run.id):
+        flash("Запуск не найден.", "info")
+        return redirect(url_for("scripts.run_detail", run_id=run.id))
+    flash("Сессия закрыта.", "success")
     return redirect(url_for("scripts.run_detail", run_id=run.id))
 
 
 @bp.get("/runs/<int:run_id>/status")
 @login_required
 def run_status(run_id: int):
-    run = get_visible_script_run_or_404(run_id)
+    run = _run_or_404(run_id)
     finished = run.status in RunStatus.FINISHED
     state = script_service.run_session_state(run.id, finished)
     return jsonify(

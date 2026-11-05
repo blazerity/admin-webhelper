@@ -17,6 +17,7 @@ execute_run с id запуска.
 
 import logging
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -34,6 +35,7 @@ from app.services.psexec_service import (
     run_remote_command,
     run_remote_script,
     session_state,
+    tracked_run_ids,
     was_cancelled,
 )
 from app.utils import clip, utcnow
@@ -46,6 +48,9 @@ _log_lock = threading.Lock()
 # Событие отмены живёт, пока поток запуска не закончил работу.
 _cancel_events: dict[int, threading.Event] = {}
 _local_processes: dict[int, object] = {}
+_control_thread_started = False
+_control_thread_lock = threading.Lock()
+_CONTROL_POLL_SECONDS = 0.4
 
 # Bounded очередь воркеров вместо N демонов на bulk.
 MAX_RUN_WORKERS = 8
@@ -95,7 +100,6 @@ def save_script(
     content: str,
     user_id: int | None,
     run_as: str = RunAs.PSEXEC,
-    is_published: bool = True,
     script: Script | None = None,
 ) -> Script:
     """Создаёт или обновляет скрипт. script=None — новая строка."""
@@ -106,7 +110,6 @@ def save_script(
     storage = (storage or "").strip().lower()
     run_as = (run_as or RunAs.PSEXEC).strip().lower()
     content = content if content is not None else ""
-    published = bool(is_published)
 
     if not name:
         raise ScriptError("Укажите название скрипта.")
@@ -150,7 +153,6 @@ def save_script(
     script.interpreter = interpreter
     script.storage = storage
     script.run_as = run_as
-    script.is_published = published
     if creating:
         script.created_by_id = user_id
 
@@ -288,38 +290,6 @@ def start_script_on_devices(script: Script, user, devices: list[Device]) -> list
     return start_runs(runs)
 
 
-def start_vnc_ensure(user, device, password: str):
-    """Поставить агент TightVNC или переписать порт/пароль/файрвол. Пароль не в журнале."""
-    from app.models import RunStatus
-    from app.services.tightvnc_install_script import (
-        remember_ensure_password,
-        validate_vnc_agent_password,
-    )
-
-    validate_vnc_agent_password(password)
-    live = (
-        ScriptRun.query.filter(
-            ScriptRun.device_id == device.id,
-            ScriptRun.run_type == RunType.VNC_ENSURE,
-            ScriptRun.status.in_((RunStatus.PENDING, RunStatus.RUNNING)),
-        )
-        .order_by(ScriptRun.id.desc())
-        .first()
-    )
-    if live is not None:
-        remember_ensure_password(live.id, password)
-        return live
-    run = start_run(
-        RunType.VNC_ENSURE,
-        user,
-        device,
-        "установить или обновить агент TightVNC",
-        run_as=RunAs.SYSTEM,
-    )
-    remember_ensure_password(run.id, password)
-    return run
-
-
 def start_ping_on_devices(user, devices: list[Device]) -> tuple[str, list[ScriptRun]]:
     """Один batch_id и один commit для bulk ping."""
     if not devices:
@@ -338,8 +308,73 @@ def start_ping_on_devices(user, devices: list[Device]) -> tuple[str, list[Script
     return batch_id, start_runs(runs)
 
 
+def _owned_run_ids() -> set[int]:
+    with _control_lock:
+        ids = set(_cancel_events) | set(_local_processes)
+    ids |= tracked_run_ids()
+    return ids
+
+
+def _this_process_owns_run(run_id: int) -> bool:
+    return run_id in _owned_run_ids()
+
+
+def _ensure_control_thread(app) -> None:
+    global _control_thread_started
+    with _control_thread_lock:
+        if _control_thread_started:
+            return
+        _control_thread_started = True
+        threading.Thread(
+            target=_control_poll_loop,
+            args=(app,),
+            daemon=True,
+            name="bawh-run-ctl",
+        ).start()
+
+
+def _control_poll_loop(app) -> None:
+    while True:
+        time.sleep(_CONTROL_POLL_SECONDS)
+        run_ids = _owned_run_ids()
+        if not run_ids:
+            continue
+        with app.app_context():
+            try:
+                for run_id in run_ids:
+                    run = db.session.get(ScriptRun, run_id)
+                    if run is None:
+                        continue
+                    if run.cancel_requested:
+                        with _control_lock:
+                            event = _cancel_events.get(run_id)
+                            process = _local_processes.get(run_id)
+                            if event is not None:
+                                event.set()
+                        if process is not None and getattr(process, "poll", lambda: 0)() is None:
+                            try:
+                                process.terminate()
+                            except OSError:
+                                logger.warning(
+                                    "Не удалось остановить локальный процесс запуска %s",
+                                    run_id,
+                                )
+                        cancel_remote(run_id)
+                    if run.close_requested:
+                        close_remote(run_id)
+            finally:
+                db.session.remove()
+
+
 def cancel_run(run_id: int) -> None:
-    """Останавливает живой запуск. Если потока уже нет — помечает строку."""
+    """Останавливает живой запуск. Флаг в БД видят все воркеры Gunicorn."""
+    run = db.session.get(ScriptRun, run_id)
+    if run is None or run.status in RunStatus.FINISHED:
+        return
+    run.cancel_requested = True
+    db.session.commit()
+    if not _this_process_owns_run(run_id):
+        return
     with _control_lock:
         event = _cancel_events.get(run_id)
         process = _local_processes.get(run_id)
@@ -350,18 +385,19 @@ def cancel_run(run_id: int) -> None:
             process.terminate()
         except OSError:
             logger.warning("Не удалось остановить локальный процесс запуска %s", run_id)
-    had_remote = cancel_remote(run_id)
-    if event is None and not had_remote:
-        with _control_lock:
-            if run_id in _cancel_events:
-                _cancel_events[run_id].set()
-                return
-        _force_cancel_row(run_id)
+    cancel_remote(run_id)
 
 
 def close_run_session(run_id: int) -> bool:
-    """Закрывает SMB-сессию, если она осталась после запуска."""
-    return close_remote(run_id)
+    """Закрывает SMB-сессию на воркере, который её держит."""
+    run = db.session.get(ScriptRun, run_id)
+    if run is None:
+        return False
+    run.close_requested = True
+    db.session.commit()
+    if _this_process_owns_run(run_id):
+        close_remote(run_id)
+    return True
 
 
 def run_session_state(run_id: int, finished: bool) -> str:
@@ -371,6 +407,7 @@ def run_session_state(run_id: int, finished: bool) -> str:
 
 def execute_run(app, run_id: int) -> None:
     """Выполняет уже созданную строку script_runs. Её же позовёт Celery."""
+    _ensure_control_thread(app)
     with app.app_context():
         cancel_event = threading.Event()
         try:
@@ -381,6 +418,9 @@ def execute_run(app, run_id: int) -> None:
                     return
                 if run.status in RunStatus.FINISHED:
                     return
+                if run.cancel_requested:
+                    _mark_cancelled(app, run_id, cancel_event)
+                    return
                 _cancel_events[run_id] = cancel_event
                 run.status = RunStatus.RUNNING
                 if run.run_type in {RunType.SCRIPT, RunType.COMMAND, RunType.VNC_ENSURE} and not (run.log_text or "").strip():
@@ -388,6 +428,9 @@ def execute_run(app, run_id: int) -> None:
                 db.session.commit()
 
             run = db.session.get(ScriptRun, run_id)
+            if run is not None and run.cancel_requested:
+                _mark_cancelled(app, run_id, cancel_event)
+                return
             from app.services.device_identity_service import (
                 DeviceTargetError,
                 confirm_device_address,
@@ -429,6 +472,16 @@ def execute_run(app, run_id: int) -> None:
                 log_text = _with_stop_note(log_text)
             limit = int(app.config.get("MAX_LOG_CHARS", 200_000))
             run = db.session.get(ScriptRun, run_id)
+            if run is None:
+                return
+            if run.cancel_requested or status == RunStatus.CANCELLED:
+                if run.status != RunStatus.CANCELLED:
+                    run.log_text = clip(_with_stop_note(log_text or run.log_text or ""), limit)
+                    run.exit_code = exit_code
+                    run.status = RunStatus.CANCELLED
+                    run.finished_at = utcnow()
+                    db.session.commit()
+                return
             if run.status == RunStatus.CANCELLED and status != RunStatus.CANCELLED:
                 return
             run.log_text = clip(log_text, limit)
@@ -508,12 +561,6 @@ def _perform(
             )
         body = get_script_body(script)
         timeout = int(current_app.config.get("SCRIPT_TIMEOUT_SECONDS", 600))
-        from app.services.tightvnc_install_script import extra_admin_files_for_script
-
-        extra_files = extra_admin_files_for_script(script)
-        if extra_files and on_output is not None:
-            names = ", ".join(key.rsplit("\\", 1)[-1] for key in extra_files)
-            on_output(f"С bAWH копирую MSI в C:\\Windows\\Temp: {names}\n")
         rc, output = run_remote_script(
             ip,
             script.interpreter,
@@ -523,43 +570,6 @@ def _perform(
             user_id=user_id,
             on_output=on_output,
             run_id=run_id,
-            extra_files=extra_files or None,
-        )
-        return rc, output, RunStatus.SUCCESS if rc == 0 else RunStatus.FAILED
-    if run_type == RunType.VNC_ENSURE:
-        from app.services.net_utils import NetworkInputError, source_ipv4_toward
-        from app.services.tightvnc_install_script import (
-            TightVncEnsureError,
-            build_ensure_script,
-            extra_admin_files,
-            take_ensure_password,
-        )
-        from app.services.vnc_settings import get_vnc_settings
-
-        settings = get_vnc_settings(include_password=True)
-        password = take_ensure_password(run_id) or settings.password
-        try:
-            bawh_ip = source_ipv4_toward(ip)
-            body = build_ensure_script(
-                password=password, bawh_ip=bawh_ip, port=settings.port
-            )
-        except (TightVncEnsureError, NetworkInputError) as exc:
-            raise ScriptError(str(exc)) from exc
-        extra_files = extra_admin_files()
-        if extra_files and on_output is not None:
-            names = ", ".join(key.rsplit("\\", 1)[-1] for key in extra_files)
-            on_output(f"С bAWH копирую MSI в C:\\Windows\\Temp: {names}\n")
-        timeout = int(current_app.config.get("SCRIPT_TIMEOUT_SECONDS", 600))
-        rc, output = run_remote_script(
-            ip,
-            "powershell",
-            body,
-            timeout=timeout,
-            as_system=True,
-            user_id=user_id,
-            on_output=on_output,
-            run_id=run_id,
-            extra_files=extra_files or None,
         )
         return rc, output, RunStatus.SUCCESS if rc == 0 else RunStatus.FAILED
     raise ScriptError(f"Неизвестный тип запуска: {run_type}")
@@ -598,15 +608,21 @@ def _with_stop_note(log_text: str) -> str:
     return text + "\n" + _STOP_NOTE
 
 
-def _force_cancel_row(run_id: int) -> None:
-    run = db.session.get(ScriptRun, run_id)
-    if run is None or run.status in RunStatus.FINISHED:
-        return
-    limit = int(current_app.config.get("MAX_LOG_CHARS", 200_000))
-    run.status = RunStatus.CANCELLED
-    run.finished_at = utcnow()
-    run.log_text = clip(_with_stop_note(run.log_text or ""), limit)
-    db.session.commit()
+def _mark_cancelled(app, run_id: int, cancel_event: threading.Event) -> None:
+    del cancel_event
+    try:
+        run = db.session.get(ScriptRun, run_id)
+        if run is None or run.status in RunStatus.FINISHED:
+            return
+        limit = int(app.config.get("MAX_LOG_CHARS", 200_000))
+        run.status = RunStatus.CANCELLED
+        run.exit_code = None
+        run.finished_at = utcnow()
+        run.log_text = clip(_with_stop_note(run.log_text or ""), limit)
+        db.session.commit()
+    except Exception:
+        logger.exception("Не удалось записать отмену запуска %s", run_id)
+        db.session.rollback()
 
 
 def _mark_failed(app, run_id: int, exc: BaseException, cancel_event: threading.Event) -> None:
@@ -616,7 +632,11 @@ def _mark_failed(app, run_id: int, exc: BaseException, cancel_event: threading.E
         if run is None:
             return
         limit = int(app.config.get("MAX_LOG_CHARS", 200_000))
-        stopped = cancel_event.is_set() or was_cancelled(run_id)
+        stopped = (
+            cancel_event.is_set()
+            or was_cancelled(run_id)
+            or bool(getattr(run, "cancel_requested", False))
+        )
         previous = run.log_text or ""
         if stopped:
             run.status = RunStatus.CANCELLED

@@ -14,16 +14,6 @@ from flask import (
 from flask_login import current_user, login_required
 from sqlalchemy.orm import selectinload
 
-from app.authz import (
-    accessible_sectors,
-    admin_required,
-    filter_accessible_devices,
-    get_visible_device_or_404,
-    user_can_connect_vnc,
-    user_can_run_diagnostics,
-    user_can_run_script,
-    user_can_run_scripts,
-)
 from app.extensions import db
 from app.models import Device, DeviceHistory, RunType, Script, ScriptRun, Sector
 from app.run_display import run_launch_label, run_status_label, run_when_label
@@ -53,6 +43,24 @@ bp = Blueprint("devices", __name__)
 _DETAIL_TABS = frozenset({"overview", "accounts", "commands", "polls", "hardware"})
 _DEFAULT_LIST_LIMIT = 5
 _HISTORY_PER_PAGE = 20
+
+
+def _device_or_404(device_id: int) -> Device:
+    device = db.session.get(Device, device_id)
+    if device is None:
+        abort(404)
+    return device
+
+
+def _devices_by_ids(device_ids) -> list[Device]:
+    if not device_ids:
+        return []
+    ids = [int(device_id) for device_id in device_ids]
+    devices_by_id = {
+        device.id: device
+        for device in Device.query.filter(Device.id.in_(set(ids))).all()
+    }
+    return [devices_by_id[device_id] for device_id in ids if device_id in devices_by_id]
 
 
 def _latest_address_per_mac(addresses, primary_ip: str | None):
@@ -256,7 +264,7 @@ def _load_visible_sectors():
     Список кладём в sector.visible_devices — relationship не трогаем,
     иначе SQLAlchemy мог бы обнулить sector_id у отфильтрованных строк.
     """
-    allowed = accessible_sectors(current_user)
+    allowed = Sector.query.order_by(Sector.name).all()
     if not allowed:
         return []
 
@@ -286,20 +294,18 @@ def map():
     sectors = _load_visible_sectors()
     query = (request.args.get("q") or "").strip()
     sector_id = parse_optional_int(request.args.get("sector_id"))
-    map_scripts = []
-    if user_can_run_scripts(current_user):
-        map_scripts = [
-            {"id": script.id, "name": script.name}
-            for script in script_service.scripts_visible_to_user(current_user)
-        ]
+    map_scripts = [
+        {"id": script.id, "name": script.name}
+        for script in script_service.scripts_visible_to_user(current_user)
+    ]
     return render_template(
         "devices/map.html",
         sectors=sectors,
-        search_sectors=accessible_sectors(current_user),
+        search_sectors=Sector.query.order_by(Sector.name).all(),
         search_query=query,
         search_sector_id=sector_id,
         map_scripts=map_scripts,
-        can_run_diagnostics=user_can_run_diagnostics(current_user),
+        can_run_diagnostics=True,
     )
 
 
@@ -314,13 +320,11 @@ def map_status():
 @login_required
 def bulk_ping():
     """Массовый Ping: один batch_id, start_run(PING) на каждое доступное устройство."""
-    if not user_can_run_diagnostics(current_user):
-        abort(403)
     device_ids, error = _parse_bulk_device_ids_or_error()
     if error is not None:
         return error
 
-    devices = filter_accessible_devices(current_user, device_ids)
+    devices = _devices_by_ids(device_ids)
     skipped = len(device_ids) - len(devices)
     if not devices:
         abort(403)
@@ -333,9 +337,6 @@ def bulk_ping():
 @login_required
 def bulk_script():
     """Массовый запуск скрипта библиотеки."""
-    if not user_can_run_scripts(current_user):
-        abort(403)
-
     device_ids, error = _parse_bulk_device_ids_or_error()
     if error is not None:
         return error
@@ -346,8 +347,6 @@ def bulk_script():
     script = db.session.get(Script, script_id)
     if script is None:
         return jsonify({"error": "Скрипт не найден."}), 404
-    if not user_can_run_script(current_user, script):
-        abort(403)
     if script.target_os == "linux" or script.interpreter == "bash":
         return jsonify(
             {
@@ -358,7 +357,7 @@ def bulk_script():
             }
         ), 400
 
-    devices = filter_accessible_devices(current_user, device_ids)
+    devices = _devices_by_ids(device_ids)
     skipped = len(device_ids) - len(devices)
     if not devices:
         abort(403)
@@ -390,7 +389,7 @@ def network_summary():
 
 
 @bp.get("/api/command-presets")
-@admin_required
+@login_required
 def command_presets_api():
     """JSON пресетов удалённых команд (источник истины — services.command_presets)."""
     return jsonify({"presets": list_command_presets()})
@@ -448,7 +447,7 @@ def _launch_history(
 @login_required
 def detail(device_id: int):
     """Карточка устройства: вкладки зависят от типа (ноутбук/СБ/сервер/…)."""
-    device = get_visible_device_or_404(device_id)
+    device = _device_or_404(device_id)
     if device.sector is None:
         abort(404)
 
@@ -496,7 +495,7 @@ def detail(device_id: int):
                 limit=preview_limit,
             )
             has_more = list_total > preview_limit
-        if user_can_run_scripts(current_user) or user_can_run_diagnostics(current_user):
+        if True:
             device_batches, _batch_total = batch_service.list_batch_summaries(
                 current_user,
                 limit=preview_limit,
@@ -527,7 +526,7 @@ def detail(device_id: int):
     command_presets = list_command_presets() if device.shows_commands else []
     scripts = (
         script_service.scripts_visible_to_user(current_user)
-        if device.shows_commands and user_can_run_scripts(current_user)
+        if device.shows_commands
         else []
     )
     device_addresses = sorted(
@@ -563,107 +562,13 @@ def detail(device_id: int):
             hardware_rows=hardware_rows,
             command_presets=command_presets,
             scripts=scripts,
-            can_open_batches=user_can_run_scripts(current_user)
-            or user_can_run_diagnostics(current_user),
-            can_run_diagnostics=user_can_run_diagnostics(current_user),
-            can_connect_vnc=user_can_connect_vnc(current_user) and device.shows_commands,
+            can_open_batches=True,
+            can_run_diagnostics=True,
         )
     )
     if clear_notice:
         response.delete_cookie(LIVE_NOTICE_COOKIE, path="/")
     return response
-
-
-@bp.get("/devices/<int:device_id>/vnc")
-@login_required
-def vnc_session(device_id: int):
-    """Экспериментальный стол в браузере (noVNC через Debian)."""
-    device = get_visible_device_or_404(device_id)
-    if device.sector is None:
-        abort(404)
-    if not user_can_connect_vnc(current_user):
-        abort(403)
-    if not device.shows_commands:
-        abort(404)
-
-    from app.services.vnc_settings import get_vnc_settings
-
-    settings = get_vnc_settings(include_password=True)
-    return render_template(
-        "devices/vnc.html",
-        device=device,
-        vnc_port=settings.port,
-        vnc_password=settings.password,
-        has_vnc_password=settings.password_set,
-        gateway_enabled=settings.gateway_enabled,
-        prepare_url=url_for("devices.vnc_prepare", device_id=device.id),
-        ticket_url=url_for("devices.vnc_ticket", device_id=device.id),
-    )
-
-
-@bp.post("/devices/<int:device_id>/vnc/prepare")
-@login_required
-def vnc_prepare(device_id: int):
-    """Поставить или обновить TightVNC на ПК, затем клиент возьмёт билет."""
-    device = get_visible_device_or_404(device_id)
-    if device.sector is None or not device.shows_commands:
-        abort(404)
-    if not user_can_connect_vnc(current_user):
-        abort(403)
-
-    from app.services.script_service import ScriptError, start_vnc_ensure
-    from app.services.tightvnc_install_script import TightVncEnsureError
-    from app.services.vnc_settings import get_vnc_settings
-
-    payload = request.get_json(silent=True) or {}
-    typed = str(payload.get("password") or "").strip()
-    settings = get_vnc_settings(include_password=True)
-    password = typed or settings.password
-    try:
-        run = start_vnc_ensure(current_user, device, password)
-    except (TightVncEnsureError, ScriptError) as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception:
-        return jsonify({"error": "Не удалось запустить установку агента VNC."}), 400
-    return jsonify(
-        {
-            "run_id": run.id,
-            "status_url": url_for("scripts.run_status", run_id=run.id),
-            "ticket_url": url_for("devices.vnc_ticket", device_id=device.id),
-        }
-    )
-
-
-@bp.get("/devices/<int:device_id>/vnc/ticket")
-@login_required
-def vnc_ticket(device_id: int):
-    """Билет на шлюз после того, как агент на ПК готов."""
-    device = get_visible_device_or_404(device_id)
-    if device.sector is None or not device.shows_commands:
-        abort(404)
-    if not user_can_connect_vnc(current_user):
-        abort(403)
-
-    from app.services.device_identity_service import DeviceTargetError, confirm_device_address
-    from app.services.vnc_settings import get_vnc_settings
-    from app.services.vnc_token import VncTokenError, mint_ticket
-
-    settings = get_vnc_settings(include_password=False)
-    try:
-        confirm_device_address(device, user_id=current_user.id)
-    except DeviceTargetError as exc:
-        return jsonify({"error": str(exc)}), 409
-    try:
-        token = mint_ticket(
-            device_id=device.id,
-            user_id=current_user.id,
-            ip=device.ip,
-            port=settings.port,
-        )
-    except VncTokenError as exc:
-        return jsonify({"error": str(exc)}), 400
-    ws_scheme = "wss" if request.is_secure else "ws"
-    return jsonify({"ws_url": f"{ws_scheme}://{request.host}/vnc/ws?token={token}"})
 
 
 def _run_hardware_poll(device_id: int, on_progress) -> tuple[str, str]:
@@ -683,12 +588,12 @@ def _run_hardware_poll(device_id: int, on_progress) -> tuple[str, str]:
 
 
 @bp.post("/devices/<int:device_id>/hardware-poll")
-@admin_required
+@login_required
 def poll_device_hardware(device_id: int):
     """Разовый опрос железа этой машины через bAD."""
     from app.live_progress import stream_live_progress, wants_live_progress
 
-    device = get_visible_device_or_404(device_id)
+    device = _device_or_404(device_id)
     if not device.shows_hardware:
         abort(404)
     checked_id = device.id
@@ -710,7 +615,7 @@ def poll_device_hardware(device_id: int):
 @login_required
 def run_script_on_device(device_id: int):
     """Быстрый запуск скрипта с карточки устройства → detail первого run."""
-    device = get_visible_device_or_404(device_id)
+    device = _device_or_404(device_id)
     if not device.shows_commands:
         abort(404)
     script_id = parse_optional_int(request.form.get("script_id"))
@@ -722,8 +627,6 @@ def run_script_on_device(device_id: int):
     if script is None:
         flash("Скрипт не найден.", "danger")
         return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
-    if not user_can_run_script(current_user, script):
-        abort(403)
     if script.target_os == "linux" or script.interpreter == "bash":
         flash(
             "Удалённый Linux в v1 не реализован: PsExec работает только с Windows.",

@@ -49,9 +49,8 @@ from flask import (
     request,
     url_for,
 )
-from flask_login import current_user
+from flask_login import current_user, login_required
 
-from app.authz import admin_required
 from app.services import audit_service
 from app.services.export_service import csv_attachment, export_poll_runs_csv
 from app.services.credential_service import (
@@ -95,13 +94,7 @@ from app.services.settings_service import (
 )
 from app.services.password_expiry_settings import get_smtp_settings, set_smtp_settings
 from app.services.password_mailer import PasswordMailerError, test_smtp_connection
-from app.services.systemd_service import (
-    VNC_UNIT,
-    SystemdError,
-    ensure_unit_running,
-    get_unit_status,
-    stop_unit,
-)
+from app.services.systemd_service import SystemdError
 from app.services.tls_pem import TlsPemError
 from app.services.tls_service import TlsApplyError, apply_nginx_tls, save_certificate_files
 from app.services.tls_settings import get_tls_settings
@@ -114,16 +107,23 @@ from app.services.update_service import (
     refresh_remote_branches,
     save_update_branch,
 )
-from app.services.vnc_settings import clear_vnc_password, get_vnc_settings, set_vnc_settings
-from app.services.tightvnc_install_script import list_vnc_agent_summaries
 from app.services.login_service_status import list_services as load_login_services
+from app.services.password_ad_client import PasswordAdError, verify_password_directory_access
+from app.services.password_expiry_settings import (
+    get_ldap_bind_settings,
+    get_password_expiry_settings,
+    get_vacation_check_settings,
+    set_ldap_bind_settings,
+)
+from app.services.vacation_imap import VacationImapError, test_imap_connection
+from app.routes.password_expiry import save_password_report_settings, save_vacation_settings
 from app.utils import as_truthy, normalize_page, parse_optional_int
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-_SETTINGS_SECTIONS = frozenset({"general", "polls", "mail", "vnc", "tls"})
+_SETTINGS_SECTIONS = frozenset({"general", "polls", "mail", "tls"})
 _FORM_TO_SECTION = {
     "smtp": "mail",
     "test_smtp": "mail",
@@ -132,7 +132,6 @@ _FORM_TO_SECTION = {
     "discovery": "polls",
     "poll": "polls",
     "bad_integration": "polls",
-    "vnc": "general",
     "tls": "tls",
 }
 _POLL_HISTORY_PREVIEW = 5
@@ -188,13 +187,11 @@ def _poll_history_context() -> dict:
 
 @bp.route("/settings", methods=["GET", "POST"])
 @bp.route("/settings/<section>", methods=["GET", "POST"])
-@admin_required
+@login_required
 def settings(section: str | None = None):
     section = (section or "general").strip().lower() or "general"
     if section not in _SETTINGS_SECTIONS:
         abort(404)
-    if request.method == "GET" and section == "vnc":
-        return redirect(_settings_redirect("general", anchor="vnc"))
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
         target_section = _FORM_TO_SECTION.get(kind, section)
@@ -349,53 +346,6 @@ def settings(section: str | None = None):
                 flash("Учётка управления службами очищена.", "success")
             audit_service.log(current_user, "update", "admin_settings", "update_sudo")
             return redirect(_settings_redirect("general", anchor="service-control"))
-        if kind == "vnc":
-            want_enabled = request.form.get("vnc_gateway_enabled") == "1"
-            try:
-                # Порт/пароль сохраняем только когда возможность включена;
-                # при выключении оставляем прежние значения в БД.
-                if want_enabled:
-                    set_vnc_settings(
-                        gateway_enabled=True,
-                        port=request.form.get("vnc_port", ""),
-                        password=request.form.get("vnc_password"),
-                    )
-                    if request.form.get("vnc_password_clear") == "1":
-                        clear_vnc_password()
-                else:
-                    set_vnc_settings(gateway_enabled=False)
-            except (ValueError, CryptoNotConfigured, CryptoError) as exc:
-                flash(str(exc), "danger")
-                return redirect(_settings_redirect("general", anchor="vnc"))
-            try:
-                if want_enabled:
-                    ensure = ensure_unit_running(VNC_UNIT)
-                    flash(
-                        f"Возможность подключения по VNC включена "
-                        f"(порт агента {request.form.get('vnc_port') or '5900'}). "
-                        f"{ensure.message}",
-                        "success",
-                    )
-                else:
-                    stopped = stop_unit(VNC_UNIT)
-                    flash(
-                        f"Возможность подключения по VNC выключена. "
-                        f"Кнопки подключения скрыты. {stopped.message}",
-                        "success",
-                    )
-            except SystemdError as exc:
-                flash(
-                    f"Настройки VNC сохранены, но службу bawh-vnc переключить не удалось: {exc}",
-                    "warning",
-                )
-            audit_service.log(
-                current_user,
-                "update",
-                "admin_settings",
-                "vnc",
-                detail=f"enabled={int(want_enabled)} port={request.form.get('vnc_port', '')}",
-            )
-            return redirect(_settings_redirect("general", anchor="vnc"))
         if kind == "tls":
             action = (request.form.get("tls_action") or "save").strip()
             server_name = request.form.get("tls_server_name", "")
@@ -475,9 +425,6 @@ def settings(section: str | None = None):
             password_set=password_set,
             update_sudo_user=update_sudo.username,
             update_sudo_password_set=update_sudo.password_set,
-            vnc=get_vnc_settings(),
-            vnc_unit=get_unit_status(VNC_UNIT),
-            vnc_agents=list_vnc_agent_summaries(),
             login_services=load_login_services(),
         )
     elif section == "polls":
@@ -517,7 +464,7 @@ def settings(section: str | None = None):
 
 
 @bp.get("/poll-runs/export.csv")
-@admin_required
+@login_required
 def export_poll_runs():
     """CSV журнала прогонов опроса (admin)."""
     return csv_attachment(export_poll_runs_csv(limit=200), "poll_runs.csv")
@@ -543,7 +490,7 @@ def _run_manual_network_poll(on_progress) -> tuple[str, str]:
 
 
 @bp.route("/poll-run", methods=["POST"])
-@admin_required
+@login_required
 def poll_run():
     """Принудительный полный опрос сети (тот же код, что у планировщика)."""
     from app.live_progress import stream_live_progress, wants_live_progress
@@ -564,7 +511,7 @@ def poll_run():
 
 
 @bp.route("/refresh-hostnames", methods=["POST"])
-@admin_required
+@login_required
 def refresh_hostnames():
     """Перечитать hostname с машин по WMI. Строки не сливает."""
     try:
@@ -598,7 +545,7 @@ def refresh_hostnames():
 
 
 @bp.route("/duplicates", methods=["GET", "POST"])
-@admin_required
+@login_required
 def duplicates():
     """Поиск и выборочное удаление дублей устройств."""
     scan = None
@@ -666,7 +613,7 @@ def duplicates():
 
 
 @bp.route("/updates", methods=["GET", "POST"])
-@admin_required
+@login_required
 def updates():
     if request.method == "POST":
         kind = (request.form.get("form") or "").strip()
@@ -711,25 +658,72 @@ def updates():
 
 
 @bp.get("/audit")
-@admin_required
+@login_required
 def audit_log():
     """Журнал аудита перенесён на страницу «Действия и аудит»."""
     return redirect(url_for("actions.list_actions") + "#audit")
 
 
 @bp.route("/settings/ldap", methods=["GET", "POST"])
-@admin_required
+@login_required
 def ldap_settings():
     """LDAP модуля паролей. Живёт в /admin, рядом с остальными настройками."""
-    from app.routes.password_expiry import settings_page
+    if request.method == "POST":
+        kind = (request.form.get("form") or "").strip()
+        if kind == "ldap_bind":
+            try:
+                set_ldap_bind_settings(
+                    bind_dn=request.form.get("ldap_bind_dn", ""),
+                    bind_password=request.form.get("ldap_bind_password"),
+                )
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("admin.ldap_settings"))
+            flash("Учётка LDAP для модуля сохранена.", "success")
+            return redirect(url_for("admin.ldap_settings"))
 
-    return settings_page()
+        if kind == "test_ldap":
+            try:
+                message = verify_password_directory_access()
+            except PasswordAdError as exc:
+                flash(str(exc), "danger")
+            else:
+                flash(message, "success")
+            return redirect(url_for("admin.ldap_settings"))
+
+        flash("Неизвестная форма.", "danger")
+        return redirect(url_for("admin.ldap_settings"))
+
+    return render_template(
+        "password_expiry/settings.html",
+        ldap=get_ldap_bind_settings(),
+    )
 
 
 @bp.route("/settings/passwords", methods=["GET", "POST"])
-@admin_required
+@login_required
 def password_report_settings():
     """Пороги и отпуск модуля паролей. Операционный отчёт остаётся в /password-expiry."""
-    from app.routes.password_expiry import report_settings
+    if request.method == "POST":
+        kind = (request.form.get("form") or "").strip()
+        if kind == "module":
+            return save_password_report_settings()
+        if kind == "vacation":
+            return save_vacation_settings()
+        if kind == "test_imap":
+            try:
+                message = test_imap_connection(get_vacation_check_settings())
+            except VacationImapError as exc:
+                flash(str(exc), "danger")
+            else:
+                flash(message, "success")
+            return redirect(url_for("admin.password_report_settings"))
+        flash("Неизвестная форма.", "danger")
+        return redirect(url_for("admin.password_report_settings"))
 
-    return report_settings()
+    return render_template(
+        "password_expiry/report_settings.html",
+        settings=get_password_expiry_settings(),
+        ldap=get_ldap_bind_settings(),
+        vacation=get_vacation_check_settings(),
+    )

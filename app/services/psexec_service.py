@@ -146,6 +146,11 @@ def session_state(run_id: int, finished: bool) -> str:
         return "busy"
 
 
+def tracked_run_ids() -> set[int]:
+    with _sessions_lock:
+        return set(_sessions.keys())
+
+
 def reset_tracked_sessions() -> None:
     """Сбрасывает учёт сессий между тестами. Удалённые машины не трогает."""
     with _sessions_lock:

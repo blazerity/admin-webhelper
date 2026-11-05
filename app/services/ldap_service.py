@@ -21,7 +21,7 @@ from ldap3.utils.conv import escape_filter_chars
 from sqlalchemy import select
 
 from app.extensions import db
-from app.models import User, UserLdapGroup
+from app.models import User
 from app.utils import as_truthy, utcnow
 
 logger = logging.getLogger(__name__)
@@ -100,19 +100,6 @@ def upsert_local_user(identity: LdapIdentity) -> User:
     user.is_operator = False
     user.is_password_viewer = False
     user.last_login_at = utcnow()
-
-    user.ldap_groups.clear()
-    # Уникальный ключ (user_id, group_name) проверяется сразу.
-    # Пока старые строки не удалены, повторная вставка того же CN падает.
-    db.session.flush()
-
-    seen: set[str] = set()
-    for group_name in identity.groups:
-        cleaned = group_name.strip()[:_GROUP_NAME_MAX]
-        if not cleaned or cleaned in seen:
-            continue
-        seen.add(cleaned)
-        user.ldap_groups.append(UserLdapGroup(group_name=cleaned))
 
     db.session.commit()
     return user

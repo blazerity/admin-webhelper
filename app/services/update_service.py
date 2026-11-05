@@ -878,7 +878,7 @@ def schedule_restart(root: Path, previous: str) -> str:
             if sudo_user:
                 hint = (
                     f"su - {sudo_user} -c '{systemctl} restart "
-                    "bawh-scheduler bawh-web bawh-password-reports bawh-vnc'"
+                    "bawh-scheduler bawh-web bawh-password-reports'"
                 )
             _write_operation(
                 root,
@@ -892,8 +892,8 @@ def schedule_restart(root: Path, previous: str) -> str:
 
     threading.Thread(target=_later, name="bawh-restart", daemon=True).start()
     return (
-        "Службы bawh-web, bawh-scheduler, bawh-password-reports и "
-        "bawh-vnc будут синхронизированы и перезапущены через несколько секунд."
+        "Службы bawh-web, bawh-scheduler и bawh-password-reports "
+        "будут синхронизированы и перезапущены через несколько секунд."
     )
 
 
@@ -930,7 +930,7 @@ def _run_post_update_restart(
             if sudo_user:
                 hint = (
                     f"su - {sudo_user} -c '{systemctl} restart "
-                    "bawh-scheduler bawh-web bawh-password-reports bawh-vnc'"
+                    "bawh-scheduler bawh-web bawh-password-reports'"
                 )
             detail = _tail(
                 result.stderr or result.stdout or legacy.stderr or legacy.stdout
@@ -976,7 +976,6 @@ def _ensure_report_units_for_enabled_schedules() -> None:
     from app.services.password_expiry_settings import get_password_expiry_settings
     from app.services.systemd_service import (
         PASSWORD_REPORTS_UNIT,
-        VNC_UNIT,
         SystemdError,
         ensure_unit_running,
     )
@@ -988,16 +987,6 @@ def _ensure_report_units_for_enabled_schedules() -> None:
         logger.warning("password reports unit after update: %s", exc)
     except Exception:
         logger.exception("password reports unit after update failed")
-
-    try:
-        from app.services.vnc_settings import get_vnc_settings
-
-        if get_vnc_settings().gateway_enabled:
-            ensure_unit_running(VNC_UNIT)
-    except SystemdError as exc:
-        logger.warning("vnc unit after update: %s", exc)
-    except Exception:
-        logger.exception("vnc unit after update failed")
 
 
 def iter_managed(root: Path):
@@ -1013,8 +1002,6 @@ def iter_managed(root: Path):
         dirnames[:] = kept
         for name in filenames:
             if name == ".env" or name.endswith(".db"):
-                continue
-            if current.name == "vnc-agents" and name.lower().endswith((".msi", ".exe")):
                 continue
             path = current / name
             if path.is_symlink() or not path.is_file():
