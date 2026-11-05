@@ -154,11 +154,11 @@
     <div>
       <h2 class="h5 mb-1">Пароль перед отпуском</h2>
       <p class="text-muted mb-0">
-        Из служебного ящика берутся письма с темой
-        «Приближается отпуск сотрудников с …».
-        ФИО из письма ищется в AD по CN как фамилия и имя, без отчества.
-        Письмо кадров сохраняет намерение; сотруднику уходит не более одного
-        парольного письма в день (отпуск или срок пароля).
+        1. Служебный ящик только сохраняет письмо кадров и намерения по сотрудникам.
+      </p>
+      <p class="text-muted mb-0 mt-1">
+        2. Письмо сотруднику уходит позже, не чаще одного в день; письмо об отпуске —
+        только если пароль не доживёт до дня выхода из отпуска.
       </p>
       <p class="small text-muted mb-0 mt-2">
         {% if vacation.enabled %}
@@ -204,6 +204,50 @@
       <button class="btn btn-outline-primary" type="submit">Тест без писем</button>
     </form>
     <a class="btn btn-outline-secondary" href="{{ url_for('admin.password_report_settings') }}">Ящик и срок отпуска</a>
+  </div>
+  <div class="table-responsive mt-3">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Когда</th>
+          <th>Тема</th>
+          <th>Отпуск с</th>
+          <th>Разбор</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for notice in vacation_notices %}
+        <tr>
+          <td class="text-nowrap">{{ notice.created_at.strftime('%d.%m.%Y %H:%M') if notice.created_at else '—' }}</td>
+          <td>{{ notice.subject or '—' }}</td>
+          <td>{% if notice.vacation_start %}{{ notice.vacation_start.strftime('%d.%m.%Y') }}{% else %}—{% endif %}</td>
+          <td>
+            {% if notice.status == 'ok' %}
+              разобрано
+            {% elif notice.status == 'partial' %}
+              частично
+            {% elif notice.status == 'error' %}
+              ошибка
+            {% else %}
+              {{ notice.status }}
+            {% endif %}
+            {% if notice.employees_count or notice.risk_count or notice.unmatched_count %}
+              <span class="small text-muted">
+                · сотр. {{ notice.employees_count }}, риск {{ notice.risk_count }}, без AD {{ notice.unmatched_count }}
+              </span>
+            {% endif %}
+            {% if notice.status == 'error' and notice.error %}
+              <div class="small text-danger">{{ notice.error }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" class="text-muted">Писем кадров в журнале пока нет.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
   <div class="table-responsive mt-3">
     <table class="table table-sm align-middle mb-0">

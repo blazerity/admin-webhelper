@@ -162,6 +162,14 @@ def load_recent_vacation_checks(limit: int = 40) -> list[VacationPasswordCheck]:
     )
 
 
+def load_recent_vacation_notices(limit: int = 15) -> list[VacationNotice]:
+    return list(
+        db.session.scalars(
+            select(VacationNotice).order_by(VacationNotice.id.desc()).limit(limit)
+        ).all()
+    )
+
+
 def active_vacation_intent_for_username(username: str) -> VacationPasswordCheck | None:
     if not username:
         return None

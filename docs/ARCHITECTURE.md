@@ -16,7 +16,7 @@
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.9.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.9.2` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -87,7 +87,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.9.1)
+  VERSION                      # semver (2.9.2)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -771,7 +771,7 @@ backup → git → pip → `flask init-db` → опциональный restart
 | `static/favicon.ico`, `favicon.svg` | иконка вкладки (`base.html`) |
 | `static/js/http.js` | общий fetch/CSRF helper |
 | `static/js/live_progress.js` | шаги проверки, железа и опроса сети: рамка, прокрутка, список остаётся после обновления страницы |
-| `static/js/map.js` | карта сети (поиск и фильтры над устройствами); автообновление опционально (localStorage) |
+| `static/js/map.js` | карта сети (поиск и фильтры в сайдбаре карты); автообновление опционально (localStorage) |
 | `static/js/search.js` | живой фильтр карты (без suggest-dropdown); поиск по УЗ |
 | `static/js/live_search.js` | живой поиск списков Действия и аудит / Обнаруженные УЗ |
 | `static/js/batch.js` | bulk операции |
