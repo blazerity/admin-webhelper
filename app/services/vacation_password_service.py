@@ -265,13 +265,13 @@ def _run_unlocked(
             _rematch_unmatched_intents(
                 settings=settings,
                 max_pwd_age_days=settings.max_pwd_age_days,
-                today=current,
+                today=today,
             )
             notified = _send_active_intent_letters(
                 settings=settings,
                 vacation=vacation,
                 mailer=mailer,
-                today=current,
+                today=today,
                 paused=paused,
                 send_emails=True,
             )
@@ -294,10 +294,8 @@ def _run_unlocked(
                 settings=settings,
                 vacation_days=vacation.vacation_days,
                 today=today,
-                paused=paused,
                 send_emails=send_emails,
                 mailer=mailer,
-                instructions_url=settings.instructions_url,
                 admin_recipients=settings.admin_recipients,
             )
         except PasswordAdError as exc:
@@ -323,13 +321,13 @@ def _run_unlocked(
         _rematch_unmatched_intents(
             settings=settings,
             max_pwd_age_days=settings.max_pwd_age_days,
-            today=current,
+            today=today,
         )
         daily_sent = _send_active_intent_letters(
             settings=settings,
             vacation=vacation,
             mailer=mailer,
-            today=current,
+            today=today,
             paused=paused,
             send_emails=True,
         )
@@ -351,10 +349,8 @@ def _evaluate_message(
     settings,
     vacation_days: int,
     today: date,
-    paused: bool,
     send_emails: bool,
     mailer: PasswordMailer,
-    instructions_url: str,
     admin_recipients: list[str],
 ) -> tuple[list[VacationCheckRow], str]:
     blocks = parse_vacation_notice(message.body)
