@@ -49,6 +49,8 @@
       {% if run.device %}
       <form method="post" action="{{ url_for('diagnostics.command_device', device_id=run.device.id) }}" class="terminal-form" id="run-command-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="shell" value="cmd">
+        <input type="hidden" name="run_as" value="{{ run.run_as or 'psexec' }}">
         <label class="prompt" for="run-command">{{ pc_name }}&gt;</label>
         <input id="run-command" name="command" autocomplete="off" spellcheck="false" placeholder="следующая команда" title="{% if finished %}Команда выполнится на этом компьютере{% else %}Ввод включится, когда текущая команда закончится{% endif %}" {% if not finished %}disabled{% endif %}{% if finished %}autofocus{% endif %}>
         <button class="btn btn-sm btn-warning" id="run-command-submit" type="submit" {% if not finished %}disabled{% endif %}>Выполнить</button>
@@ -95,18 +97,18 @@
         <dd id="run-finished-at">{{ finished_label if run.finished_at else '—' }}</dd>
         <dt>Кто запустил</dt>
         <dd>{{ launched_by }}</dd>
-        {% if run.run_type == 'script' %}
+        {% if run.run_type in ['script', 'command'] %}
         <dt>Процесс</dt>
-        <dd>{% if run.run_as == 'system' %}NT AUTHORITY\SYSTEM{% else %}учётка PsExec{% endif %}</dd>
+        <dd>{% if run.run_as == 'system' %}NT AUTHORITY\SYSTEM{% else %}учётка веб-панели{% endif %}</dd>
         {% endif %}
         {% if account_label %}
         <dt>Учётка SMB</dt>
         <dd>{{ account_label }}</dd>
         {% endif %}
       </dl>
-      {% if run.command_text %}
+      {% if command_preview|default('') %}
       <h2 class="panel-title mt-3 mb-2">Что запущено</h2>
-      <pre class="small border rounded p-2 mb-0 command-preview bg-white">{{ run.command_text[:500] }}{% if run.command_text|length > 500 %}…{% endif %}</pre>
+      <pre class="small border rounded p-2 mb-0 command-preview bg-white">{{ command_preview[:500] }}{% if command_preview|length > 500 %}…{% endif %}</pre>
       {% endif %}
     </div>
   </div>

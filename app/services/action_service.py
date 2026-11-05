@@ -21,6 +21,7 @@ from app.models import (
     ScriptRun,
     seed_action_kinds,
 )
+from app.services.script_service import command_text_body
 from app.utils import as_utc
 
 _UTC_MIN = datetime.min.replace(tzinfo=timezone.utc)
@@ -77,7 +78,7 @@ def _actor_label(user) -> str | None:
 def _run_title(run: ScriptRun, kinds: dict[str, ActionKind], code: str) -> str:
     if run.script is not None and run.script.name:
         return run.script.name
-    text = " ".join((run.command_text or "").split())
+    text = " ".join(command_text_body(run.command_text or "").split())
     if len(text) > 72:
         text = text[:72] + "…"
     return text or action_kind_title(kinds, code)

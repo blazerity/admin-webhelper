@@ -192,6 +192,9 @@
         </button>
         <div class="collapse" id="{{ panel_id }}">
           <div class="sector-devices">
+            <p class="px-1 pt-2 mb-1">
+              <button type="button" class="btn btn-sm btn-outline-success" data-sector-select-online>Выделить все ОНЛАЙН</button>
+            </p>
             <div class="device-card-grid" data-sector-devices data-layout="cards">
               {% for device in sector.visible_devices %}
               {% set account = device.current_account if device.shows_accounts else none %}

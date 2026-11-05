@@ -9,14 +9,13 @@
 > Перед поиском по репозиторию прочитай этот файл целиком — здесь слои, точки входа,
 > модели, сервисы, маршруты, доступ, фоновые задачи и соглашения.
 > Установка и ops — в [README.md](../README.md).
-> Текст скриптов для формы Настройки → Скрипты — в [SCRIPTS.md](SCRIPTS.md).
 
 **Продукт:** внутренний веб-помощник администратора сети (карта устройств,
 секторы/CIDR, ICMP+WMI+TCP/SNMP опрос, диагностика, скрипты на Windows через PsExec,
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.9.2` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.10` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -87,7 +86,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.9.2)
+  VERSION                      # semver (2.10)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -154,7 +153,7 @@ flowchart TB
     S_SHARE["run_journal · device_sweep"]
     S_ACC["account · action · export · audit"]
     S_ID["ldap · credential · crypto · settings"]
-    S_RUN["script · psexec · batch · command_presets"]
+    S_RUN["script · psexec · batch"]
     S_PWD["password_expiry* · password_ad · mailer · vacation_* · report_toggle · systemd"]
     S_OTH["sector · login_status · network_summary<br/>notification · update · log_archive · net_utils · device_kind · hostname_sweep"]
   end
@@ -374,7 +373,6 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `tls_pem.py` / `tls_settings.py` / `tls_service.py` | PEM из Настройки → HTTPS, файлы в `certs/`, `apply-nginx-tls.sh` |
 | `script_service.py` | CRUD/тело скриптов; enqueue на ThreadPoolExecutor в веб-процессе |
 | `batch_service.py` | bulk ping/script, статус одной пачки и список `list_batch_summaries` |
-| `command_presets.py` | статические пресеты команд |
 
 ### Пароли AD
 
@@ -425,8 +423,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | POST | `/api/map/bulk/script` | Bulk script (любой вошедший, любой скрипт) |
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
-| GET | `/api/command-presets` | Пресеты (вошедший) |
-| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа. Учётные записи — история. Команды — запуск и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
+| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа. Учётные записи — история. Команды — CMD и PowerShell, учётка веб-панели или SYSTEM, плитки скриптов и пачки этой машины. Оборудование — снимок bAD. Опросы — «Проверить сейчас», Ping, Tracert и история ICMP |
 | POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. `Accept: application/x-ndjson` — те же шаги в рамке лога (`live_progress`). Без связи «подключено» проход не стартует |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
@@ -858,7 +855,6 @@ backup → git → pip → `flask init-db` → опциональный restart
 | Дубли устройств | `device_dedup_service` (SN / призраки / история IP / suspected), GET/POST `/admin/duplicates` |
 | Идентичность / призраки | `device_identity_service` (`device_addresses`, `absorb_ghosts`, `confirm_device_address`) |
 | Карта сети UI | `routes/devices.py`, `templates/devices/map.html`, `static/js/map.js`, `network_summary_service` |
-| Текст скрипта для веб-формы | [`SCRIPTS.md`](SCRIPTS.md) — поля, интерпретатор, SYSTEM, журнал, чеклист |
 | Скрипты / PsExec (код) | `script_service`, `psexec_service`, `routes/scripts.py`, `credential_service` |
 | HTTPS из UI | `tls_pem`, `tls_settings`, `tls_service`, `deploy/apply-nginx-tls.sh`, Настройки → HTTPS |
 | Пачки запусков | `batch_service.list_batch_summaries`, `/admin/scripts/batches`, карточка → Команды. Прогресс одной пачки — `batch.js` |
@@ -882,7 +878,6 @@ backup → git → pip → `flask init-db` → опциональный restart
 | [README.md](../README.md) | Установка на Debian, минимальный `.env`, службы, обновление |
 | [`.env.example`](../.env.example) | Полный список переменных окружения |
 | [UI_GUIDEBOOK.md](UI_GUIDEBOOK.md) | IA, токены, компоненты, адаптив, «работа vs конфиг», чеклист экранов |
-| [SCRIPTS.md](SCRIPTS.md) | Требования к телу скрипта из формы Настройки → Скрипты (для агентов и авторов) |
 
 ---
 

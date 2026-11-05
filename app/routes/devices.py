@@ -30,7 +30,6 @@ from app.services.hardware_poll_service import (
     poll_one_device,
 )
 from app.services import batch_service
-from app.services.command_presets import list_command_presets
 from app.services.device_kind import hostname_sort_key, kind_counts
 from app.services.net_utils import sector_subnet_labels
 from app.services.network_summary_service import get_network_summary
@@ -388,12 +387,6 @@ def network_summary():
     return jsonify(get_network_summary(current_user))
 
 
-@bp.get("/api/command-presets")
-@login_required
-def command_presets_api():
-    """JSON пресетов удалённых команд (источник истины — services.command_presets)."""
-    return jsonify({"presets": list_command_presets()})
-
 
 def _history_paging() -> tuple[bool, int, int, int]:
     """(show_all, page, per_page, offset) для журналов карточки устройства.
@@ -522,8 +515,7 @@ def detail(device_id: int):
             )
             has_more = list_total > preview_limit
 
-    # Пресеты/скрипты только если вкладка команд доступна этому типу.
-    command_presets = list_command_presets() if device.shows_commands else []
+    # Скрипты только если вкладка команд доступна этому типу.
     scripts = (
         script_service.scripts_visible_to_user(current_user)
         if device.shows_commands
@@ -560,7 +552,6 @@ def detail(device_id: int):
             device_batches=device_batches,
             account_rows=account_rows,
             hardware_rows=hardware_rows,
-            command_presets=command_presets,
             scripts=scripts,
             can_open_batches=True,
             can_run_diagnostics=True,
@@ -635,7 +626,10 @@ def run_script_on_device(device_id: int):
         return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
 
     try:
-        runs = script_service.start_script_on_devices(script, current_user, [device])
+        run_as = script_service.parse_run_as(request.form.get("run_as"))
+        runs = script_service.start_script_on_devices(
+            script, current_user, [device], run_as=run_as
+        )
     except script_service.ScriptError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))

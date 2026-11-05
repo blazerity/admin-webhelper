@@ -964,6 +964,30 @@
     updateBulkBar();
   }
 
+  function selectVisibleOnlineInSector(panel) {
+    if (!panel) return;
+    panel.querySelectorAll("[data-device-card]").forEach((card) => {
+      if (card.classList.contains("d-none")) return;
+      if (card.dataset.status !== "online") return;
+      const id = String(card.dataset.deviceId || "");
+      if (!id) return;
+      selectedIds.add(id);
+      syncSelectUi(card);
+    });
+    updateBulkBar();
+  }
+
+  function bindSectorSelectOnline(panel) {
+    if (!panel) return;
+    const btn = panel.querySelector("[data-sector-select-online]");
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      selectVisibleOnlineInSector(panel);
+    });
+  }
+
   function toggleSelect(card) {
     const id = String(card.dataset.deviceId || "");
     if (!id) return;
@@ -1318,6 +1342,7 @@
   }
 
   mapRoot.querySelectorAll("[data-device-card]").forEach(bindCardControls);
+  mapRoot.querySelectorAll(".sector-panel").forEach(bindSectorSelectOnline);
 
   mapRoot.addEventListener("click", (event) => {
     const link = event.target.closest("[data-device-link]");

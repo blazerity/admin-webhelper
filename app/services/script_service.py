@@ -32,7 +32,6 @@ from app.services.psexec_service import (
     cancel_remote,
     close_remote,
     discard_if_closed,
-    run_remote_command,
     run_remote_script,
     session_state,
     tracked_run_ids,
@@ -63,6 +62,34 @@ _INTERPRETERS = {"powershell", "cmd", "bash"}
 _STORAGES = {"db", "filesystem"}
 _RUN_AS = {RunAs.PSEXEC, RunAs.SYSTEM}
 _EXTENSIONS = {"powershell": ".ps1", "cmd": ".cmd", "bash": ".sh"}
+_COMMAND_SHELL_MARK = "\x1e"
+
+
+def parse_run_as(value: str | None) -> str:
+    v = (value or RunAs.PSEXEC).strip().lower()
+    return RunAs.SYSTEM if v == RunAs.SYSTEM else RunAs.PSEXEC
+
+
+def pack_command_text(shell: str, body: str) -> str:
+    kind = (shell or "cmd").strip().lower()
+    if kind not in {"cmd", "powershell"}:
+        kind = "cmd"
+    return f"{kind}{_COMMAND_SHELL_MARK}{body or ''}"
+
+
+def command_text_body(stored: str) -> str:
+    if _COMMAND_SHELL_MARK in stored:
+        _, _, body = stored.partition(_COMMAND_SHELL_MARK)
+        return body
+    return stored or ""
+
+
+def command_text_shell(stored: str) -> str:
+    if _COMMAND_SHELL_MARK in stored:
+        shell, _, _ = stored.partition(_COMMAND_SHELL_MARK)
+        if shell in {"cmd", "powershell"}:
+            return shell
+    return "cmd"
 
 
 def _run_pool() -> ThreadPoolExecutor:
@@ -153,6 +180,7 @@ def save_script(
     script.interpreter = interpreter
     script.storage = storage
     script.run_as = run_as
+    script.is_published = True
     if creating:
         script.created_by_id = user_id
 
@@ -251,15 +279,19 @@ def start_run(
     script: Script | None = None,
     batch_id: str | None = None,
     run_as: str = RunAs.PSEXEC,
+    command_shell: str | None = None,
 ) -> ScriptRun:
     """Пишет pending-строку и ставит execute_run в очередь воркеров."""
+    stored_text = command_text or ""
+    if run_type == RunType.COMMAND:
+        stored_text = pack_command_text(command_shell or "cmd", stored_text)
     return start_runs(
         [
             _new_pending_run(
                 run_type,
                 user,
                 device,
-                command_text,
+                stored_text,
                 script=script,
                 batch_id=batch_id,
                 run_as=run_as,
@@ -268,13 +300,19 @@ def start_run(
     )[0]
 
 
-def start_script_on_devices(script: Script, user, devices: list[Device]) -> list[ScriptRun]:
+def start_script_on_devices(
+    script: Script,
+    user,
+    devices: list[Device],
+    run_as: str = RunAs.PSEXEC,
+) -> list[ScriptRun]:
     """Один batch_id и один commit на пачку; воркеры — из очереди."""
     if not devices:
         return []
     batch_id = str(uuid.uuid4())
     # В журнал — исходный текст, не EncodedCommand.
     body = get_script_body(script)
+    account = parse_run_as(run_as)
     runs = [
         _new_pending_run(
             RunType.SCRIPT,
@@ -283,7 +321,7 @@ def start_script_on_devices(script: Script, user, devices: list[Device]) -> list
             body,
             script=script,
             batch_id=batch_id,
-            run_as=script.run_as or RunAs.PSEXEC,
+            run_as=account,
         )
         for device in devices
     ]
@@ -544,9 +582,15 @@ def _perform(
         )
         return rc, output or "", RunStatus.SUCCESS if rc == 0 else RunStatus.FAILED
     if run_type == RunType.COMMAND:
-        rc, output = run_remote_command(
+        shell = command_text_shell(command_text)
+        body = command_text_body(command_text)
+        timeout = int(current_app.config.get("SCRIPT_TIMEOUT_SECONDS", 600))
+        rc, output = run_remote_script(
             ip,
-            command_text,
+            shell,
+            body,
+            timeout=timeout,
+            as_system=run_as == RunAs.SYSTEM,
             user_id=user_id,
             on_output=on_output,
             run_id=run_id,

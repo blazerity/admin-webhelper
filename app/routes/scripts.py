@@ -17,6 +17,7 @@ from app.run_display import (
     run_when_label,
 )
 from app.services import audit_service, batch_service, script_service
+from app.services.script_service import command_text_body
 from app.services.credential_service import get_stored_credential
 from app.utils import parse_optional_int
 
@@ -71,13 +72,16 @@ def _render_form(script: Script | None):
 
 
 def _form_fields():
+    shell = (request.form.get("shell") or request.form.get("interpreter") or "powershell").strip().lower()
+    if shell not in {"cmd", "powershell"}:
+        shell = "powershell"
     return dict(
         name=request.form.get("name", ""),
         description=request.form.get("description", ""),
-        target_os=request.form.get("target_os", "windows"),
-        interpreter=request.form.get("interpreter", "powershell"),
-        storage=request.form.get("storage", "db"),
-        run_as=request.form.get("run_as", "psexec"),
+        target_os="windows",
+        interpreter=shell,
+        storage="db",
+        run_as="psexec",
         content=request.form.get("content", ""),
         user_id=current_user.id,
     )
@@ -338,9 +342,13 @@ def run_detail(run_id: int):
     run = _run_or_404(run_id)
     finished = run.status in RunStatus.FINISHED
     state = script_service.run_session_state(run.id, finished)
+    preview = run.command_text or ""
+    if run.run_type == RunType.COMMAND:
+        preview = command_text_body(preview)
     return render_template(
         "scripts/run.html",
         run=run,
+        command_preview=preview,
         status_label=run_status_label(run.status),
         run_type_label=run_type_label(run.run_type),
         session_open=state == "open",

@@ -252,7 +252,7 @@ def run_remote_script(
     if kind == "powershell":
         stem = f"bawh_{uuid.uuid4().hex[:12]}"
         remote_ps1 = rf"Temp\{stem}.ps1"
-        payload = wrap_powershell_script(script).encode("utf-8-sig")
+        payload = script.encode("utf-8-sig")
 
         def prepare(client) -> None:
             _write_admin_file(client, remote_ps1, payload)
@@ -271,40 +271,38 @@ def run_remote_script(
             prepare=prepare,
         )
     if kind == "cmd":
-        # Аргумент удалённого cmd.exe; shell=False — локальный процесс без shell.
+        stem = f"bawh_{uuid.uuid4().hex[:12]}"
+        remote_cmd = rf"Temp\{stem}.cmd"
+        payload = script.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8-sig")
+
+        def prepare_cmd(client) -> None:
+            _write_admin_file(client, remote_cmd, payload)
+            for relative, data in (extra_files or {}).items():
+                _write_admin_file(client, relative, data)
+
         return _run(
             checked_ip,
             "cmd.exe",
-            f"/c {script}",
+            _cmd_file_cmd(stem),
             timeout,
             as_system=as_system,
             user_id=user_id,
             on_output=on_output,
             run_id=run_id,
+            prepare=prepare_cmd,
         )
     raise RemoteExecError(f"Неизвестный интерпретатор: {interpreter}")
 
 
-# Буфер stdout у powershell.exe на pipe — иначе Write-Output копится до exit.
-_POWERSHELL_HOST_PREAMBLE = (
-    "$ProgressPreference = 'SilentlyContinue'\r\n"
-    "try {\r\n"
-    "  $enc = New-Object System.Text.UTF8Encoding $false\r\n"
-    "  [Console]::OutputEncoding = $enc\r\n"
-    "  $sw = New-Object System.IO.StreamWriter("
-    "[Console]::OpenStandardOutput(), $enc, 16)\r\n"
-    "  $sw.AutoFlush = $true\r\n"
-    "  [Console]::SetOut($sw)\r\n"
-    "} catch {}\r\n"
-)
-
-
-def wrap_powershell_script(script: str) -> str:
-    """Префикс live-журнала + текст из библиотеки. BOM добавляет encode utf-8-sig."""
-    body = (script or "").lstrip("\ufeff")
-    if not body.endswith("\n"):
-        body += "\n"
-    return _POWERSHELL_HOST_PREAMBLE + body
+def _cmd_file_cmd(stem: str) -> str:
+    bat = rf"C:\Windows\Temp\{stem}.cmd"
+    return (
+        "/v:on /c "
+        f"call {bat} <nul 2>&1 "
+        "& set BAWHR=!ERRORLEVEL! "
+        f"& del /f /q {bat} "
+        "& exit /b !BAWHR!"
+    )
 
 
 def _powershell_file_cmd(stem: str) -> str:

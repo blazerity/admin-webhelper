@@ -8,7 +8,7 @@
       {% if not script %}Новый скрипт{% else %}Изменить скрипт{% endif %}
     </h1>
     <p class="page-subtitle">
-      Текст, интерпретатор и запуск на машинах
+      Текст и оболочка Windows (cmd или PowerShell)
     </p>
   </div>
 </div>
@@ -23,39 +23,12 @@
       <label class="form-label" for="description">Описание</label>
       <textarea class="form-control" id="description" name="description" rows="2">{{ script.description if script else '' }}</textarea>
     </div>
-    <div class="row">
-      <div class="col-md-4 mb-3">
-        <label class="form-label" for="target_os">ОС</label>
-        <select class="form-select" id="target_os" name="target_os">
-          <option value="windows" {% if script and script.target_os == 'windows' %}selected{% endif %}>windows</option>
-          <option value="linux" {% if script and script.target_os == 'linux' %}selected{% endif %}>linux</option>
-        </select>
-      </div>
-      <div class="col-md-4 mb-3">
-        <label class="form-label" for="interpreter">Интерпретатор</label>
-        <select class="form-select" id="interpreter" name="interpreter">
-          {% for item in ['powershell', 'cmd', 'bash'] %}
-          <option value="{{ item }}" {% if script and script.interpreter == item %}selected{% endif %}>{{ item }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-4 mb-3">
-        <label class="form-label" for="run_as">От чьего имени на машине</label>
-        <select class="form-select" id="run_as" name="run_as">
-          <option value="psexec" {% if not script or script.run_as != 'system' %}selected{% endif %}>учётка PsExec</option>
-          <option value="system" {% if script and script.run_as == 'system' %}selected{% endif %}>NT AUTHORITY\SYSTEM</option>
-        </select>
-        <div class="form-text">Сессию по SMB всё равно открывает учётка из параметров. SYSTEM — только процесс скрипта.</div>
-      </div>
-    </div>
-    <div class="row">
-      <div class="col-md-4 mb-3">
-        <label class="form-label" for="storage">Где хранить</label>
-        <select class="form-select" id="storage" name="storage">
-          <option value="db" {% if not script or script.storage == 'db' %}selected{% endif %}>в базе</option>
-          <option value="filesystem" {% if script and script.storage == 'filesystem' %}selected{% endif %}>в файле</option>
-        </select>
-      </div>
+    <div class="mb-3">
+      <label class="form-label" for="shell">Оболочка</label>
+      <select class="form-select" id="shell" name="shell">
+        <option value="powershell" {% if not script or script.interpreter == 'powershell' %}selected{% endif %}>PowerShell</option>
+        <option value="cmd" {% if script and script.interpreter == 'cmd' %}selected{% endif %}>CMD</option>
+      </select>
     </div>
     <div class="mb-3">
       <label class="form-label" for="content">Текст скрипта</label>
@@ -88,7 +61,7 @@
       <div class="col-md-4">
         <label class="form-label" for="sector_id">или весь сектор</label>
         <select class="form-select" id="sector_id" name="sector_id">
-          <option value="">— не выбран —</option>
+          <option value="">— не выбрано —</option>
           {% for sector in sectors|default([]) %}
           <option value="{{ sector.id }}">{{ sector.name }}</option>
           {% endfor %}

@@ -19,7 +19,7 @@ from app.live_progress import stream_live_progress, wants_live_progress
 from app.models import Device, RunType
 from app.services.net_utils import NetworkInputError
 from app.services.ping_service import check_device
-from app.services.script_service import start_run
+from app.services.script_service import parse_run_as, start_run
 
 bp = Blueprint("diagnostics", __name__)
 
@@ -113,12 +113,23 @@ def command_device(device_id: int):
     if not device.shows_commands:
         abort(404)
     command = (request.form.get("command") or "").strip()
+    shell = (request.form.get("shell") or "cmd").strip().lower()
+    if shell not in {"cmd", "powershell"}:
+        shell = "cmd"
+    run_as = parse_run_as(request.form.get("run_as"))
     limit = int(current_app.config.get("MAX_REMOTE_COMMAND_CHARS", 4_000))
     if not command:
         flash("Введите команду.", "warning")
-        return redirect(url_for("devices.detail", device_id=device.id))
+        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
     if len(command) > limit:
         flash(f"Команда длиннее {limit} символов.", "warning")
-        return redirect(url_for("devices.detail", device_id=device.id))
-    run = start_run(RunType.COMMAND, current_user, device, command)
+        return redirect(url_for("devices.detail", device_id=device.id, tab="commands"))
+    run = start_run(
+        RunType.COMMAND,
+        current_user,
+        device,
+        command,
+        run_as=run_as,
+        command_shell=shell,
+    )
     return redirect(url_for("scripts.run_detail", run_id=run.id))

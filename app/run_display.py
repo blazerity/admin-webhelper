@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.models import RunStatus, RunType, ScriptRun
+from app.services.script_service import command_text_body
 from app.utils import format_utc
 
 RUN_STATUS_LABELS = {
@@ -44,7 +45,7 @@ def run_launch_label(item: ScriptRun) -> str:
     """Имя скрипта или «Тип: команда» для истории запусков."""
     if item.script is not None and item.script.name:
         return item.script.name
-    text = " ".join((item.command_text or "").split())
+    text = " ".join(command_text_body(item.command_text or "").split())
     if len(text) > 72:
         text = text[:72] + "…"
     kind = run_type_label(item.run_type)
