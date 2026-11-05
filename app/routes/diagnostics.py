@@ -65,7 +65,7 @@ def _run_check(device_id: int, on_progress) -> tuple[str, str]:
 def check_device_status(device_id: int):
     """Проверка, что карточка — это та машина. История пишется в опросах."""
     device = _device_or_404(device_id)
-    tab = (request.form.get("tab") or "polls").strip() or "polls"
+    tab = (request.form.get("tab") or "overview").strip() or "overview"
     checked_id = device.id
     db.session.rollback()
     if wants_live_progress():

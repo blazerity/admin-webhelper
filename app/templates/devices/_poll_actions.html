@@ -1,36 +1,27 @@
 {% if device is defined and device %}
+{% set poll_compact = poll_compact|default(false) %}
 {% if can_run_diagnostics|default(false) %}
-<div class="device-actions">
+<div class="device-actions{% if poll_compact %} device-status-check{% endif %}">
   <div class="device-actions-group">
+    {% if not poll_compact %}
     <p class="device-actions-label">Статус в инвентаре</p>
+    {% endif %}
     <form method="post"
           action="{{ url_for('diagnostics.check_device_status', device_id=device.id) }}"
           data-live-progress
           data-progress-label="Ищу…"
-          data-redirect="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">
+          data-redirect="{{ url_for('devices.detail', device_id=device.id, tab='overview') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="tab" value="polls">
-      <button class="btn btn-primary" type="submit" data-progress-button title="Проверить, что по адресу отвечает этот компьютер">Проверить сейчас</button>
+      <input type="hidden" name="tab" value="overview">
+      <button class="btn {% if poll_compact %}btn-sm {% endif %}btn-primary" type="submit" data-progress-button title="Проверить, что по адресу отвечает этот компьютер">Проверить сейчас</button>
     </form>
     <ol class="live-progress-log" data-progress-log hidden aria-live="polite"></ol>
+    {% if not poll_compact %}
     <p class="small text-muted mb-0">Если последний адрес молчит, ищем этот серийник на прежних адресах карточки и по DNS-имени. Чужой ответ не считается доступностью.</p>
-  </div>
-  <div class="device-actions-group">
-    <p class="device-actions-label">Журнал запуска</p>
-    <div class="d-flex flex-wrap gap-2">
-      <form method="post" action="{{ url_for('diagnostics.ping_device', device_id=device.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-primary" type="submit" title="ICMP с полным логом">Ping</button>
-      </form>
-      <form method="post" action="{{ url_for('diagnostics.tracert_device', device_id=device.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-primary" type="submit" title="Трассировка с журналом">Tracert</button>
-      </form>
-    </div>
-    <p class="small text-muted mb-0">Полный вывод открывается отдельной страницей запуска, в историю опросов не пишется.</p>
+    {% endif %}
   </div>
 </div>
-{% else %}
-<p class="small text-muted mb-0">Проверка доступности и трассировка доступны оператору и администратору.</p>
+{% elif not poll_compact %}
+<p class="small text-muted mb-0">Проверка доступности доступна оператору и администратору.</p>
 {% endif %}
 {% endif %}

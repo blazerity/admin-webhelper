@@ -4,16 +4,7 @@
 {% set can_command = current_user.is_authenticated %}
 {% set actions_view = device_command_view|default('scripts') %}
 <div class="device-actions">
-  {% if actions_view == 'overview' and can_command %}
-  <div class="device-actions-group">
-    <p class="device-actions-label">На устройстве</p>
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-      <button type="button" class="btn btn-warning" data-shell-kind="cmd" data-bs-toggle="modal" data-bs-target="#device-shell-modal">CMD</button>
-      <button type="button" class="btn btn-warning" data-shell-kind="powershell" data-bs-toggle="modal" data-bs-target="#device-shell-modal">PowerShell</button>
-      <a class="btn btn-outline-primary" href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Скрипты</a>
-    </div>
-  </div>
-  {% elif actions_view == 'scripts' %}
+  {% if actions_view == 'scripts' %}
   {% if can_scripts %}
   <div class="device-actions-group">
     <p class="device-actions-label">Скрипты</p>
@@ -59,78 +50,4 @@
     <input type="hidden" name="run_as" id="device-script-run-as-field" value="psexec">
   </form>
 </div>
-
-<script>
-(() => {
-  const scriptForm = document.getElementById("device-script-run-form");
-  const scriptIdField = document.getElementById("device-script-id-field");
-  const scriptRunAsField = document.getElementById("device-script-run-as-field");
-  const commandBase = {{ url_for('diagnostics.device_command', device_id=device.id)|tojson }};
-  const shellModalEl = document.getElementById("device-shell-modal");
-  const shellModalHint = document.getElementById("device-shell-modal-hint");
-  let pendingShell = null;
-  let pendingScriptId = null;
-
-  function resetPending() {
-    pendingShell = null;
-    pendingScriptId = null;
-  }
-
-  function confirmScriptRunAs(runAs) {
-    if (pendingScriptId && scriptForm && scriptIdField && scriptRunAsField) {
-      scriptIdField.value = String(pendingScriptId);
-      scriptRunAsField.value = runAs;
-      scriptForm.submit();
-      resetPending();
-    }
-  }
-
-  function openShell(runAs) {
-    if (!pendingShell) return;
-    const url = new URL(commandBase, window.location.origin);
-    url.searchParams.set("shell", pendingShell);
-    url.searchParams.set("run_as", runAs);
-    window.location.href = url.toString();
-  }
-
-  function showRunAsModal() {
-    if (!shellModalEl || !window.bootstrap) return;
-    window.bootstrap.Modal.getOrCreateInstance(shellModalEl).show();
-  }
-
-  document.querySelectorAll("[data-shell-kind]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      pendingScriptId = null;
-      pendingShell = btn.dataset.shellKind || "cmd";
-      const label = pendingShell === "powershell" ? "PowerShell" : "CMD";
-      if (shellModalHint) shellModalHint.textContent = `Открыть ${label} от`;
-    });
-  });
-
-  shellModalEl?.querySelectorAll("[data-shell-run-as]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const runAs = btn.dataset.shellRunAs || "psexec";
-      if (pendingScriptId) {
-        confirmScriptRunAs(runAs);
-        window.bootstrap?.Modal.getInstance(shellModalEl)?.hide();
-        return;
-      }
-      openShell(runAs);
-    });
-  });
-
-  document.querySelectorAll(".device-script-tile").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const scriptId = btn.dataset.scriptId;
-      if (!scriptId) return;
-      pendingShell = null;
-      pendingScriptId = scriptId;
-      if (shellModalHint) shellModalHint.textContent = "Запустить скрипт от";
-      showRunAsModal();
-    });
-  });
-
-  shellModalEl?.addEventListener("hidden.bs.modal", resetPending);
-})();
-</script>
 {% endif %}

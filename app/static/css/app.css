@@ -1214,12 +1214,24 @@ code {
 
 .sector-plaque-action-icon {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
+  gap: 0.12rem;
+  width: auto;
+  max-width: 4.75rem;
+  min-height: 2rem;
+  padding: 0.22rem 0.35rem;
   flex-shrink: 0;
+  white-space: normal;
+  text-align: center;
+}
+
+.sector-plaque-action-caption {
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
 }
 
 .sector-toggle {
@@ -1789,6 +1801,28 @@ code {
 
 .device-object-status {
   flex: 0 0 auto;
+}
+
+.device-object-status .device-status-check {
+  width: 100%;
+  max-width: 14rem;
+}
+
+.device-object-status .device-status-check .device-actions-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.device-object-status .device-status-check form {
+  margin: 0;
+}
+
+.device-object-status .device-status-check .live-progress-log {
+  width: 100%;
+  max-width: 14rem;
 }
 
 .device-object-meta {

@@ -35,7 +35,7 @@ from app.utils import as_utc, parse_optional_int, utcnow
 
 bp = Blueprint("devices", __name__)
 
-_DETAIL_TABS = frozenset({"overview", "history", "commands", "polls", "hardware"})
+_DETAIL_TABS = frozenset({"overview", "history", "commands", "hardware"})
 _DEFAULT_LIST_LIMIT = 5
 
 
@@ -84,7 +84,7 @@ def _latest_address_per_mac(addresses, primary_ip: str | None):
 
 def _allowed_detail_tabs(device) -> frozenset[str]:
     """Вкладки карточки зависят от типа устройства."""
-    tabs = {"overview", "polls", "history"}
+    tabs = {"overview", "history"}
     if device.shows_commands:
         tabs.add("commands")
     if device.shows_hardware:
@@ -96,6 +96,8 @@ def _detail_tab_for(device) -> str:
     tab = (request.args.get("tab") or "overview").strip().lower()
     if tab == "accounts":
         tab = "history"
+    if tab == "polls":
+        tab = "overview"
     if tab not in _DETAIL_TABS or tab not in _allowed_detail_tabs(device):
         return "overview"
     return tab

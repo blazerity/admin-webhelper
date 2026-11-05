@@ -38,7 +38,6 @@
           {% if tab == 'history' %}История
           {% elif tab == 'commands' %}Скрипты
           {% elif tab == 'hardware' %}Оборудование
-          {% else %}Опросы
           {% endif %}
         </h1>
         <p class="page-subtitle">{{ device.hostname or device.ip }}</p>
@@ -65,6 +64,16 @@
           </div>
           <div class="device-object-status d-flex flex-column align-items-end gap-2" data-device-status-host>
             {{ status_badge(device.last_status) }}
+            {% if device.last_status == 'online' and show_commands %}
+            <div class="device-object-status-actions d-flex flex-wrap gap-1 justify-content-end">
+              <button type="button" class="btn btn-sm btn-warning" data-shell-kind="cmd" data-bs-toggle="modal" data-bs-target="#device-shell-modal">CMD</button>
+              <button type="button" class="btn btn-sm btn-warning" data-shell-kind="powershell" data-bs-toggle="modal" data-bs-target="#device-shell-modal">PowerShell</button>
+              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('devices.detail', device_id=device.id, tab='commands') }}">Скрипты</a>
+            </div>
+            {% elif device.last_status != 'online' %}
+            {% set poll_compact = true %}
+            {% include "devices/_poll_actions.html" %}
+            {% endif %}
           </div>
         </div>
         <dl class="device-object-meta">
@@ -113,6 +122,18 @@
           </div>
           {% endif %}
         </dl>
+        {% if show_hardware %}
+        <p class="mt-3 mb-0">
+          {% if device.hardware_checked_at %}
+          {{ device.cpu_name or 'процессор не записан' }}{% if device.ram_gb is not none %}, {{ device.ram_gb }} ГБ ОЗУ{% endif %}{% if device.os_label or device.os_caption %}, {{ device.os_label or device.os_caption }}{% endif %}.
+          {% elif device.bad_agent_status == 'unregistered' %}
+          Агент bAD не зарегистрирован.
+          {% else %}
+          Снимка железа ещё нет.
+          {% endif %}
+          <a href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>
+        </p>
+        {% endif %}
         {% if device_addresses %}
         <div class="mt-3">
           <h3 class="h6 mb-2">Сетевые адреса</h3>
@@ -147,26 +168,8 @@
           </div>
         </div>
         {% endif %}
-        {% if show_hardware %}
-        <p class="mt-3 mb-0">
-          {% if device.hardware_checked_at %}
-          {{ device.cpu_name or 'процессор не записан' }}{% if device.ram_gb is not none %}, {{ device.ram_gb }} ГБ ОЗУ{% endif %}{% if device.os_label or device.os_caption %}, {{ device.os_label or device.os_caption }}{% endif %}.
-          {% elif device.bad_agent_status == 'unregistered' %}
-          Агент bAD не зарегистрирован.
-          {% else %}
-          Снимка железа ещё нет.
-          {% endif %}
-          <a href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>
-        </p>
-        {% endif %}
       </div>
     </article>
-    {% if show_commands %}
-    <div class="panel content-card mb-3 mt-3">
-      {% set device_command_view = 'overview' %}
-      {% include "devices/_command_actions.html" %}
-    </div>
-    {% endif %}
 
     {% elif tab == 'commands' and show_commands %}
     <div class="panel content-card device-actions-panel mb-3">
@@ -309,12 +312,6 @@
     {% endif %}
     </div>
 
-    {% elif tab == 'polls' %}
-    <div class="panel content-card device-actions-panel mb-3">
-      <h2 class="panel-title mb-3">Проверки с сервера</h2>
-      {% include "devices/_poll_actions.html" %}
-    </div>
-
     {% elif tab == 'hardware' and show_hardware %}
     <div class="panel content-card mb-3">
       <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
@@ -417,8 +414,6 @@
       <a class="settings-nav-link{% if tab == 'hardware' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='hardware') }}">Оборудование</a>
       {% endif %}
-      <a class="settings-nav-link{% if tab == 'polls' %} active{% endif %}"
-         href="{{ url_for('devices.detail', device_id=device.id, tab='polls') }}">Опросы</a>
       <a class="settings-nav-link{% if tab == 'history' %} active{% endif %}"
          href="{{ url_for('devices.detail', device_id=device.id, tab='history') }}">История</a>
     </nav>
@@ -430,6 +425,79 @@
 {% block body_end %}
 {% if device and device.shows_commands %}
 {% include "devices/_device_account_modal.html" %}
+<script>
+(() => {
+  const scriptForm = document.getElementById("device-script-run-form");
+  const scriptIdField = document.getElementById("device-script-id-field");
+  const scriptRunAsField = document.getElementById("device-script-run-as-field");
+  const commandBase = {{ url_for('diagnostics.device_command', device_id=device.id)|tojson }};
+  const shellModalEl = document.getElementById("device-shell-modal");
+  const shellModalHint = document.getElementById("device-shell-modal-hint");
+  let pendingShell = null;
+  let pendingScriptId = null;
+
+  function resetPending() {
+    pendingShell = null;
+    pendingScriptId = null;
+  }
+
+  function confirmScriptRunAs(runAs) {
+    if (pendingScriptId && scriptForm && scriptIdField && scriptRunAsField) {
+      scriptIdField.value = String(pendingScriptId);
+      scriptRunAsField.value = runAs;
+      scriptForm.submit();
+      resetPending();
+    }
+  }
+
+  function openShell(runAs) {
+    if (!pendingShell) return;
+    const url = new URL(commandBase, window.location.origin);
+    url.searchParams.set("shell", pendingShell);
+    url.searchParams.set("run_as", runAs);
+    window.location.href = url.toString();
+  }
+
+  function showRunAsModal() {
+    if (!shellModalEl || !window.bootstrap) return;
+    window.bootstrap.Modal.getOrCreateInstance(shellModalEl).show();
+  }
+
+  document.querySelectorAll("[data-shell-kind]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      pendingScriptId = null;
+      pendingShell = btn.dataset.shellKind || "cmd";
+      const label = pendingShell === "powershell" ? "PowerShell" : "CMD";
+      if (shellModalHint) shellModalHint.textContent = `Открыть ${label} от`;
+    });
+  });
+
+  shellModalEl?.querySelectorAll("[data-shell-run-as]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const runAs = btn.dataset.shellRunAs || "psexec";
+      if (pendingScriptId) {
+        confirmScriptRunAs(runAs);
+        window.bootstrap?.Modal.getInstance(shellModalEl)?.hide();
+        return;
+      }
+      openShell(runAs);
+    });
+  });
+
+  document.querySelectorAll(".device-script-tile").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const scriptId = btn.dataset.scriptId;
+      if (!scriptId) return;
+      pendingShell = null;
+      pendingScriptId = scriptId;
+      if (shellModalHint) shellModalHint.textContent = "Запустить скрипт от";
+      showRunAsModal();
+    });
+  });
+
+  shellModalEl?.addEventListener("hidden.bs.modal", resetPending);
+})();
+</script>
 {% endif %}
 {% endblock %}
 

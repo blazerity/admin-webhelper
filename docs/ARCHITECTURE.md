@@ -15,7 +15,7 @@
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.11.3` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.11.4` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -86,7 +86,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.11.3)
+  VERSION                      # semver (2.11.4)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -190,7 +190,7 @@ flowchart TB
 
 Настройки — один префикс `/admin`. Сектора, библиотека скриптов, пачки запусков, обнаруженные УЗ и лента действий живут там же, что Общие, HTTPS, почта и опрос сети. LDAP модуля паролей — `/admin/settings/ldap`, пороги отчёта — `/admin/settings/passwords`. Операционный отчёт остаётся `/password-expiry`. Старые `/scripts`, `/sectors`, `/accounts`, `/actions`, `/password-expiry/settings` и `/password-expiry/report-settings` отвечают **308** (`routes/legacy.py`), метод запроса сохраняется.
 
-Карточка устройства не повторяет одни и те же блоки на вкладках. Обзор — паспорт и одна строка железа. Полный снимок и кнопка bAD — вкладка «Оборудование». Ping, Tracert и «Проверить сейчас» — вкладка «Опросы». Пачки этой машины — вкладка «История» и список `/admin/scripts/batches`.
+Карточка устройства не повторяет одни и те же блоки на вкладках. Обзор — паспорт, адреса, одна строка железа и колонка статуса. Полный снимок и кнопка bAD — вкладка «Оборудование». Если устройство офлайн, в колонке статуса — «Проверить сейчас» и живой лог. Если устройство онлайн, там же — CMD, PowerShell и ссылка «Скрипты». Вкладки «Опросы» нет. Ping и Tracert на карточке нет. Пачки этой машины — вкладка «История» и список `/admin/scripts/batches`.
 
 ### 4.1. Одинаковый смысл
 
@@ -423,7 +423,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | POST | `/api/map/bulk/script` | Bulk script (любой вошедший, любой скрипт) |
 | GET | `/api/batches/<batch_id>` | Статус batch |
 | GET | `/api/network/summary` | Сводка сети |
-| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа, CMD, PowerShell и ссылка «Скрипты». История — пачки машины, запуски, появления УЗ, опросы и смены железа. Скрипты — плитки, «Добавить скрипт», выбор учётки в модальном окне. Оборудование — снимок bAD и «Опросить сейчас». Опросы — «Проверить сейчас», Ping и Tracert |
+| GET | `/devices/<id>` | Карточка. Обзор — паспорт, адреса, одна строка железа. В колонке статуса — «Проверить сейчас» и лог, если офлайн; CMD, PowerShell и «Скрипты», если онлайн. История — пачки машины, запуски, появления УЗ, опросы и смены железа. Скрипты — плитки, «Добавить скрипт», выбор учётки в модальном окне. Оборудование — снимок bAD и «Опросить сейчас». Вкладки «Опросы» нет; Ping и Tracert на карточке нет |
 | POST | `/devices/<id>/hardware-poll` | Разовый опрос железа через lookup bAD. `Accept: application/x-ndjson` — те же шаги в рамке лога (`live_progress`). Без связи «подключено» проход не стартует |
 | POST | `/devices/<id>/scripts/run` | Скрипт с карточки |
 
@@ -431,7 +431,7 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/devices/<id>/check` | вошедший — адрес карточки отвечает её серийником → `device_history`. `Accept: application/x-ndjson` стримит шаги поиска (`app/live_progress.py`); обычная форма — редирект. После окончания лог остаётся на вкладке «Опросы» |
+| POST | `/devices/<id>/check` | вошедший — адрес карточки отвечает её серийником → `device_history`. `Accept: application/x-ndjson` стримит шаги поиска (`app/live_progress.py`); обычная форма — редирект. После окончания лог остаётся на обзоре |
 | POST | `/devices/<id>/ping` | вошедший — diagnostic run в `script_runs` |
 | POST | `/devices/<id>/tracert` | вошедший |
 | POST | `/devices/<id>/command` | вошедший |
