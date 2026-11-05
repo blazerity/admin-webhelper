@@ -41,6 +41,7 @@ PWD_SMTP_PASSWORD = "pwd_smtp_password"
 PWD_VACATION_ENABLED = "pwd_vacation_enabled"
 PWD_VACATION_CRON = "pwd_vacation_schedule_cron"
 PWD_VACATION_DAYS = "pwd_vacation_days"
+PWD_VACATION_LEAD_DAYS = "pwd_vacation_lead_days"
 PWD_IMAP_HOST = "pwd_imap_host"
 PWD_IMAP_PORT = "pwd_imap_port"
 PWD_IMAP_USE_SSL = "pwd_imap_use_ssl"
@@ -54,6 +55,7 @@ DEFAULT_DAILY_WARNING_THRESHOLD = 3
 DEFAULT_SCHEDULE_CRON = "0 8 * * *"
 DEFAULT_VACATION_CRON = "30 8 * * *"
 DEFAULT_VACATION_DAYS = 14
+DEFAULT_VACATION_LEAD_DAYS = 7
 DEFAULT_IMAP_PORT = 993
 DEFAULT_IMAP_FOLDER = "INBOX"
 
@@ -123,6 +125,7 @@ class VacationCheckSettings:
     enabled: bool
     schedule_cron: str
     vacation_days: int
+    lead_days: int
     imap_host: str
     imap_port: int
     imap_use_ssl: bool
@@ -361,6 +364,7 @@ def get_vacation_check_settings() -> VacationCheckSettings:
     enabled_raw = (_get_raw(PWD_VACATION_ENABLED) or "0").strip().lower()
     cron = (_get_raw(PWD_VACATION_CRON) or "").strip() or DEFAULT_VACATION_CRON
     days = _int_setting(PWD_VACATION_DAYS, DEFAULT_VACATION_DAYS, minimum=1)
+    lead = _int_setting(PWD_VACATION_LEAD_DAYS, DEFAULT_VACATION_LEAD_DAYS, minimum=0)
     host = (_get_raw(PWD_IMAP_HOST) or "").strip()
     user = (_get_raw(PWD_IMAP_USER) or "").strip()
     folder = (_get_raw(PWD_IMAP_FOLDER) or "").strip() or DEFAULT_IMAP_FOLDER
@@ -382,6 +386,7 @@ def get_vacation_check_settings() -> VacationCheckSettings:
         enabled=as_truthy(enabled_raw, default=False),
         schedule_cron=cron,
         vacation_days=days,
+        lead_days=lead,
         imap_host=host,
         imap_port=port,
         imap_use_ssl=use_ssl,
@@ -397,6 +402,7 @@ def set_vacation_check_settings(
     enabled: bool | None = None,
     schedule_cron: str | None = None,
     vacation_days: int | None = None,
+    lead_days: int | None = None,
     imap_host: str | None = None,
     imap_port: int | str | None = None,
     imap_use_ssl: bool | None = None,
@@ -416,6 +422,11 @@ def set_vacation_check_settings(
         if value < 1 or value > 366:
             raise ValueError("Срок отпуска должен быть от 1 до 366 дней")
         _set_raw(PWD_VACATION_DAYS, str(value))
+    if lead_days is not None:
+        value = int(lead_days)
+        if value < 0 or value > 366:
+            raise ValueError("Заблаговременность письма должна быть от 0 до 366 дней")
+        _set_raw(PWD_VACATION_LEAD_DAYS, str(value))
     if imap_host is not None:
         _set_raw(PWD_IMAP_HOST, imap_host.strip())
     if imap_user is not None:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date
-from typing import Literal
+from datetime import date, timedelta
+from typing import Literal, TYPE_CHECKING
 
 from sqlalchemy import select
 
@@ -13,9 +13,12 @@ from app.extensions import db
 from app.models import PasswordNotification
 from app.services.password_ad_client import AdUser
 
+if TYPE_CHECKING:
+    from app.models.password_expiry import VacationPasswordCheck
+
 logger = logging.getLogger(__name__)
 
-NotificationStatus = Literal["upcoming", "overdue", "resolved"]
+NotificationStatus = Literal["upcoming", "overdue", "resolved", "vacation"]
 NotifyAction = Literal["send", "skip", "resolve"]
 
 
@@ -61,7 +64,6 @@ class NotificationTracker:
             .where(PasswordNotification.username == username)
             .order_by(PasswordNotification.id)
         ).all()
-        # Также учитываем ещё не закоммиченные append этого прогона.
         pending = [
             _row_to_record(row)
             for row in self._pending
@@ -76,7 +78,8 @@ class NotificationTracker:
 
     def already_sent_today(self, username: str, today: date) -> bool:
         return any(
-            item.notification_date == today and item.status in {"upcoming", "overdue"}
+            item.notification_date == today
+            and item.status in {"upcoming", "overdue", "vacation"}
             for item in self.records_for(username)
         )
 
@@ -171,3 +174,70 @@ class NotificationTracker:
     def commit(self) -> None:
         db.session.commit()
         self._pending.clear()
+
+
+def decide_todays_password_letter(
+    user: AdUser,
+    tracker: NotificationTracker,
+    *,
+    today: date,
+    paused: bool,
+    first_warning_days: int,
+    daily_warning_threshold: int,
+    intent: VacationPasswordCheck | None = None,
+    lead_days: int,
+    max_pwd_age_days: int,
+) -> NotifyDecision:
+    if paused:
+        return NotifyDecision("skip", None, "пауза пользовательских писем")
+
+    if tracker.already_sent_today(user.username, today):
+        return NotifyDecision("skip", None, "письмо уже отправлено сегодня")
+
+    if intent is not None and _vacation_letter_due(
+        intent,
+        user,
+        today=today,
+        lead_days=lead_days,
+        max_pwd_age_days=max_pwd_age_days,
+    ):
+        return NotifyDecision("send", "vacation", "отпуск: пароль не доживёт до выхода")
+
+    return tracker.decide(
+        user,
+        first_warning_days=first_warning_days,
+        daily_warning_threshold=daily_warning_threshold,
+        today=today,
+    )
+
+
+def _vacation_letter_due(
+    intent: VacationPasswordCheck,
+    user: AdUser,
+    *,
+    today: date,
+    lead_days: int,
+    max_pwd_age_days: int,
+) -> bool:
+    from app.services.vacation_password_service import (
+        intent_return_day,
+        password_expires_during_vacation,
+    )
+
+    if intent.match_status != "matched" or intent.intent_state != "active":
+        return False
+    if not user.email:
+        return False
+    window_start = intent.vacation_start - timedelta(days=lead_days)
+    return_day = intent_return_day(intent)
+    if today < window_start or today >= return_day:
+        return False
+    expires, _, _ = password_expires_during_vacation(
+        pwd_last_set=user.pwd_last_set,
+        password_never_expires=user.password_never_expires,
+        max_pwd_age_days=max_pwd_age_days,
+        vacation_start=intent.vacation_start,
+        vacation_days=intent.vacation_days,
+        vacation_end=intent.vacation_end,
+    )
+    return expires

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 
+from datetime import date
+
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
@@ -31,8 +33,13 @@ from app.services.password_expiry_settings import (
 )
 from app.services.vacation_password_service import (
     VacationRunInProgressError,
+    delete_vacation_password_check,
+    dismiss_vacation_intent,
     load_recent_vacation_checks,
     run_vacation_checks,
+    vacation_intent_ui_label,
+    vacation_letters_sent_today,
+    vacation_mail_window_start,
 )
 from app.services.report_toggle_service import (
     apply_report_toggle,
@@ -69,6 +76,7 @@ def save_vacation_settings():
         set_vacation_check_settings(
             schedule_cron=request.form.get("vacation_cron", ""),
             vacation_days=int(request.form.get("vacation_days") or 0),
+            lead_days=int(request.form.get("vacation_lead_days") or 0),
             imap_host=request.form.get("imap_host", ""),
             imap_port=request.form.get("imap_port", ""),
             imap_use_ssl=request.form.get("imap_use_ssl") == "1",
@@ -114,6 +122,8 @@ def dashboard():
             ]
 
     ldap = get_ldap_bind_settings()
+    today = date.today()
+    letters_today = vacation_letters_sent_today(today)
     return render_template(
         "password_expiry/dashboard.html",
         report=report,
@@ -128,6 +138,10 @@ def dashboard():
         can_toggle=True,
         vacation=get_vacation_check_settings(),
         vacation_checks=load_recent_vacation_checks(),
+        vacation_today=letters_today,
+    vacation_intent_ui_label=vacation_intent_ui_label,
+    vacation_mail_window_start=vacation_mail_window_start,
+    vacation_today_date=today,
     )
 
 
@@ -246,6 +260,26 @@ def pause_mail():
                 flash(f"Пауза пользовательских писем до {until} включительно.", "success")
     except ValueError as exc:
         flash(str(exc), "danger")
+    return redirect(url_for("password_expiry.dashboard"))
+
+
+@bp.route("/vacation-check/<int:check_id>/delete", methods=["POST"])
+@login_required
+def delete_vacation_check(check_id: int):
+    if delete_vacation_password_check(check_id):
+        flash("Запись удалена.", "success")
+    else:
+        flash("Удаление недоступно для этой записи.", "warning")
+    return redirect(url_for("password_expiry.dashboard"))
+
+
+@bp.route("/vacation-check/<int:check_id>/dismiss", methods=["POST"])
+@login_required
+def dismiss_vacation_check(check_id: int):
+    if dismiss_vacation_intent(check_id):
+        flash("Намерение снято с рассылки.", "success")
+    else:
+        flash("Снятие недоступно для этой записи.", "warning")
     return redirect(url_for("password_expiry.dashboard"))
 
 

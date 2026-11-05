@@ -21,7 +21,7 @@ class PasswordNotification(db.Model):
     full_name = db.Column(db.String(255), nullable=False, default="")
     notification_date = db.Column(db.Date, nullable=False, index=True)
     days_left_at_send = db.Column(db.Integer, nullable=True)
-    # upcoming | overdue | resolved
+    # upcoming | overdue | resolved | vacation
     status = db.Column(db.String(32), nullable=False)
     pwd_last_set_snapshot = db.Column(db.String(64), nullable=False, default="")
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
@@ -95,5 +95,8 @@ class VacationPasswordCheck(db.Model):
     vacation_days = db.Column(db.Integer, nullable=False, default=14)
     expires_during_vacation = db.Column(db.Boolean, nullable=False, default=False)
     user_notified = db.Column(db.Boolean, nullable=False, default=False)
+    # active | dismissed | superseded
+    intent_state = db.Column(db.String(32), nullable=False, default="active")
+    vacation_end = db.Column(db.Date, nullable=True)
     note = db.Column(db.Text, nullable=False, default="")
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)

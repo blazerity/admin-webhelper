@@ -76,14 +76,21 @@
     <h2 class="h5 mb-3">Проверка перед отпуском</h2>
     <p class="text-muted">
       Перешлите на служебный ящик письма с темой «Приближается отпуск сотрудников с …».
-      Сервис ищет сотрудника в AD по CN (фамилия и имя, без отчества)
-      и считает отпуск в {{ vacation.vacation_days }} календарных дней, если в письме срока нет.
+      Сервис ищет сотрудника в AD по CN (фамилия и имя, без отчества).
+      Если в письме нет даты окончания, для расчёта выхода берётся
+      предполагаемая длительность отсутствия ниже (не срок из письма).
       Включение расписания — на <a href="{{ url_for('password_expiry.dashboard') }}">странице отчёта</a>.
     </p>
     <div class="row g-3">
       <div class="col-md-4">
-        <label class="form-label" for="vacation_days">Срок отпуска, календарных дней</label>
+        <label class="form-label" for="vacation_lead_days">Заблаговременность, дней</label>
+        <input class="form-control" type="number" min="0" max="366" id="vacation_lead_days" name="vacation_lead_days" value="{{ vacation.lead_days }}">
+        <div class="form-text">За сколько дней до начала отпуска можно слать письмо.</div>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="vacation_days">Предполагаемая длительность отсутствия, дней</label>
         <input class="form-control" type="number" min="1" max="366" id="vacation_days" name="vacation_days" value="{{ vacation.vacation_days }}">
+        <div class="form-text">День выхода = начало + это число, если конец отпуска не задан отдельно.</div>
       </div>
       <div class="col-md-4">
         <label class="form-label" for="vacation_cron">Cron проверки ящика</label>

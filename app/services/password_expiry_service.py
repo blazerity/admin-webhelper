@@ -25,11 +25,17 @@ from app.services.password_ad_client import (
 from app.services.password_expiry_settings import (
     get_password_expiry_settings,
     get_smtp_settings,
+    get_vacation_check_settings,
     is_user_mail_paused,
 )
 from app.services.password_mailer import PasswordMailer, PasswordMailerError
-from app.services.password_notification_tracker import NotificationTracker
+from app.services.password_notification_tracker import (
+    NotificationTracker,
+    NotifyDecision,
+    decide_todays_password_letter,
+)
 from app.services.password_report_builder import AdminReport, ReportRow, build_admin_report
+from app.services.vacation_password_service import active_vacation_intent_for_username
 from app.utils import utcnow
 
 logger = logging.getLogger(__name__)
@@ -236,6 +242,7 @@ def _run_unlocked(
     settings = get_password_expiry_settings()
     mailer = PasswordMailer(get_smtp_settings(), dry_run=not send_emails)
     tracker = NotificationTracker()
+    vacation_settings = get_vacation_check_settings()
 
     if not send_emails:
         logger.info("Пароли AD: dry-run — SMTP и история не пишутся")
@@ -255,38 +262,49 @@ def _run_unlocked(
     sent = 0
     resolved = 0
     for user in users:
-        decision = tracker.decide(
+        intent = active_vacation_intent_for_username(user.username)
+        decision = decide_todays_password_letter(
             user,
+            tracker,
+            today=current,
+            paused=paused,
             first_warning_days=settings.first_warning_days,
             daily_warning_threshold=settings.daily_warning_threshold,
-            today=current,
+            intent=intent,
+            lead_days=vacation_settings.lead_days,
+            max_pwd_age_days=settings.max_pwd_age_days,
         )
         if decision.action == "resolve" and decision.status == "resolved":
             if send_emails:
                 tracker.append(user, status="resolved", today=current)
             resolved += 1
-            decision = tracker.decide(
+            decision = decide_todays_password_letter(
                 user,
+                tracker,
+                today=current,
+                paused=paused,
                 first_warning_days=settings.first_warning_days,
                 daily_warning_threshold=settings.daily_warning_threshold,
-                today=current,
+                intent=intent,
+                lead_days=vacation_settings.lead_days,
+                max_pwd_age_days=settings.max_pwd_age_days,
             )
 
-        if decision.action != "send" or decision.status is None:
-            continue
-
-        if paused and send_emails:
-            continue
-
-        try:
-            _send_user_mail(mailer, settings.instructions_url, user)
-        except PasswordMailerError:
-            logger.exception("Пароли AD: не удалось отправить письмо %s", user.username)
-            continue
-
-        if send_emails:
-            tracker.append(user, status=decision.status, today=current)
-        sent += 1
+        if apply_password_letter_decision(
+            user,
+            tracker,
+            intent=intent,
+            settings=settings,
+            lead_days=vacation_settings.lead_days,
+            mailer=mailer,
+            today=current,
+            paused=paused,
+            send_emails=send_emails,
+            decision=decision,
+        ):
+            if send_emails and intent is not None and decision.status == "vacation":
+                intent.user_notified = True
+            sent += 1
 
     if send_emails:
         tracker.commit()
@@ -426,6 +444,71 @@ def notify_users_now(
         raise
     finally:
         _run_lock.release()
+
+
+def apply_password_letter_decision(
+    user: AdUser,
+    tracker: NotificationTracker,
+    *,
+    intent,
+    settings,
+    lead_days: int,
+    mailer: PasswordMailer,
+    today: date,
+    paused: bool,
+    send_emails: bool,
+    decision: NotifyDecision | None = None,
+) -> bool:
+    if decision is None:
+        decision = decide_todays_password_letter(
+            user,
+            tracker,
+            today=today,
+            paused=paused,
+            first_warning_days=settings.first_warning_days,
+            daily_warning_threshold=settings.daily_warning_threshold,
+            intent=intent,
+            lead_days=lead_days,
+            max_pwd_age_days=settings.max_pwd_age_days,
+        )
+    if decision.action != "send" or decision.status is None:
+        return False
+    if paused and send_emails:
+        return False
+    try:
+        if decision.status == "vacation":
+            if intent is None:
+                return False
+            from app.services.vacation_password_service import (
+                password_expires_during_vacation,
+                send_vacation_user_mail,
+            )
+
+            _, days_left, expiry = password_expires_during_vacation(
+                pwd_last_set=user.pwd_last_set,
+                password_never_expires=user.password_never_expires,
+                max_pwd_age_days=settings.max_pwd_age_days,
+                vacation_start=intent.vacation_start,
+                vacation_days=intent.vacation_days,
+                vacation_end=intent.vacation_end,
+            )
+            send_vacation_user_mail(
+                mailer,
+                user,
+                days_left=days_left,
+                expiry=expiry,
+                vacation_start=intent.vacation_start,
+                vacation_days=intent.vacation_days,
+                instructions_url=settings.instructions_url,
+            )
+        else:
+            _send_user_mail(mailer, settings.instructions_url, user)
+    except PasswordMailerError:
+        logger.exception("Пароли AD: не удалось отправить письмо %s", user.username)
+        return False
+    if send_emails:
+        tracker.append(user, status=decision.status, today=today)
+    return True
 
 
 def _send_user_mail(mailer: PasswordMailer, instructions_url: str, user: AdUser) -> None:

@@ -16,7 +16,7 @@
 LDAP-вход, отчёт по сроку паролей AD и in-app уведомления).
 Рассчитан на корпоративную LAN, не для публикации в интернет.
 
-**Версия:** файл [`VERSION`](../VERSION) → `2.8.1` (читает `app/version.py`).
+**Версия:** файл [`VERSION`](../VERSION) → `2.9.0` (читает `app/version.py`).
 
 **Стек:** Flask 3 SSR (Jinja2) · SQLAlchemy 2 / Flask-SQLAlchemy · PostgreSQL
 (prod; SQLite допустим локально) · Flask-Login · Flask-WTF CSRF · APScheduler
@@ -87,7 +87,7 @@ HTTP / CLI / scheduler
 
 ```
 bAWH/                          # на сервере = /opt/bawh
-  VERSION                      # semver (2.8.1)
+  VERSION                      # semver (2.9.0)
   wsgi.py                      # WSGI entry
   requirements.txt
   .env.example
@@ -298,7 +298,7 @@ CLI `flask --app wsgi init-db` — то же (схема уже поднята �
 | `Script`, `ScriptRun` | `scripts`, `script_runs` | `script.py` | Библиотека и журнал запусков. У скрипта: `run_as`, `is_published`. У run: `run_type`, `batch_id`, статус. |
 | `AppSetting`, `RemoteCredential` | `app_settings`, `remote_credentials` | `setting.py` | KV-настройки; per-user Fernet-шифротекст PsExec/пароля входа. |
 | `PasswordNotification`, `PasswordExpiryRun` | `password_notifications`, `password_expiry_runs` | `password_expiry.py` | Письма о сроке пароля + снимки прогонов. |
-| `VacationNotice`, `VacationPasswordCheck` | `vacation_notices`, `vacation_password_checks` | `password_expiry.py` | Письма кадров об отпуске и проверка, истечёт ли пароль за отпуск. |
+| `VacationNotice`, `VacationPasswordCheck` | `vacation_notices`, `vacation_password_checks` | `password_expiry.py` | Строки отпуска: уведомление (`VacationNotice`) и намерение (`VacationPasswordCheck`: `intent_state`, `match_status`, silent, due, dismissed, superseded). Поле `vacation_end` текущее письмо кадров не задаёт. |
 | `LoginService` | `login_services` | `login_service.py` | Сервисы для блока доступности на `/login`. |
 | `AdminAuditLog` | `admin_audit_log` | `audit.py` | Журнал админ-действий. |
 | `Notification` | `notifications` | `notification.py` | In-app колокольчик: `script_failed`. |
@@ -384,11 +384,11 @@ Seed коды действий: `poll`, `ping`, `tracert`, `command`, `script`, 
 | `password_ad_client.py` | LDAP: пользователи и days-left |
 | `password_mailer.py` | SMTP |
 | `password_expiry_settings.py` | SMTP общий (UI: Настройки → Почта (SMTP)), bind LDAP (UI: Настройки → LDAP), пороги (UI: Настройки → Отчёт о паролях); fallback на `.env` |
-| `password_notification_tracker.py` | дедуп писем |
+| `password_notification_tracker.py` | `decide_todays_password_letter`: на день выбирает отпуск или срок; пишет журнал |
 | `password_report_builder.py` | отчёт для админа |
 | `vacation_notice_parser.py` | тема «Приближается отпуск…», дата «С ДД.ММ.ГГГГ», ФИО → ФИ |
 | `vacation_imap.py` | IMAP служебного ящика, непрочитанные, флаг \\Seen |
-| `vacation_password_service.py` | сверка срока пароля с отпуском (по умолчанию 14 дней) |
+| `vacation_password_service.py` | приём намерения из IMAP, пересопоставление ФИО, снятие намерения; письмо сотруднику — только через дневное решение |
 | `report_toggle_service.py` | тумблер расписания отчётов + ensure своей службы |
 | `systemd_service.py` | `systemctl` start/enable/restart через sudo-учётку |
 
@@ -647,14 +647,19 @@ Scheduler cron / CLI / UI → `run_password_expiry` → LDAP fetch → classify 
 SMTP → `password_expiry_runs` + `password_notifications`.
 
 Тот же воркер `bawh-password-reports`, отдельный cron → `run_vacation_checks` →
-IMAP непрочитанных писем с темой «Приближается отпуск сотрудников с ДД.ММ.ГГГГ» →
-разбор «С ДД.ММ.ГГГГ» и списка ФИО → поиск каждой учётки в AD по CN
-(фамилия и имя, отчество отбрасывается) → тот же расчёт
-`pwdLastSet + max_pwd_age` → пароль истекает за отпуск, если дата истечения
-раньше дня выхода (срок отпуска из настроек, по умолчанию 14 календарных дней).
-Письмо сотруднику один раз на «логин + дата начала»; сводка — на получателей
-админ-отчёта. Итог → `vacation_notices` + `vacation_password_checks`.
-Обработанное письмо помечается прочитанным.
+IMAP непрочитанных с темой «Приближается отпуск сотрудников с ДД.ММ.ГГГГ» →
+разбор «С ДД.ММ.ГГГГ» и ФИО → поиск учётки в AD по CN (фамилия и имя;
+отчество отбрасывается) → запись намерения → `vacation_notices` +
+`vacation_password_checks`. Ingest ставит флаг \\Seen. Ingest не шлёт письмо
+сотруднику. Сводка ingest — получателям админ-отчёта.
+
+Прогон `run_password_expiry` (тот же cron / CLI / UI) для каждой учётки AD
+вызывает `decide_todays_password_letter`. Функция шлёт не больше одного
+парольного письма на человека за календарный день.
+
+Письмо об отпуске уходит только между «начало минус lead days» и «начало плюс
+горизонт отсутствия». Горизонт — настройка `pwd_vacation_days`. Письмо кадров
+число дней не содержит.
 
 ### D3. Опрос железа Windows
 

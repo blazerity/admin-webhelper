@@ -157,8 +157,8 @@
         Из служебного ящика берутся письма с темой
         «Приближается отпуск сотрудников с …».
         ФИО из письма ищется в AD по CN как фамилия и имя, без отчества.
-        Отпуск считается {{ vacation.vacation_days }} календарных дней с даты в письме:
-        если пароль истечёт до дня выхода, сотрудник получит одно письмо.
+        Письмо кадров сохраняет намерение; сотруднику уходит не более одного
+        парольного письма в день (отпуск или срок пароля).
       </p>
       <p class="small text-muted mb-0 mt-2">
         {% if vacation.enabled %}
@@ -218,20 +218,47 @@
       </thead>
       <tbody>
         {% for row in vacation_checks %}
+        {% set phase = vacation_intent_ui_label(row, today=vacation_today_date, lead_days=vacation.lead_days, letter_today=vacation_today.get(row.username.lower()) if row.username else none) %}
         <tr>
           <td>{{ row.full_name or row.employee_name }}</td>
           <td>{% if row.username %}<code>{{ row.username }}</code>{% else %}—{% endif %}</td>
           <td>{{ row.vacation_start.strftime('%d.%m.%Y') }}</td>
           <td>{% if row.expiry_date %}{{ row.expiry_date.strftime('%d.%m.%Y') }}{% else %}—{% endif %}</td>
           <td>
-            {% if row.match_status == 'not_found' %}
+            {% if phase == 'not_found' %}
               Не найден в AD
-            {% elif row.match_status == 'ambiguous' %}
+              <form method="post" action="{{ url_for('password_expiry.delete_vacation_check', check_id=row.id) }}" class="d-inline ms-2" onsubmit="return confirm('Удалить запись?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-danger btn-sm" type="submit">Удалить</button>
+              </form>
+            {% elif phase == 'ambiguous' %}
               Несколько совпадений
-            {% elif row.expires_during_vacation %}
-              Истечёт за отпуск{% if row.user_notified %} · письмо ушло{% endif %}
+            {% elif phase == 'dismissed' %}
+              Снято оператором
+            {% elif phase == 'superseded' %}
+              Заменено новым письмом
+            {% elif phase == 'silent' %}
+              Тихий период · письмо с {{ vacation_mail_window_start(row, vacation.lead_days).strftime('%d.%m.%Y') }}
+              <form method="post" action="{{ url_for('password_expiry.dismiss_vacation_check', check_id=row.id) }}" class="d-inline ms-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-secondary btn-sm" type="submit">Снять</button>
+              </form>
+            {% elif phase == 'due' %}
+              В окне рассылки{% if row.expires_during_vacation %} · риск{% else %} · без риска{% endif %}
+              <form method="post" action="{{ url_for('password_expiry.dismiss_vacation_check', check_id=row.id) }}" class="d-inline ms-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-secondary btn-sm" type="submit">Снять</button>
+              </form>
+            {% elif phase == 'past' %}
+              После горизонта отпуска
+            {% elif phase == 'sent_vacation' %}
+              Сегодня: письмо об отпуске
+            {% elif phase == 'sent_upcoming' %}
+              Сегодня: предупреждение о сроке
+            {% elif phase == 'sent_overdue' %}
+              Сегодня: просрочка пароля
             {% else %}
-              Доживёт до выхода
+              —
             {% endif %}
             {% if row.note %}<div class="small text-muted">{{ row.note }}</div>{% endif %}
           </td>

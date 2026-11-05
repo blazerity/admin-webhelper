@@ -1,11 +1,7 @@
 """Проверка, истечёт ли пароль AD за время отпуска.
 
-Письма кадров читаются из служебного IMAP-ящика. В работу берётся тема
-«Приближается отпуск сотрудников с ДД.ММ.ГГГГ». Сотрудник ищется в AD по CN:
-фамилия и имя, без отчества. Срок отпуска в письме нет — берётся настройка
-модуля (по умолчанию 14 календарных дней). Расчёт срока пароля тот же, что
-у планового отчёта: pwdLastSet + max_pwd_age. Письмо сотруднику уходит один
-раз на пару «логин + дата начала» и не попадает в цикл upcoming/overdue.
+Письма кадров читаются из IMAP; намерение (intent) пишется в vacation_password_checks.
+Письмо сотруднику — не более одного в день, через decide_todays_password_letter.
 """
 
 from __future__ import annotations
@@ -84,6 +80,12 @@ class VacationRunResult:
     rows: list[VacationCheckRow] = field(default_factory=list)
 
 
+def intent_return_day(intent: VacationPasswordCheck) -> date:
+    if intent.vacation_end is not None:
+        return intent.vacation_end
+    return intent.vacation_start + timedelta(days=intent.vacation_days)
+
+
 def password_expires_during_vacation(
     *,
     pwd_last_set,
@@ -91,6 +93,7 @@ def password_expires_during_vacation(
     max_pwd_age_days: int,
     vacation_start: date,
     vacation_days: int,
+    vacation_end: date | None = None,
 ) -> tuple[bool, int | None, date | None]:
     """Пароль не доживёт до выхода, если истечёт строго раньше дня возвращения.
 
@@ -108,8 +111,45 @@ def password_expires_during_vacation(
     )
     if pwd_last_set is None or expiry is None:
         return True, days_left, expiry
-    return_day = vacation_start + timedelta(days=vacation_days)
+    return_day = vacation_end if vacation_end is not None else vacation_start + timedelta(
+        days=vacation_days
+    )
     return expiry < return_day, days_left, expiry
+
+
+def vacation_mail_window_start(row: VacationPasswordCheck, lead_days: int) -> date:
+    return row.vacation_start - timedelta(days=lead_days)
+
+
+def vacation_intent_ui_label(
+    row: VacationPasswordCheck,
+    *,
+    today: date,
+    lead_days: int,
+    letter_today: str | None,
+) -> str:
+    if row.match_status == "not_found":
+        return "not_found"
+    if row.match_status == "ambiguous":
+        return "ambiguous"
+    if row.intent_state == "dismissed":
+        return "dismissed"
+    if row.intent_state == "superseded":
+        return "superseded"
+    if letter_today:
+        if letter_today == "vacation":
+            return "sent_vacation"
+        if letter_today == "upcoming":
+            return "sent_upcoming"
+        if letter_today == "overdue":
+            return "sent_overdue"
+    return_day = intent_return_day(row)
+    window_start = row.vacation_start - timedelta(days=lead_days)
+    if today >= return_day:
+        return "past"
+    if today < window_start:
+        return "silent"
+    return "due"
 
 
 def load_recent_vacation_checks(limit: int = 40) -> list[VacationPasswordCheck]:
@@ -120,6 +160,53 @@ def load_recent_vacation_checks(limit: int = 40) -> list[VacationPasswordCheck]:
             .limit(limit)
         ).all()
     )
+
+
+def active_vacation_intent_for_username(username: str) -> VacationPasswordCheck | None:
+    if not username:
+        return None
+    return db.session.scalars(
+        select(VacationPasswordCheck)
+        .where(
+            VacationPasswordCheck.username == username,
+            VacationPasswordCheck.match_status == "matched",
+            VacationPasswordCheck.intent_state == "active",
+        )
+        .order_by(VacationPasswordCheck.id.desc())
+        .limit(1)
+    ).first()
+
+
+def dismiss_vacation_intent(check_id: int) -> bool:
+    row = db.session.get(VacationPasswordCheck, check_id)
+    if row is None or row.match_status != "matched" or row.intent_state != "active":
+        return False
+    row.intent_state = "dismissed"
+    db.session.commit()
+    return True
+
+
+def vacation_letters_sent_today(today: date | None = None) -> dict[str, str]:
+    from app.models import PasswordNotification
+
+    current = today or date.today()
+    rows = db.session.scalars(
+        select(PasswordNotification).where(PasswordNotification.notification_date == current)
+    ).all()
+    out: dict[str, str] = {}
+    for row in rows:
+        if row.status in {"vacation", "upcoming", "overdue"}:
+            out[row.username.lower()] = row.status
+    return out
+
+
+def delete_vacation_password_check(check_id: int) -> bool:
+    row = db.session.get(VacationPasswordCheck, check_id)
+    if row is None or row.match_status != "not_found":
+        return False
+    db.session.delete(row)
+    db.session.commit()
+    return True
 
 
 def run_vacation_checks(
@@ -174,6 +261,21 @@ def _run_unlocked(
 
     if not inbox:
         logger.info("Отпуска: писем с темой об отпуске нет")
+        if send_emails:
+            _rematch_unmatched_intents(
+                settings=settings,
+                max_pwd_age_days=settings.max_pwd_age_days,
+                today=current,
+            )
+            notified = _send_active_intent_letters(
+                settings=settings,
+                vacation=vacation,
+                mailer=mailer,
+                today=current,
+                paused=paused,
+                send_emails=True,
+            )
+            return client, VacationRunResult(exit_code=0, notified=notified)
         return client, VacationRunResult(exit_code=0)
 
     result = VacationRunResult(exit_code=0, messages=0)
@@ -207,7 +309,6 @@ def _run_unlocked(
         result.rows.extend(rows)
         result.employees += len(rows)
         result.risks += sum(1 for row in rows if row.expires_during_vacation)
-        result.notified += sum(1 for row in rows if row.user_notified)
         result.unmatched += sum(1 for row in rows if row.match_status != "matched")
         if send_emails:
             _persist_message(message, rows, notice_error, vacation.vacation_days, mode)
@@ -218,6 +319,21 @@ def _run_unlocked(
 
     if not send_emails:
         db.session.rollback()
+    elif send_emails:
+        _rematch_unmatched_intents(
+            settings=settings,
+            max_pwd_age_days=settings.max_pwd_age_days,
+            today=current,
+        )
+        daily_sent = _send_active_intent_letters(
+            settings=settings,
+            vacation=vacation,
+            mailer=mailer,
+            today=current,
+            paused=paused,
+            send_emails=True,
+        )
+        result.notified = daily_sent
 
     logger.info(
         "Отпуска: писем=%s сотрудников=%s риск=%s писем сотрудникам=%s",
@@ -271,11 +387,6 @@ def _evaluate_message(
                 found=found,
                 max_pwd_age_days=settings.max_pwd_age_days,
                 vacation_days=vacation_days,
-                today=today,
-                paused=paused,
-                send_emails=send_emails,
-                mailer=mailer,
-                instructions_url=instructions_url,
             )
         )
     _send_admin_digest(
@@ -297,11 +408,6 @@ def _check_person(
     found: list[AdUser],
     max_pwd_age_days: int,
     vacation_days: int,
-    today: date,
-    paused: bool,
-    send_emails: bool,
-    mailer: PasswordMailer,
-    instructions_url: str,
 ) -> VacationCheckRow:
     if len(found) != 1:
         if len(found) > 1:
@@ -339,33 +445,6 @@ def _check_person(
         note = "Пароль не истекает"
     elif user.pwd_last_set is None:
         note = "Смена пароля при следующем входе"
-    notified = False
-    vacation_open = today <= block.start + timedelta(days=vacation_days - 1)
-    if expires and user.email and vacation_open and not paused:
-        already = send_emails and _already_notified(user.username, block.start)
-        if not already:
-            try:
-                _send_user_mail(
-                    mailer,
-                    user,
-                    days_left=days_left,
-                    expiry=expiry,
-                    vacation_start=block.start,
-                    vacation_days=vacation_days,
-                    instructions_url=instructions_url,
-                )
-                notified = True
-            except PasswordMailerError:
-                logger.exception("Отпуска: не удалось написать %s", user.username)
-                note = (note + "; " if note else "") + "Письмо сотруднику не отправлено"
-        else:
-            note = (note + "; " if note else "") + "Сотруднику уже писали об этом отпуске"
-    elif expires and paused:
-        note = (note + "; " if note else "") + "Пауза писем пользователям"
-    elif expires and not user.email:
-        note = (note + "; " if note else "") + "У учётки нет email"
-    elif expires and not vacation_open:
-        note = (note + "; " if note else "") + "Отпуск уже закончился"
 
     return VacationCheckRow(
         employee_name=name,
@@ -378,12 +457,12 @@ def _check_person(
         vacation_start=block.start,
         vacation_days=vacation_days,
         expires_during_vacation=expires,
-        user_notified=notified,
+        user_notified=False,
         note=note,
     )
 
 
-def _send_user_mail(
+def send_vacation_user_mail(
     mailer: PasswordMailer,
     user: AdUser,
     *,
@@ -485,6 +564,8 @@ def _persist_message(
     db.session.add(notice)
     db.session.flush()
     for row in rows:
+        if row.match_status == "matched" and row.username:
+            _supersede_other_active_intents(row.username, row.vacation_start)
         db.session.add(
             VacationPasswordCheck(
                 notice_id=notice.id,
@@ -499,6 +580,8 @@ def _persist_message(
                 vacation_days=row.vacation_days,
                 expires_during_vacation=row.expires_during_vacation,
                 user_notified=row.user_notified,
+                intent_state="active",
+                vacation_end=None,
                 note=row.note,
                 created_at=utcnow(),
             )
@@ -506,22 +589,117 @@ def _persist_message(
     db.session.commit()
 
 
+def _supersede_other_active_intents(username: str, vacation_start: date) -> None:
+    rows = db.session.scalars(
+        select(VacationPasswordCheck).where(
+            VacationPasswordCheck.username == username,
+            VacationPasswordCheck.match_status == "matched",
+            VacationPasswordCheck.intent_state == "active",
+            VacationPasswordCheck.vacation_start != vacation_start,
+        )
+    ).all()
+    for row in rows:
+        row.intent_state = "superseded"
+
+
+def _rematch_unmatched_intents(
+    *,
+    settings,
+    max_pwd_age_days: int,
+    today: date,
+) -> None:
+    rows = db.session.scalars(
+        select(VacationPasswordCheck).where(
+            VacationPasswordCheck.match_status.in_(("not_found", "ambiguous")),
+            VacationPasswordCheck.intent_state == "active",
+        )
+    ).all()
+    if not rows:
+        return
+    for row in rows:
+        short_name = directory_short_name(row.employee_name)
+        found = find_users_by_short_name(short_name, settings, today=today) if short_name else []
+        if len(found) != 1:
+            continue
+        user = found[0]
+        expires, days_left, expiry = password_expires_during_vacation(
+            pwd_last_set=user.pwd_last_set,
+            password_never_expires=user.password_never_expires,
+            max_pwd_age_days=max_pwd_age_days,
+            vacation_start=row.vacation_start,
+            vacation_days=row.vacation_days,
+            vacation_end=row.vacation_end,
+        )
+        row.username = user.username
+        row.email = user.email
+        row.full_name = user.full_name
+        row.match_status = "matched"
+        row.days_left = days_left
+        row.expiry_date = expiry
+        row.expires_during_vacation = expires
+        row.note = ""
+        if user.password_never_expires:
+            row.note = "Пароль не истекает"
+        elif user.pwd_last_set is None:
+            row.note = "Смена пароля при следующем входе"
+    db.session.commit()
+
+
+def _send_active_intent_letters(
+    *,
+    settings,
+    vacation,
+    mailer: PasswordMailer,
+    today: date,
+    paused: bool,
+    send_emails: bool,
+) -> int:
+    from app.services.password_ad_client import fetch_password_users
+    from app.services.password_expiry_service import apply_password_letter_decision
+    from app.services.password_notification_tracker import NotificationTracker
+
+    intents = db.session.scalars(
+        select(VacationPasswordCheck).where(
+            VacationPasswordCheck.match_status == "matched",
+            VacationPasswordCheck.intent_state == "active",
+            VacationPasswordCheck.username != "",
+        )
+    ).all()
+    if not intents:
+        return 0
+    try:
+        users = fetch_password_users(settings, today=today)
+    except PasswordAdError:
+        logger.exception("Отпуска: не удалось прочитать AD для дневных писем")
+        return 0
+    by_login = {user.username.lower(): user for user in users}
+    tracker = NotificationTracker()
+    sent = 0
+    for intent in intents:
+        user = by_login.get(intent.username.lower())
+        if user is None:
+            continue
+        if apply_password_letter_decision(
+            user,
+            tracker,
+            intent=intent,
+            settings=settings,
+            lead_days=vacation.lead_days,
+            mailer=mailer,
+            today=today,
+            paused=paused,
+            send_emails=send_emails,
+        ):
+            intent.user_notified = True
+            sent += 1
+    if send_emails:
+        tracker.commit()
+    return sent
+
+
 def _already_processed(message_key: str) -> bool:
     existing = db.session.scalar(
         select(VacationNotice.id).where(VacationNotice.message_key == message_key).limit(1)
-    )
-    return existing is not None
-
-
-def _already_notified(username: str, vacation_start: date) -> bool:
-    existing = db.session.scalar(
-        select(VacationPasswordCheck.id)
-        .where(
-            VacationPasswordCheck.username == username,
-            VacationPasswordCheck.vacation_start == vacation_start,
-            VacationPasswordCheck.user_notified.is_(True),
-        )
-        .limit(1)
     )
     return existing is not None
 
